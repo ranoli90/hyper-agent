@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HyperAgent Settings</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <h1>HyperAgent Settings</h1>
+
+    <div class="form-group">
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" placeholder="sk-..." autocomplete="off" />
+      <small>Your OpenAI-compatible API key. Stored locally, never sent anywhere except the configured API endpoint.</small>
+    </div>
+
+    <div class="form-group">
+      <label for="base-url">API Base URL</label>
+      <input type="url" id="base-url" placeholder="https://api.openai.com/v1" />
+      <small>Base URL for the chat completions endpoint. Change for Azure, Anthropic proxy, local models, etc.</small>
+    </div>
+
+    <div class="form-group">
+      <label for="model-name">Model Name</label>
+      <input type="text" id="model-name" placeholder="gpt-4o" />
+      <small>Model identifier sent to the API. Vision-capable models (GPT-4o, Claude 3.5, Gemini 1.5) recommended.</small>
+    </div>
+
+    <div class="form-group">
+      <label for="max-steps">Max Agent Steps: <span id="max-steps-value">12</span></label>
+      <input type="range" id="max-steps" min="1" max="30" value="12" />
+      <small>Maximum number of observe-plan-act cycles per command (12 recommended for complex tasks).</small>
+    </div>
+
+    <div class="form-group toggle-group">
+      <label>
+        <input type="checkbox" id="enable-vision" checked />
+        Enable vision (screenshots on first step)
+      </label>
+      <small>Send a screenshot of the page to the model on step 1 for better layout understanding. Increases token usage.</small>
+    </div>
+
+    <div class="form-group toggle-group">
+      <label>
+        <input type="checkbox" id="auto-retry" checked />
+        Auto-retry failed actions
+      </label>
+      <small>If an action fails, automatically retry once after re-injecting the content script.</small>
+    </div>
+
+    <div class="form-group toggle-group">
+      <label>
+        <input type="checkbox" id="require-confirm" checked />
+        Require confirmation for destructive actions
+      </label>
+      <small>When enabled, actions like Submit, Buy, Post, Delete require explicit approval.</small>
+    </div>
+
+    <div class="form-group toggle-group">
+      <label>
+        <input type="checkbox" id="dry-run" />
+        Dry-run mode (log actions, don't execute)
+      </label>
+      <small>Actions are logged to the console but not executed. Useful for testing.</small>
+    </div>
+
+    <div class="form-group">
+      <label for="site-blacklist">Site Blacklist</label>
+      <textarea id="site-blacklist" rows="4" placeholder="example.com&#10;banking.com&#10;internal.company.net"></textarea>
+      <small>One domain per line. HyperAgent will not operate on these sites. Useful for banking, internal tools, or sensitive sites.</small>
+    </div>
+
+    <hr />
+    <h2>Site-Specific Overrides</h2>
+    <p class="section-desc">Configure custom settings for specific domains. These settings are automatically applied when visiting those sites.</p>
+
+    <div class="form-group">
+      <label for="site-config-domain">Domain</label>
+      <input type="text" id="site-config-domain" placeholder="example.com" />
+      <small>The domain to configure (e.g., amazon.com, github.com)</small>
+    </div>
+
+    <div class="form-group">
+      <label for="site-config-description">Description</label>
+      <input type="text" id="site-config-description" placeholder="E-commerce with infinite scroll" />
+      <small>Optional description for this configuration</small>
+    </div>
+
+    <div class="form-group">
+      <label for="site-config-max-retries">Max Retries: <span id="site-config-retries-value">2</span></label>
+      <input type="range" id="site-config-max-retries" min="1" max="10" value="2" />
+      <small>Number of retry attempts for failed actions on this site.</small>
+    </div>
+
+    <div class="form-group toggle-group">
+      <label>
+        <input type="checkbox" id="site-config-scroll" checked />
+        Scroll before locating elements
+      </label>
+      <small>Enable for sites with lazy-loaded content (infinite scroll, lazy images).</small>
+    </div>
+
+    <div class="form-group">
+      <label for="site-config-wait">Wait After Action (ms): <span id="site-config-wait-value">400</span></label>
+      <input type="range" id="site-config-wait" min="0" max="2000" step="100" value="400" />
+      <small>Additional wait time after performing actions on this site.</small>
+    </div>
+
+    <div class="form-group">
+      <label for="site-config-selectors">Custom Selectors</label>
+      <textarea id="site-config-selectors" rows="3" placeholder="[data-asin], .product-item, [data-testid=card]"></textarea>
+      <small>Comma-separated CSS selectors to include for this site (in addition to defaults).</small>
+    </div>
+
+    <div class="button-row">
+      <button id="btn-add-site-config" class="btn-secondary">Add Site Config</button>
+      <button id="btn-delete-site-config" class="btn-danger">Delete</button>
+    </div>
+
+    <div class="form-group">
+      <label>Current Site Configs</label>
+      <div id="site-configs-list" class="site-configs-list">
+        <p class="empty-message">No custom site configs. Default configs are applied automatically.</p>
+      </div>
+    </div>
+
+    <hr />
+      <button id="btn-save" class="btn-primary">Save Settings</button>
+      <span id="save-status" class="hidden">Saved!</span>
+    </div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
