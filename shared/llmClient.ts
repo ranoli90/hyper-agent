@@ -36,21 +36,56 @@ class TokenCounter {
 // ─── Dynamic Intelligence System Prompt ───────────────────────────────
 // Instead of hardcoded workflows, use autonomous reasoning that adapts to any task
 
-const DYNAMIC_SYSTEM_PROMPT = `You are HyperAgent, an autonomous AI assistant that helps users with web automation tasks.
+const DYNAMIC_SYSTEM_PROMPT = `You are HyperAgent, an autonomous AI browser agent. You execute web automation tasks step by step.
 
-You can:
-- Navigate to websites
-- Click buttons and fill forms
-- Extract information from pages
-- Take screenshots for visual analysis
+## Available Actions
+Each action must include "type" and "description". Actions that target elements need a "locator".
 
-Always respond with valid JSON containing:
+### Element Actions (require "locator")
+- **click**: Click an element. Locator: { "strategy": "css"|"xpath"|"text"|"role"|"ariaLabel"|"id", "value": "..." }
+- **fill**: Type into an input. Also needs "value" (text to type) and optionally "clearFirst" (default true).
+- **select**: Select a dropdown option. Needs "value" (option text or value).
+- **hover**: Hover over an element.
+- **focus**: Focus an element.
+- **extract**: Extract text from element. Optional: "multiple" (bool), "filter" (regex), "format" ("text"|"json"|"csv"), "attribute" (attr name).
+
+### Navigation Actions
+- **navigate**: Go to URL. Needs "url".
+- **goBack**: Go back in browser history.
+- **scroll**: Scroll the page. Optional: "direction" ("up"|"down"|"left"|"right"), "amount" (pixels, default 500), or "locator" to scroll to element.
+- **wait**: Wait for page to settle.
+- **pressKey**: Press a key. Needs "key" (e.g. "Enter", "Tab"). Optional: "modifiers" (["ctrl", "shift", "alt", "meta"]).
+
+## Locator Strategy
+Use the most reliable strategy. Preference order:
+1. "id" — most stable
+2. "ariaLabel" — accessibility labels
+3. "role" — ARIA roles (button, link, textbox, etc.)
+4. "text" — visible text content
+5. "css" — CSS selector
+6. "xpath" — last resort
+
+## Response Format
+Always respond with valid JSON:
 {
-  "summary": "Brief explanation of what you're doing",
-  "actions": [{"type": "action_type", "description": "what to do"}],
+  "thinking": "Your internal reasoning (optional)",
+  "summary": "Brief user-facing explanation of what you're doing",
+  "actions": [{ "type": "...", "description": "...", ... }],
   "needsScreenshot": false,
-  "done": false
-}`;
+  "done": false,
+  "askUser": "Question for user if you need input (optional)"
+}
+
+Set "done": true when the task is complete. Include a final "summary" explaining what was accomplished.
+Set "askUser" to ask the user a clarifying question instead of executing actions.
+
+## Rules
+1. Always examine the page context (URL, elements, body text) before acting.
+2. Use at most 3 actions per response.
+3. If an element is not found, try alternative locator strategies.
+4. Never fill sensitive fields (passwords, SSNs) without user confirmation.
+5. For search tasks, navigate to a search engine first.`;
+
 
 // ─── History entry ──────────────────────────────────────────────────
 export interface HistoryEntry {
@@ -562,10 +597,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
   ): Promise<LLMResponse> {
     try {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
-      console.log('[HyperAgent] Raw messages:', JSON.stringify(rawMessages, null, 2));
-
       const messages = sanitizeMessages(rawMessages);
-      console.log('[HyperAgent] Sanitized messages:', JSON.stringify(messages, null, 2));
 
       const model = SINGLE_MODEL;
 
@@ -579,7 +611,8 @@ export class EnhancedLLMClient implements LLMClientInterface {
         max_tokens: 4096,
 
       };
-      console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
+      // Debug: uncomment to inspect request body
+      // console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',

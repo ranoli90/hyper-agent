@@ -61,6 +61,11 @@ export const DEFAULTS = {
   VISION_FALLBACK_THRESHOLD: 10,  // If fewer than 10 semantic elements, use screenshot
   AUTO_VERIFY_ACTIONS: true,     // Capture screenshot after critical actions
   VISION_MIN_ELEMENTS: 5,        // Minimum elements to consider DOM complete
+  // Timing constants
+  CONFIRM_TIMEOUT_MS: 60000,     // 60 seconds timeout for user confirmation
+  ACTION_DELAY_MS: 350,          // Delay between sequential actions
+  BODY_TEXT_LIMIT: 15000,        // Max body text to extract
+  MAX_SEMANTIC_ELEMENTS: 250,    // Max semantic elements to index
 } as const;
 
 // ─── Settings type ──────────────────────────────────────────────────

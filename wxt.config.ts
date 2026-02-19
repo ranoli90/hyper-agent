@@ -4,7 +4,7 @@ export default defineConfig({
   manifest: {
     name: 'HyperAgent',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
-    version: '2.15.0',
+    version: '2.16.0',
     permissions: [
       'sidePanel',
       'tabs',
@@ -20,8 +20,7 @@ export default defineConfig({
       default_title: 'Open HyperAgent',
     },
     side_panel: {
-      default_path: 'entrypoints/sidepanel/index.html',
+      default_path: 'sidepanel.html',
     },
-
   },
 });

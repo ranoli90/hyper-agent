@@ -1,1 +1,1 @@
-export const schedulerEngine = { schedule: () => {}, initialize: async () => {} };
+export const schedulerEngine = { schedule: () => { }, initialize: async () => { }, handleAlarm: async (_alarm: any) => { } };

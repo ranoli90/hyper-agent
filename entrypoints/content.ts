@@ -109,7 +109,7 @@ export default defineContentScript({
       const formCount = document.querySelectorAll('form').length;
 
       let semanticElements: SemanticElement[] = [];
-      
+
       try {
         const selectors = [
           'a[href]', 'button', 'input', 'textarea', 'select', 'label',
@@ -130,7 +130,7 @@ export default defineContentScript({
 
         const seen = new Set<HTMLElement>();
         const allElements: HTMLElement[] = [];
-        
+
         try {
           document.querySelectorAll(selectors.join(',')).forEach((el) => {
             const htmlEl = el as HTMLElement;
@@ -1075,8 +1075,10 @@ export default defineContentScript({
     }
 
     // ─── Message listener ─────────────────────────────────────────
+    // IMPORTANT: Chrome requires returning true synchronously to keep the
+    // message port open for async sendResponse. An async callback won't work.
     chrome.runtime.onMessage.addListener(
-      async (message: ExtensionMessage, _sender, sendResponse) => {
+      (message: any, _sender: any, sendResponse: (response?: any) => void): boolean => {
         // Basic validation and simple rate limiting per type
         if (!validateInboundMessage(message)) {
           return false;
@@ -1084,52 +1086,12 @@ export default defineContentScript({
         if (!canAccept(message.type)) {
           return false;
         }
+
+        // Synchronous cases
         switch (message.type) {
           case 'getContext': {
             const context = getPageContext();
             sendResponse({ type: 'getContextResponse', context });
-            return true;
-          }
-          case 'performAction':
-          case 'executeActionOnPage': {
-            const result = await performAction(message.action);
-            // Log action outcome to memory (non-blocking)
-            saveActionOutcome(
-              window.location.href,
-              message.action,
-              result.success,
-              result.errorType
-            ).catch(() => { }); // Ignore errors
-            sendResponse({ type: 'performActionResponse', ...result });
-            return true;
-          }
-          case 'captureScreenshot': {
-            try {
-              const resp = await chrome.runtime.sendMessage({ type: 'captureScreenshot' } as any);
-              const dataUrl = resp?.dataUrl || '';
-              sendResponse({ type: 'captureScreenshotResponse', dataUrl });
-            } catch (err: any) {
-              sendResponse({ type: 'captureScreenshotResponse', dataUrl: '' });
-            }
-            return true;
-          }
-          case 'getSiteConfig': {
-            // Ensure site config is loaded
-            await loadSiteConfig();
-            sendResponse({
-              type: 'getSiteConfigResponse',
-              config: currentSiteConfig,
-              hostname: window.location.hostname
-            });
-            return true;
-          }
-          case 'startModerator': {
-            if (window.location.hostname.includes('tiktok.com')) {
-              const started = await tiktokModerator.start();
-              sendResponse({ success: started });
-            } else {
-              sendResponse({ success: false, error: 'Not on TikTok' });
-            }
             return true;
           }
           case 'stopModerator': {
@@ -1143,7 +1105,64 @@ export default defineContentScript({
             return true;
           }
         }
-        return false;
+
+        // Async cases — handle via .then() to keep port open
+        const handleAsync = async (): Promise<any> => {
+          switch (message.type) {
+            case 'performAction':
+            case 'executeActionOnPage': {
+              const result = await performAction(message.action);
+              // Log action outcome to memory (non-blocking)
+              saveActionOutcome(
+                window.location.href,
+                message.action,
+                result.success,
+                result.errorType
+              ).catch(() => { }); // Ignore errors
+              return { type: 'performActionResponse', ...result };
+            }
+            case 'captureScreenshot': {
+              try {
+                const resp = await chrome.runtime.sendMessage({ type: 'captureScreenshot' } as any);
+                const dataUrl = resp?.dataUrl || '';
+                return { type: 'captureScreenshotResponse', dataUrl };
+              } catch (_err: any) {
+                return { type: 'captureScreenshotResponse', dataUrl: '' };
+              }
+            }
+            case 'getSiteConfig': {
+              await loadSiteConfig();
+              return {
+                type: 'getSiteConfigResponse',
+                config: currentSiteConfig,
+                hostname: window.location.hostname
+              };
+            }
+            case 'startModerator': {
+              if (window.location.hostname.includes('tiktok.com')) {
+                const started = await tiktokModerator.start();
+                return { success: started };
+              } else {
+                return { success: false, error: 'Not on TikTok' };
+              }
+            }
+            default:
+              return null;
+          }
+        };
+
+        handleAsync()
+          .then(result => {
+            if (result !== null) {
+              sendResponse(result);
+            }
+          })
+          .catch(err => {
+            console.error('[HyperAgent] Message handler error:', err);
+            sendResponse({ success: false, error: err?.message || 'Unknown error' });
+          });
+
+        return true; // Keep message port open for async response
       }
     );
 
