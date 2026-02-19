@@ -98,6 +98,28 @@ export class AutonomousIntelligence {
             estimatedDuration: 0
         };
     }
+
+    /**
+     * Ask the LLM for reasoning on a specific prompt.
+     * Used by other modules like TikTokModerator for semantic analysis.
+     */
+    async askReasoning(prompt: string): Promise<string> {
+        if (!this.llmClient) {
+            console.warn('[AutonomousIntelligence] No LLM client set for askReasoning.');
+            return '';
+        }
+
+        try {
+            return await this.llmClient.callCompletion({
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.1,
+                maxTokens: 500
+            });
+        } catch (error) {
+            console.error('[AutonomousIntelligence] askReasoning failed:', error);
+            return '';
+        }
+    }
 }
 
 export const autonomousIntelligence = new AutonomousIntelligence();

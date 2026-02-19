@@ -79,6 +79,13 @@ export interface ExecutionResult {
     error?: string;
 }
 
+export interface AutonomousResult {
+    success: boolean;
+    results: any[];
+    learnings: string[];
+    error?: string;
+}
+
 // ─── Enums & Types ─────────────────────────────────────────────────────
 export enum RiskLevel {
     LOW = 'low',
