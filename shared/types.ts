@@ -3,7 +3,7 @@ export interface ContextItem {
   type: 'action' | 'result' | 'error' | 'thought' | 'system';
   content: string;
   timestamp: number;
-  importance: number;  // 0-10
+  importance: number; // 0-10
   tokens: number;
 }
 
@@ -126,7 +126,7 @@ export interface PageContext {
   formCount: number;
   semanticElements: SemanticElement[];
   screenshotBase64?: string;
-  needsScreenshot?: boolean;  // Vision-first fallback flag
+  needsScreenshot?: boolean; // Vision-first fallback flag
   timestamp: number;
   scrollPosition: { x: number; y: number };
   viewportSize: { width: number; height: number };
@@ -221,8 +221,8 @@ export interface ExtractAction {
   type: 'extract';
   locator: Locator;
   attribute?: string;
-  filter?: string;      // Filter pattern (regex)
-  multiple?: boolean;   // Extract multiple items
+  filter?: string; // Filter pattern (regex)
+  multiple?: boolean; // Extract multiple items
   format?: 'text' | 'json' | 'csv';
   description?: string;
   destructive?: boolean;
@@ -596,8 +596,8 @@ export interface WorkflowStep {
   id: string;
   action: Action;
   condition?: Condition;
-  onSuccess?: string;      // Next step ID
-  onError?: string;       // Next step ID on error
+  onSuccess?: string; // Next step ID
+  onError?: string; // Next step ID on error
 }
 
 export interface Condition {
@@ -659,7 +659,10 @@ export type ExtensionMessage =
   | MsgStopModerator
   | MsgUpdateModerationRules
   | MsgModerationLog
-  | MsgModeratorStats;
+  | MsgModeratorStats
+  // Usage & Billing
+  | MsgGetUsage
+  | MsgGetUsageResponse;
 
 export interface MsgStartModerator {
   type: 'startModerator';
@@ -690,5 +693,23 @@ export interface MsgModeratorStats {
   stats: {
     checked: number;
     actions: number;
+  };
+}
+
+export interface MsgGetUsage {
+  type: 'getUsage';
+}
+
+export interface MsgGetUsageResponse {
+  type: 'getUsageResponse';
+  usage: {
+    actions: number;
+    sessions: number;
+    sessionTime: number;
+  };
+  limits: {
+    actions: number;
+    sessions: number;
+    tier: string;
   };
 }

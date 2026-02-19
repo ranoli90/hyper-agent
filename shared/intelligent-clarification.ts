@@ -1,5 +1,26 @@
 import type { PageContext } from './types';
 
+export enum TaskType {
+  CAR_SALES_POSTING = 'car_sales_posting',
+  JOB_APPLICATION = 'job_application',
+  REAL_ESTATE_LISTING = 'real_estate_listing',
+  PRODUCT_LISTING = 'product_listing',
+  SERVICE_OFFERING = 'service_offering',
+  EVENT_PLANNING = 'event_planning',
+  TRAVEL_BOOKING = 'travel_booking',
+  FINANCIAL_TASK = 'financial_task',
+  HEALTHCARE_TASK = 'healthcare_task',
+  LEGAL_TASK = 'legal_task',
+}
+
+interface ClarificationMetrics {
+  totalSessions: number;
+  successfulClarifications: number;
+  failedClarifications: number;
+  averageClarificationRounds: number;
+  commonMissingFields: Map<string, number>;
+}
+
 export interface ClarificationResult {
   type: 'clarification_needed' | 'workflow_executed' | 'error';
   question?: string;
@@ -46,7 +67,7 @@ export class IntelligentClarificationEngine {
     successfulClarifications: 0,
     failedClarifications: 0,
     averageClarificationRounds: 0,
-    commonMissingFields: new Map()
+    commonMissingFields: new Map(),
   };
 
   constructor() {
@@ -64,22 +85,34 @@ export class IntelligentClarificationEngine {
       if (!sessionId || typeof sessionId !== 'string') {
         throw new Error('Invalid sessionId: must be a non-empty string');
       }
-      if (!initialCommand || typeof initialCommand !== 'string' || initialCommand.trim().length === 0) {
+      if (
+        !initialCommand ||
+        typeof initialCommand !== 'string' ||
+        initialCommand.trim().length === 0
+      ) {
         throw new Error('Invalid command: must be a non-empty string');
       }
 
       // Check session limits
       if (this.clarificationContexts.size >= this.MAX_CONTEXTS) {
-        throw new Error('Maximum clarification sessions reached. Please complete existing sessions first.');
+        throw new Error(
+          'Maximum clarification sessions reached. Please complete existing sessions first.'
+        );
       }
 
       this.metrics.totalSessions++;
 
       // Create clarification context
-      const clarificationContext = await this.initializeClarificationContext(initialCommand, context);
+      const clarificationContext = await this.initializeClarificationContext(
+        initialCommand,
+        context
+      );
 
       // Check for timeout
-      if (Date.now() - clarificationContext.conversationHistory[0]?.timestamp > this.SESSION_TIMEOUT) {
+      if (
+        Date.now() - clarificationContext.conversationHistory[0]?.timestamp >
+        this.SESSION_TIMEOUT
+      ) {
         throw new Error('Clarification session has expired. Please start a new request.');
       }
 
@@ -99,7 +132,6 @@ export class IntelligentClarificationEngine {
 
       // Start clarification process
       return await this.beginClarificationProcess(sessionId, clarificationContext);
-
     } catch (error) {
       console.error('[Clarification] Error in clarifyAndExecute:', error);
       this.metrics.failedClarifications++;
@@ -126,15 +158,17 @@ export class IntelligentClarificationEngine {
         requiredFields,
         optionalFields,
         currentQuestionIndex: 0,
-        conversationHistory: [{
-          question: 'Initial command received',
-          userResponse: command,
-          timestamp: Date.now(),
-          confidence: 0.8,
-          extractedInfo: availableInfo
-        }],
+        conversationHistory: [
+          {
+            question: 'Initial command received',
+            userResponse: command,
+            timestamp: Date.now(),
+            confidence: 0.8,
+            extractedInfo: availableInfo,
+          },
+        ],
         confidence: 0.5,
-        priority: this.determineTaskPriority(taskType)
+        priority: this.determineTaskPriority(taskType),
       };
     } catch (error) {
       console.error('[Clarification] Error initializing context:', error);
@@ -148,7 +182,7 @@ export class IntelligentClarificationEngine {
         currentQuestionIndex: 0,
         conversationHistory: [],
         confidence: 0.1,
-        priority: 'low'
+        priority: 'low',
       };
     }
   }
@@ -160,46 +194,61 @@ export class IntelligentClarificationEngine {
       // Advanced pattern recognition for task classification
       const taskPatterns = {
         [TaskType.CAR_SALES_POSTING]: [
-          /sell.*car/i, /car.*sale/i, /post.*car.*ad/i, /list.*car/i,
+          /sell.*car/i,
+          /car.*sale/i,
+          /post.*car.*ad/i,
+          /list.*car/i,
           /ford|toyota|honda|chevrolet|bmw|mercedes|audi|nissan|hyundai|kia|volkswagen/i,
-          /mileage|condition|price|year.*make.*model/i
+          /mileage|condition|price|year.*make.*model/i,
         ],
         [TaskType.JOB_APPLICATION]: [
-          /apply.*job/i, /job.*application/i, /submit.*resume/i,
-          /career|position|employment|hiring/i
+          /apply.*job/i,
+          /job.*application/i,
+          /submit.*resume/i,
+          /career|position|employment|hiring/i,
         ],
         [TaskType.REAL_ESTATE_LISTING]: [
-          /sell.*house/i, /property.*listing/i, /real.*estate/i,
-          /apartment|condo|home|house|rent|lease/i
+          /sell.*house/i,
+          /property.*listing/i,
+          /real.*estate/i,
+          /apartment|condo|home|house|rent|lease/i,
         ],
         [TaskType.PRODUCT_LISTING]: [
-          /sell.*product/i, /list.*item/i, /post.*listing/i,
-          /ebay|amazon|marketplace/i
+          /sell.*product/i,
+          /list.*item/i,
+          /post.*listing/i,
+          /ebay|amazon|marketplace/i,
         ],
         [TaskType.SERVICE_OFFERING]: [
-          /offer.*service/i, /provide.*service/i, /service.*business/i,
-          /consulting|freelance|contract/i
+          /offer.*service/i,
+          /provide.*service/i,
+          /service.*business/i,
+          /consulting|freelance|contract/i,
         ],
         [TaskType.EVENT_PLANNING]: [
-          /plan.*event/i, /organize.*event/i, /event.*planning/i,
-          /wedding|party|conference|meeting/i
+          /plan.*event/i,
+          /organize.*event/i,
+          /event.*planning/i,
+          /wedding|party|conference|meeting/i,
         ],
         [TaskType.TRAVEL_BOOKING]: [
-          /book.*trip/i, /plan.*travel/i, /travel.*booking/i,
-          /flight|hotel|vacation|trip/i
+          /book.*trip/i,
+          /plan.*travel/i,
+          /travel.*booking/i,
+          /flight|hotel|vacation|trip/i,
         ],
         [TaskType.FINANCIAL_TASK]: [
           /financial|banking|investment|budget|tax/i,
-          /money|account|loan|credit/i
+          /money|account|loan|credit/i,
         ],
         [TaskType.HEALTHCARE_TASK]: [
           /medical|health|doctor|appointment|prescription/i,
-          /insurance|clinic|hospital/i
+          /insurance|clinic|hospital/i,
         ],
         [TaskType.LEGAL_TASK]: [
           /legal|lawyer|contract|document|agreement/i,
-          /court|lawsuit|patent|trademark/i
-        ]
+          /court|lawsuit|patent|trademark/i,
+        ],
       };
 
       // Score each task type
@@ -230,7 +279,6 @@ export class IntelligentClarificationEngine {
       }
 
       return bestMatch;
-
     } catch (error) {
       console.error('[Clarification] Error classifying task type:', error);
       return TaskType.PRODUCT_LISTING; // Safe default
@@ -242,148 +290,117 @@ export class IntelligentClarificationEngine {
     // This is a simplified version - in production would use actual LLM call
     const lowerCommand = command.toLowerCase();
 
-    if (lowerCommand.includes('car') || lowerCommand.includes('vehicle') || lowerCommand.includes('auto')) {
+    if (
+      lowerCommand.includes('car') ||
+      lowerCommand.includes('vehicle') ||
+      lowerCommand.includes('auto')
+    ) {
       return TaskType.CAR_SALES_POSTING;
     }
-    if (lowerCommand.includes('job') || lowerCommand.includes('resume') || lowerCommand.includes('apply')) {
+    if (
+      lowerCommand.includes('job') ||
+      lowerCommand.includes('resume') ||
+      lowerCommand.includes('apply')
+    ) {
       return TaskType.JOB_APPLICATION;
     }
-    if (lowerCommand.includes('house') || lowerCommand.includes('property') || lowerCommand.includes('real estate')) {
+    if (
+      lowerCommand.includes('house') ||
+      lowerCommand.includes('property') ||
+      lowerCommand.includes('real estate')
+    ) {
       return TaskType.REAL_ESTATE_LISTING;
     }
 
     return TaskType.PRODUCT_LISTING; // Ultimate fallback
   }
-      ]
-    };
-
-    for (const [taskType, patterns] of Object.entries(taskPatterns)) {
-      if (patterns.some(pattern => pattern.test(lowerCommand))) {
-        return taskType as TaskType;
-      }
-    }
-
-    // Default classification using AI reasoning
-    return await this.intelligentTaskClassification(command);
-  }
-
-  private async intelligentTaskClassification(command: string): Promise<TaskType> {
-    // Use LLM to classify ambiguous tasks
-    const classificationPrompt = `Analyze this user command and classify it into the most appropriate task category:
-
-Command: "${command}"
-
-Categories:
-- CAR_SALES_POSTING: Selling vehicles, posting car ads
-- JOB_APPLICATION: Applying for jobs, submitting resumes
-- REAL_ESTATE_LISTING: Selling/renting property
-- PRODUCT_LISTING: Selling products online
-- SERVICE_OFFERING: Offering services for hire
-- EVENT_PLANNING: Organizing events
-- TRAVEL_BOOKING: Booking travel arrangements
-- FINANCIAL_TASK: Banking, investing, financial planning
-- HEALTHCARE_TASK: Medical appointments, health planning
-- LEGAL_TASK: Legal documents, contracts
-
-Return only the category name, nothing else.`;
-
-    try {
-      const response = await this.callClassificationLLM(classificationPrompt);
-      return response.trim() as TaskType;
-    } catch {
-      return TaskType.PRODUCT_LISTING; // Safe default
-    }
-  }
-
-  private getRequiredFieldsForTask(taskType: TaskType): string[] {
-    const fieldRequirements: Record<TaskType, string[]> = {
-      [TaskType.CAR_SALES_POSTING]: [
-        'year', 'make', 'model', 'mileage', 'price', 'condition',
-        'location', 'contact_info', 'photos'
-      ],
-      [TaskType.JOB_APPLICATION]: [
-        'position_title', 'company_name', 'resume', 'cover_letter',
-        'contact_info', 'availability'
-      ],
-      [TaskType.REAL_ESTATE_LISTING]: [
-        'property_type', 'location', 'price', 'square_footage',
-        'bedrooms', 'bathrooms', 'description', 'photos'
-      ],
-      [TaskType.PRODUCT_LISTING]: [
-        'product_name', 'description', 'price', 'condition',
-        'category', 'photos', 'shipping_info'
-      ],
-      [TaskType.SERVICE_OFFERING]: [
-        'service_name', 'description', 'pricing', 'availability',
-        'contact_info', 'portfolio'
-      ],
-      [TaskType.EVENT_PLANNING]: [
-        'event_type', 'date', 'location', 'expected_attendees',
-        'budget', 'requirements'
-      ],
-      [TaskType.TRAVEL_BOOKING]: [
-        'destination', 'dates', 'travelers', 'budget',
-        'preferences', 'contact_info'
-      ],
-      [TaskType.FINANCIAL_TASK]: [
-        'task_type', 'amount', 'timeline', 'requirements',
-        'contact_info', 'documents'
-      ],
-      [TaskType.HEALTHCARE_TASK]: [
-        'appointment_type', 'preferred_date', 'symptoms',
-        'insurance_info', 'contact_info'
-      ],
-      [TaskType.LEGAL_TASK]: [
-        'legal_matter', 'urgency', 'requirements',
-        'contact_info', 'documents'
-      ]
-    };
-
-    return fieldRequirements[taskType] || ['description', 'contact_info'];
-  }
 
   private getOptionalFieldsForTask(taskType: TaskType): string[] {
     const optionalFields: Record<TaskType, string[]> = {
       [TaskType.CAR_SALES_POSTING]: [
-        'vin', 'features', 'warranty', 'trade_in_value',
-        'financing_available', 'test_drive_info', 'warranty_info'
+        'vin',
+        'features',
+        'warranty',
+        'trade_in_value',
+        'financing_available',
+        'test_drive_info',
+        'warranty_info',
       ],
       [TaskType.JOB_APPLICATION]: [
-        'salary_expectations', 'references', 'portfolio',
-        'certifications', 'availability_date', 'relocation'
+        'salary_expectations',
+        'references',
+        'portfolio',
+        'certifications',
+        'availability_date',
+        'relocation',
       ],
       [TaskType.REAL_ESTATE_LISTING]: [
-        'lot_size', 'year_built', 'parking', 'utilities',
-        'pet_policy', 'application_fee', 'move_in_date'
+        'lot_size',
+        'year_built',
+        'parking',
+        'utilities',
+        'pet_policy',
+        'application_fee',
+        'move_in_date',
       ],
       [TaskType.PRODUCT_LISTING]: [
-        'brand', 'warranty', 'return_policy', 'specifications',
-        'compatibility', 'bundle_options', 'international_shipping'
+        'brand',
+        'warranty',
+        'return_policy',
+        'specifications',
+        'compatibility',
+        'bundle_options',
+        'international_shipping',
       ],
       [TaskType.SERVICE_OFFERING]: [
-        'experience_years', 'certifications', 'references',
-        'service_area', 'availability_hours', 'pricing_model'
+        'experience_years',
+        'certifications',
+        'references',
+        'service_area',
+        'availability_hours',
+        'pricing_model',
       ],
       [TaskType.EVENT_PLANNING]: [
-        'theme', 'catering', 'entertainment', 'decorations',
-        'invitations', 'parking', 'accommodations'
+        'theme',
+        'catering',
+        'entertainment',
+        'decorations',
+        'invitations',
+        'parking',
+        'accommodations',
       ],
       [TaskType.TRAVEL_BOOKING]: [
-        'accommodation_type', 'transportation', 'activities',
-        'dietary_restrictions', 'accessibility_needs', 'travel_insurance'
+        'accommodation_type',
+        'transportation',
+        'activities',
+        'dietary_restrictions',
+        'accessibility_needs',
+        'travel_insurance',
       ],
       [TaskType.FINANCIAL_TASK]: [
-        'risk_tolerance', 'investment_horizon', 'tax_situation',
-        'existing_accounts', 'goals', 'advisor_preferences'
+        'risk_tolerance',
+        'investment_horizon',
+        'tax_situation',
+        'existing_accounts',
+        'goals',
+        'advisor_preferences',
       ],
       [TaskType.HEALTHCARE_TASK]: [
-        'medical_history', 'current_medications', 'allergies',
-        'preferred_doctor', 'follow_up', 'test_results'
+        'medical_history',
+        'current_medications',
+        'allergies',
+        'preferred_doctor',
+        'follow_up',
+        'test_results',
       ],
       [TaskType.LEGAL_TASK]: [
-        'preferred_lawyer', 'budget', 'court_location',
-        'related_documents', 'witnesses', 'timeline'
-      ]
+        'preferred_lawyer',
+        'budget',
+        'court_location',
+        'related_documents',
+        'witnesses',
+        'timeline',
+      ],
     };
 
     return optionalFields[taskType] || [];
@@ -399,10 +416,12 @@ Return only the category name, nothing else.`;
     // Extract information from command using pattern matching and NLP
     const extractors: Record<string, (text: string) => string | undefined> = {
       year: (text: string) => text.match(/(?:19|20)\d{2}/)?.[0],
-      mileage: (text: string) => text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
+      mileage: (text: string) =>
+        text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
       price: (text: string) => text.match(/\$[\d,]+(?:\.\d{2})?/)?.[0],
-      phone: (text: string) => text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
-      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]
+      phone: (text: string) =>
+        text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
+      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
     };
 
     // Apply extractors
@@ -431,7 +450,8 @@ Return only the category name, nothing else.`;
     const carPatterns: Record<string, RegExp> = {
       year: /(19|20)\d{2}/,
       make: /\b(ford|toyota|honda|chevrolet|bmw|mercedes|audi|nissan|hyundai|kia|volkswagen|subaru|mazda|lexus|acura|infiniti|tesla|volvo|jaguar|land rover|porsche|ferrari|lamborghini|bentley|rolls royce|aston martin|maserati|alfa romeo|fiat|chrysler|dodge|jeep|ram|mitsubishi|buick|cadillac|gmc|lincoln|mini|smart|suzuki|scion|genesis|polestar|rivian|lordstown|byton)\b/i,
-      model: /\b(focus|camry|civic|accord|silverado|malibu|cruze|sentra|altima|maxima|elantra|sonata|tucson|santa fe|sorento|jetta|passat|tiguan|golf|outback|forester|cx-5|rx|mdx|q50|model 3|model y|xc90|f-pace|range rover|911|mustang|crown vic|explorer|escape|f-150|silverado|corvette|camaro|challenger|charger|wrangler|grand cherokee|cherokee|compass|renegade|outback|forester|tribeca|impreza|legacy|wrx|sti|brz|gt86|miata|rx7|rx8|nsx|tl|ts|rsx|cl|rl|legend|integra|prelude|del sol|crx|s2000|fcx|insight|cr-z|fit|jazz|city|logo|mobilio|spike|simplex|zest|ayla|redi-go|tiago|tigor|nexon|venue|creta|seltos|carens|stonic|picanto|rio|forte|optima|stinger|cadenza|k900|sportage|sorento|telluride|niro|soul|borrego|rio5|ray|stinger5|niro5|sportage5|sorento5|telluride5|soul5|forte5|optima5|cadenza5|k9005|sportage5|sorento5|telluride5|soul5|forte5|optima5|cadenza5|k9005)\b/i
+      model:
+        /\b(focus|camry|civic|accord|silverado|malibu|cruze|sentra|altima|maxima|elantra|sonata|tucson|santa fe|sorento|jetta|passat|tiguan|golf|outback|forester|cx-5|rx|mdx|q50|model 3|model y|xc90|f-pace|range rover|911|mustang|crown vic|explorer|escape|f-150|silverado|corvette|camaro|challenger|charger|wrangler|grand cherokee|cherokee|compass|renegade|outback|forester|tribeca|impreza|legacy|wrx|sti|brz|gt86|miata|rx7|rx8|nsx|tl|ts|rsx|cl|rl|legend|integra|prelude|del sol|crx|s2000|fcx|insight|cr-z|fit|jazz|city|logo|mobilio|spike|simplex|zest|ayla|redi-go|tiago|tigor|nexon|venue|creta|seltos|carens|stonic|picanto|rio|forte|optima|stinger|cadenza|k900|sportage|sorento|telluride|niro|soul|borrego|rio5|ray|stinger5|niro5|sportage5|sorento5|telluride5|soul5|forte5|optima5|cadenza5|k9005|sportage5|sorento5|telluride5|soul5|forte5|optima5|cadenza5|k9005)\b/i,
     };
 
     for (const [field, pattern] of Object.entries(carPatterns)) {
@@ -451,7 +471,7 @@ Return only the category name, nothing else.`;
       [TaskType.LEGAL_TASK]: 'high',
       [TaskType.CAR_SALES_POSTING]: 'medium',
       [TaskType.JOB_APPLICATION]: 'medium',
-      [TaskType.REAL_ESTATE_LISTING]: 'medium'
+      [TaskType.REAL_ESTATE_LISTING]: 'medium',
     };
 
     return priorities[taskType] || 'low';
@@ -465,7 +485,7 @@ Return only the category name, nothing else.`;
     const missingRequired = requiredFields.filter(field => !availableFields.includes(field));
 
     if (missingRequired.length > 0) {
-      context.confidence = Math.max(0.1, 1 - (missingRequired.length / requiredFields.length));
+      context.confidence = Math.max(0.1, 1 - missingRequired.length / requiredFields.length);
       return false;
     }
 
@@ -474,7 +494,10 @@ Return only the category name, nothing else.`;
     return true;
   }
 
-  private async beginClarificationProcess(sessionId: string, context: ClarificationContext): Promise<any> {
+  private async beginClarificationProcess(
+    sessionId: string,
+    context: ClarificationContext
+  ): Promise<any> {
     const firstQuestion = await this.generateNextQuestion(context);
 
     return {
@@ -483,7 +506,7 @@ Return only the category name, nothing else.`;
       taskType: context.taskType,
       missingFields: this.getMissingFields(context),
       sessionId: sessionId,
-      priority: context.priority
+      priority: context.priority,
     };
   }
 
@@ -496,37 +519,39 @@ Return only the category name, nothing else.`;
     const missingFields = this.getMissingFields(context);
 
     if (missingFields.length === 0) {
-      return "I have all the information I need. Should I proceed with the task?";
+      return 'I have all the information I need. Should I proceed with the task?';
     }
 
     const nextField = missingFields[context.currentQuestionIndex % missingFields.length];
 
     // Generate contextual, smart questions
     const questionTemplates = {
-      year: "What year was the vehicle manufactured? (e.g., 2020, 2019)",
+      year: 'What year was the vehicle manufactured? (e.g., 2020, 2019)',
       make: "What's the make/brand of the vehicle? (e.g., Ford, Toyota, Honda)",
       model: "What's the specific model? (e.g., Focus, Camry, Civic)",
       mileage: "What's the current mileage? (e.g., 45,000 miles)",
       price: "What's the asking price? (e.g., $15,000)",
       condition: "What's the overall condition? (Excellent, Good, Fair, Poor)",
-      location: "Where is the vehicle located? (City, State)",
+      location: 'Where is the vehicle located? (City, State)',
       contact_info: "What's your preferred contact method? (Phone, Email, or both)",
-      photos: "Do you have photos of the vehicle? If so, how many and what angles?",
-      position_title: "What position are you applying for?",
-      company_name: "Which company is the job with?",
-      resume: "Do you have your resume ready to submit?",
-      cover_letter: "Do you have a cover letter prepared?",
-      property_type: "What type of property is it? (House, Apartment, Condo, etc.)",
+      photos: 'Do you have photos of the vehicle? If so, how many and what angles?',
+      position_title: 'What position are you applying for?',
+      company_name: 'Which company is the job with?',
+      resume: 'Do you have your resume ready to submit?',
+      cover_letter: 'Do you have a cover letter prepared?',
+      property_type: 'What type of property is it? (House, Apartment, Condo, etc.)',
       square_footage: "What's the square footage?",
-      bedrooms: "How many bedrooms?",
-      bathrooms: "How many bathrooms?",
+      bedrooms: 'How many bedrooms?',
+      bathrooms: 'How many bathrooms?',
       product_name: "What's the product name?",
-      description: "Can you provide a detailed description?",
-      category: "What category should this be listed under?"
+      description: 'Can you provide a detailed description?',
+      category: 'What category should this be listed under?',
     };
 
-    return questionTemplates[nextField as keyof typeof questionTemplates] ||
-           `Please provide information about: ${nextField.replace(/_/g, ' ')}`;
+    return (
+      questionTemplates[nextField as keyof typeof questionTemplates] ||
+      `Please provide information about: ${nextField.replace(/_/g, ' ')}`
+    );
   }
 
   async processClarificationResponse(sessionId: string, response: string): Promise<any> {
@@ -547,7 +572,7 @@ Return only the category name, nothing else.`;
       userResponse: response,
       timestamp: Date.now(),
       confidence: 0.8,
-      extractedInfo
+      extractedInfo,
     };
     context.conversationHistory.push(exchange);
 
@@ -569,21 +594,26 @@ Return only the category name, nothing else.`;
       taskType: context.taskType,
       missingFields: this.getMissingFields(context),
       sessionId: sessionId,
-      progress: `${context.requiredFields.length - this.getMissingFields(context).length}/${context.requiredFields.length} fields collected`
+      progress: `${context.requiredFields.length - this.getMissingFields(context).length}/${context.requiredFields.length} fields collected`,
     };
   }
 
-  private async extractInformationFromResponse(response: string, context: ClarificationContext): Promise<Map<string, any>> {
+  private async extractInformationFromResponse(
+    response: string,
+    context: ClarificationContext
+  ): Promise<Map<string, any>> {
     const extractedInfo = new Map<string, any>();
     const lowerResponse = response.toLowerCase();
 
     // Apply the same extractors as before
     const extractors = {
       year: (text: string) => text.match(/(?:19|20)\d{2}/)?.[0],
-      mileage: (text: string) => text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
+      mileage: (text: string) =>
+        text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
       price: (text: string) => text.match(/\$[\d,]+(?:\.\d{2})?/)?.[0],
-      phone: (text: string) => text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
-      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0]
+      phone: (text: string) =>
+        text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
+      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
     };
 
     for (const [field, extractor] of Object.entries(extractors)) {
@@ -603,7 +633,8 @@ Return only the category name, nothing else.`;
 
     // Direct assignment for simple responses
     const currentMissingFields = this.getMissingFields(context);
-    const currentField = currentMissingFields[context.currentQuestionIndex % currentMissingFields.length];
+    const currentField =
+      currentMissingFields[context.currentQuestionIndex % currentMissingFields.length];
 
     if (currentField) {
       // For simple fields, use the entire response if it doesn't match extractors
@@ -643,7 +674,7 @@ Return only the category name, nothing else.`;
       location: info.get('location'),
       description: this.generateCarDescription(info),
       contactInfo: info.get('contact_info'),
-      photos: info.get('photos') || []
+      photos: info.get('photos') || [],
     };
 
     // Execute posting workflow
@@ -657,8 +688,8 @@ Return only the category name, nothing else.`;
         'Monitor responses for 7 days',
         'Follow up with interested buyers',
         'Update listing if needed',
-        'Consider professional photos if response rate is low'
-      ]
+        'Consider professional photos if response rate is low',
+      ],
     };
   }
 
@@ -677,7 +708,7 @@ Return only the category name, nothing else.`;
     return {
       type: 'workflow_executed',
       taskType: context.taskType,
-      status: 'application_submitted'
+      status: 'application_submitted',
     };
   }
 
@@ -686,7 +717,7 @@ Return only the category name, nothing else.`;
     return {
       type: 'workflow_executed',
       taskType: context.taskType,
-      status: 'listing_created'
+      status: 'listing_created',
     };
   }
 
@@ -695,7 +726,7 @@ Return only the category name, nothing else.`;
     return {
       type: 'workflow_executed',
       taskType: context.taskType,
-      status: 'completed'
+      status: 'completed',
     };
   }
 
@@ -744,26 +775,23 @@ export class PersistentOperationEngine {
         type: 'follow_up',
         description: 'Follow up with car listing inquiries',
         priority: 'high' as const,
-        action: 'check_responses'
+        action: 'check_responses',
       },
       {
         type: 'optimization',
         description: 'Optimize listing for better visibility',
         priority: 'medium' as const,
-        action: 'improve_listing'
+        action: 'improve_listing',
       },
       {
         type: 'expansion',
         description: 'Post to additional platforms',
         priority: 'medium' as const,
-        action: 'expand_reach'
-      }
+        action: 'expand_reach',
+      },
     ];
 
     this.suggestionQueue.push(...suggestions);
-  }
-
-    return timeSinceLastActivity > 3600000 || hasPendingActions; // 1 hour or pending actions
   }
 
   private generateFollowUpActions(sessionId: string, session: SessionState): void {
@@ -773,7 +801,7 @@ export class PersistentOperationEngine {
       'Update listing with new information',
       'Follow up with interested parties',
       'Analyze listing performance',
-      'Suggest price adjustments'
+      'Suggest price adjustments',
     ];
 
     session.pendingActions.push(...followUps);

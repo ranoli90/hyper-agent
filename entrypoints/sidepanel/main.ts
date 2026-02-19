@@ -6,6 +6,15 @@ import type {
   MsgAgentDone,
   MsgAskUser,
 } from '../../shared/types';
+import { billingManager, PRICING_PLANS } from '../../shared/billing';
+
+function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
+  let timeout: ReturnType<typeof setTimeout>;
+  return ((...args: any[]) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => fn(...args), ms);
+  }) as T;
+}
 
 // ─── DOM Elements ───────────────────────────────────────────────
 const safeGetElement = <T extends HTMLElement>(id: string, optional = false): T | null => {
@@ -148,7 +157,7 @@ components.btnCancel.addEventListener('click', () => {
 });
 
 // Modal backdrop close
-components.confirmModal.addEventListener('click', (e) => {
+components.confirmModal.addEventListener('click', e => {
   if (e.target === components.confirmModal) {
     components.confirmModal.classList.add('hidden');
     if (state.confirmResolve) {
@@ -158,7 +167,7 @@ components.confirmModal.addEventListener('click', (e) => {
   }
 });
 
-components.askModal.addEventListener('click', (e) => {
+components.askModal.addEventListener('click', e => {
   if (e.target === components.askModal) {
     components.askModal.classList.add('hidden');
     components.askReply.value = '';
@@ -199,14 +208,17 @@ const SLASH_COMMANDS = {
     switchTab('tasks');
   },
   '/tools': () => {
-    addMessage(`
+    addMessage(
+      `
 **Active Tools:**
 - **Email**: Draft or send emails
 - **Calendar**: Manage meetings
 - **File**: Process downloads
 - **Calculator**: Math operations
 - **Time**: Current world time
-    `, 'agent');
+    `,
+      'agent'
+    );
   },
   '/think': () => {
     const cmd = components.commandInput.value.replace('/think', '').trim();
@@ -217,15 +229,18 @@ const SLASH_COMMANDS = {
     executeAutonomousCommand(cmd);
   },
   '/help': () => {
-    addMessage(`
+    addMessage(
+      `
 **Hyper-Commands:**
 - \`/memory\`: View stored knowledge
 - \`/schedule\`: Manage background tasks
 - \`/tools\`: List agent capabilities
 - \`/clear\`: Clear chat history
 - \`/help\`: Show this message
-    `, 'agent');
-  }
+    `,
+      'agent'
+    );
+  },
 };
 
 const SUGGESTIONS = [
@@ -252,9 +267,10 @@ function showSuggestions(query: string) {
       return;
     }
 
-    const matches = SUGGESTIONS.filter(s =>
-      s.command.toLowerCase().startsWith(sanitizedQuery) ||
-      s.description.toLowerCase().includes(sanitizedQuery)
+    const matches = SUGGESTIONS.filter(
+      s =>
+        s.command.toLowerCase().startsWith(sanitizedQuery) ||
+        s.description.toLowerCase().includes(sanitizedQuery)
     );
 
     if (matches.length === 0) {
@@ -263,7 +279,8 @@ function showSuggestions(query: string) {
     }
 
     container.innerHTML = '';
-    matches.slice(0, 5).forEach(s => { // Limit to 5 suggestions for performance
+    matches.slice(0, 5).forEach(s => {
+      // Limit to 5 suggestions for performance
       try {
         const div = document.createElement('div');
         div.className = 'suggestion-item';
@@ -320,10 +337,16 @@ function renderMarkdown(text: string): string {
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    html = html.replace(
+      /\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+    );
 
     // Wrap lines in paragraphs if they aren't already block elements
-    html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    html = html
+      .split('\n\n')
+      .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+      .join('');
     return html;
   } catch (err) {
     console.warn('[HyperAgent] renderMarkdown failed', err);
@@ -332,7 +355,11 @@ function renderMarkdown(text: string): string {
 }
 
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function scrollToBottom() {
@@ -392,7 +419,7 @@ function executeAutonomousCommand(cmd: string) {
   chrome.runtime.sendMessage({
     type: 'executeCommand',
     command: cmd,
-    useAutonomous: true
+    useAutonomous: true,
   } as any);
 }
 
@@ -412,7 +439,7 @@ function setRunning(running: boolean) {
 // ─── Persistence ────────────────────────────────────────────────
 async function saveHistory() {
   const historyHTML = components.chatHistory.innerHTML;
-  await chrome.storage.local.set({ 'chat_history_backup': historyHTML });
+  await chrome.storage.local.set({ chat_history_backup: historyHTML });
 }
 
 async function loadHistory() {
@@ -424,7 +451,7 @@ async function loadHistory() {
 }
 
 function updateUsageDisplay() {
-  chrome.runtime.sendMessage({ type: 'getUsage' }, (response) => {
+  chrome.runtime.sendMessage({ type: 'getUsage' }, response => {
     if (response?.usage) {
       const { actions, sessions, sessionTime } = response.usage;
       const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
@@ -444,29 +471,29 @@ function loadMarketplace() {
       name: 'Web Scraper',
       description: 'Automatically extract data from web pages',
       price: 'Free',
-      category: 'Data'
+      category: 'Data',
     },
     {
       id: 'email-automation',
       name: 'Email Automation',
       description: 'Send personalized emails based on triggers',
       price: '$4.99',
-      category: 'Communication'
+      category: 'Communication',
     },
     {
       id: 'social-media-poster',
       name: 'Social Media Poster',
       description: 'Schedule and post to multiple social platforms',
       price: '$9.99',
-      category: 'Marketing'
+      category: 'Marketing',
     },
     {
       id: 'invoice-processor',
       name: 'Invoice Processor',
       description: 'Extract and process invoice data automatically',
       price: '$14.99',
-      category: 'Business'
-    }
+      category: 'Business',
+    },
   ];
 
   components.marketplaceList.innerHTML = '';
@@ -489,7 +516,7 @@ function loadMarketplace() {
 
   // Add event listeners for install buttons
   components.marketplaceList.querySelectorAll('.install-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', e => {
       const workflowId = (e.target as HTMLElement).dataset.workflowId;
       if (workflowId) {
         installWorkflow(workflowId);
@@ -519,7 +546,7 @@ components.btnStop.addEventListener('click', () => {
   setRunning(false);
 });
 
-components.commandInput.addEventListener('keydown', (e) => {
+components.commandInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     const text = components.commandInput.value;
@@ -548,7 +575,7 @@ const handleInput = debounce((e: Event) => {
   else components.suggestions.classList.add('hidden');
 }, 100);
 
-components.commandInput.addEventListener('input', (e) => {
+components.commandInput.addEventListener('input', e => {
   // Immediate resize for better feel, logic in debounce handles suggestions
   const target = e.target as HTMLTextAreaElement;
   if (target.value.length > MAX_COMMAND_LENGTH) {
@@ -585,7 +612,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
       // Live Trace: Display the physical actions the agent is taking
       if (Array.isArray(message.actionDescriptions) && message.actionDescriptions.length > 0) {
-        const validDescriptions = message.actionDescriptions.filter((d: any) => typeof d === 'string');
+        const validDescriptions = message.actionDescriptions.filter(
+          (d: any) => typeof d === 'string'
+        );
         if (validDescriptions.length > 0) {
           const trace = validDescriptions.map((d: string) => `• ${d}`).join('\n');
           addMessage(`*Executing actions:* \n${trace}`, 'status');
@@ -602,7 +631,8 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'askUser': {
-      const question = typeof message.question === 'string' ? message.question : 'Agent needs more information.';
+      const question =
+        typeof message.question === 'string' ? message.question : 'Agent needs more information.';
       components.askQuestion.textContent = question;
       components.askModal.classList.remove('hidden');
       components.askReply.focus();
@@ -643,18 +673,21 @@ chrome.runtime.onMessage.addListener((message: any) => {
             state.confirmResolve(false);
           }
         }, 60000);
-      }).then(confirmed => {
-        // Ensure confirmed is boolean
-        chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed: !!confirmed });
-        components.confirmModal.classList.add('hidden');
-      }).catch(err => {
-        console.error('Confirmation error:', err);
-        components.confirmModal.classList.add('hidden');
-      });
+      })
+        .then(confirmed => {
+          // Ensure confirmed is boolean
+          chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed: !!confirmed });
+          components.confirmModal.classList.add('hidden');
+        })
+        .catch(err => {
+          console.error('Confirmation error:', err);
+          components.confirmModal.classList.add('hidden');
+        });
       break;
     }
     case 'agentDone': {
-      const summary = typeof message.finalSummary === 'string' ? message.finalSummary : 'Task completed';
+      const summary =
+        typeof message.finalSummary === 'string' ? message.finalSummary : 'Task completed';
       const success = Boolean(message.success);
       addMessage(summary, success ? 'agent' : 'error');
       setRunning(false);
@@ -686,30 +719,26 @@ import { VoiceInterface } from '../../shared/voice-interface';
 let voiceInterface = new VoiceInterface({
   onStart: () => {
     components.btnMic.classList.add('active');
-    components.commandInput.placeholder = "Listening...";
+    components.commandInput.placeholder = 'Listening...';
   },
   onEnd: () => {
     components.btnMic.classList.remove('active');
-    components.commandInput.placeholder = "Ask HyperAgent...";
+    components.commandInput.placeholder = 'Ask HyperAgent...';
     const text = components.commandInput.value.trim();
     if (text) handleCommand(text);
   },
-  onResult: (text) => {
+  onResult: text => {
     components.commandInput.value = text;
-  }
+  },
 });
 
-components.btnUpgradePremium.addEventListener('click', () => {
-  // Open Stripe checkout for Premium plan
-  const stripeUrl = 'https://buy.stripe.com/premium-plan-checkout-url'; // Placeholder
-  chrome.tabs.create({ url: stripeUrl });
+components.btnUpgradePremium.addEventListener('click', async () => {
+  await billingManager.openCheckout('premium');
   addMessage('Redirecting to Stripe checkout for Premium plan...', 'status');
 });
 
-components.btnUpgradeUnlimited.addEventListener('click', () => {
-  // Open Stripe checkout for Unlimited plan
-  const stripeUrl = 'https://buy.stripe.com/unlimited-plan-checkout-url'; // Placeholder
-  chrome.tabs.create({ url: stripeUrl });
+components.btnUpgradeUnlimited.addEventListener('click', async () => {
+  await billingManager.openCheckout('unlimited');
   addMessage('Redirecting to Stripe checkout for Unlimited plan...', 'status');
 });
 

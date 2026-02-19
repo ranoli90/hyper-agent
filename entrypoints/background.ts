@@ -20,9 +20,32 @@ import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS } from '../shar
 import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
-import { trackActionStart, trackActionEnd, getMetrics, getActionMetrics, getSuccessRateByDomain } from '../shared/metrics';
-import { createSession, getActiveSession, updateSessionPageInfo, addActionToSession, addResultToSession, updateExtractedData } from '../shared/session';
-import { checkDomainAllowed, checkActionAllowed, checkRateLimit, initializeSecuritySettings, getPrivacySettings, getSecurityPolicy, type PrivacySettings, type SecurityPolicy, redact } from '../shared/security';
+import {
+  trackActionStart,
+  trackActionEnd,
+  getMetrics,
+  getActionMetrics,
+  getSuccessRateByDomain,
+} from '../shared/metrics';
+import {
+  createSession,
+  getActiveSession,
+  updateSessionPageInfo,
+  addActionToSession,
+  addResultToSession,
+  updateExtractedData,
+} from '../shared/session';
+import {
+  checkDomainAllowed,
+  checkActionAllowed,
+  checkRateLimit,
+  initializeSecuritySettings,
+  getPrivacySettings,
+  getSecurityPolicy,
+  type PrivacySettings,
+  type SecurityPolicy,
+  redact,
+} from '../shared/security';
 import {
   ExtensionMessage,
   Action,
@@ -33,12 +56,21 @@ import {
   MsgAskUser,
   ErrorType,
   PageContext,
-  DEFAULTS,
+  MacroAction,
+  WorkflowAction,
+  MsgGetUsage,
+  MsgGetUsageResponse,
 } from '../shared/types';
-import { withErrorBoundary, withGracefulDegradation, errorBoundary, gracefulDegradation } from '../shared/error-boundary';
+import {
+  withErrorBoundary,
+  withGracefulDegradation,
+  errorBoundary,
+  gracefulDegradation,
+} from '../shared/error-boundary';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
+import { billingManager } from '../shared/billing';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -64,8 +96,8 @@ class UsageTracker {
     monthlyUsage: {
       actions: 0,
       sessions: 0,
-      resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000) // 30 days
-    }
+      resetDate: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
+    },
   };
 
   async loadMetrics(): Promise<void> {
@@ -82,7 +114,7 @@ class UsageTracker {
 
   async saveMetrics(): Promise<void> {
     try {
-      await chrome.storage.local.set({ 'usage_metrics': this.metrics });
+      await chrome.storage.local.set({ usage_metrics: this.metrics });
     } catch (err) {
       console.warn('[UsageTracker] Failed to save metrics:', err);
     }
@@ -94,7 +126,7 @@ class UsageTracker {
       this.metrics.monthlyUsage = {
         actions: 0,
         sessions: 0,
-        resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000)
+        resetDate: Date.now() + 30 * 24 * 60 * 60 * 1000,
       };
       this.saveMetrics();
     }
@@ -137,13 +169,13 @@ class UsageTracker {
     const limits = {
       free: { actions: 100, sessions: 3 },
       premium: { actions: 1000, sessions: 50 },
-      unlimited: { actions: -1, sessions: -1 }
+      unlimited: { actions: -1, sessions: -1 },
     };
 
     return {
       actions: limits[this.metrics.subscriptionTier].actions,
       sessions: limits[this.metrics.subscriptionTier].sessions,
-      tier: this.metrics.subscriptionTier
+      tier: this.metrics.subscriptionTier,
     };
   }
 
@@ -151,7 +183,7 @@ class UsageTracker {
     return {
       actions: this.metrics.monthlyUsage.actions,
       sessions: this.metrics.monthlyUsage.sessions,
-      sessionTime: this.metrics.totalSessionTime
+      sessionTime: this.metrics.totalSessionTime,
     };
   }
 }
@@ -186,7 +218,7 @@ class StructuredLogger {
       level,
       message,
       data,
-      source: 'background'
+      source: 'background',
     };
 
     this.logEntries.push(entry);
@@ -195,9 +227,8 @@ class StructuredLogger {
     }
 
     // Console output based on log level
-    const consoleMethod = level === 'debug' ? 'debug' :
-      level === 'warn' ? 'warn' :
-        level === 'error' ? 'error' : 'log';
+    const consoleMethod =
+      level === 'debug' ? 'debug' : level === 'warn' ? 'warn' : level === 'error' ? 'error' : 'log';
 
     console[consoleMethod](`[HyperAgent:${level.toUpperCase()}] ${message}`, data || '');
   }
@@ -237,8 +268,14 @@ interface LogEntry {
 // ─── Security helpers ─────────────────────────
 
 function isSafeRegex(pattern: string, maxLength = 256): boolean {
-  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength) return false;
-  try { new RegExp(pattern); return true; } catch { return false; }
+  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength)
+    return false;
+  try {
+    new RegExp(pattern);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function safeInlineText(str: string, max = 500): string {
@@ -342,25 +379,44 @@ class AgentStateManager {
 
   // Recovery state
   /** Tracks recovery attempts per action to prevent infinite loops */
-  private recoveryAttempts = new Map<string, { attempt: number; strategy: string; timestamp: number }>();
+  private recoveryAttempts = new Map<
+    string,
+    { attempt: number; strategy: string; timestamp: number }
+  >();
   /** Maximum recovery attempts allowed per action */
   private readonly MAX_RECOVERY_ATTEMPTS = 3;
   /** Maximum recovery log entries to retain */
   private readonly RECOVERY_LOG_MAX_ENTRIES = 100;
   /** Recovery attempt history for analysis */
-  private recoveryLog: { timestamp: number; action: string; error: string; strategy: string; outcome: string }[] = [];
+  private recoveryLog: {
+    timestamp: number;
+    action: string;
+    error: string;
+    strategy: string;
+    outcome: string;
+  }[] = [];
 
   // Getters
   /** @returns True if agent is currently executing */
-  get isRunning(): boolean { return this.state.isRunning; }
+  get isRunning(): boolean {
+    return this.state.isRunning;
+  }
   /** @returns True if agent execution has been aborted */
-  get isAborted(): boolean { return this.state.isAborted; }
+  get isAborted(): boolean {
+    return this.state.isAborted;
+  }
   /** @returns Current session ID or null */
-  get currentSessionId(): string | null { return this.state.currentSessionId; }
+  get currentSessionId(): string | null {
+    return this.state.currentSessionId;
+  }
   /** @returns True if waiting for user confirmation */
-  get hasPendingConfirm(): boolean { return this.state.pendingConfirmResolve !== null; }
+  get hasPendingConfirm(): boolean {
+    return this.state.pendingConfirmResolve !== null;
+  }
   /** @returns True if waiting for user reply */
-  get hasPendingReply(): boolean { return this.state.pendingUserReplyResolve !== null; }
+  get hasPendingReply(): boolean {
+    return this.state.pendingUserReplyResolve !== null;
+  }
 
   getSignal(): AbortSignal | undefined {
     return this.abortController?.signal;
@@ -424,14 +480,15 @@ class AgentStateManager {
    * @throws Error if sessionId is not string or null
    */
   setCurrentSession(sessionId: string | null): void {
-    if (sessionId !== null && typeof sessionId !== 'string') throw new Error('sessionId must be string or null');
+    if (sessionId !== null && typeof sessionId !== 'string')
+      throw new Error('sessionId must be string or null');
     this.state.currentSessionId = sessionId;
   }
 
   subscribe(listener: (state: AgentState) => void) {
     this.listeners.push(listener);
     return () => {
-      this.listeners = this.listeners.filter((l) => l !== listener);
+      this.listeners = this.listeners.filter(l => l !== listener);
     };
   }
 
@@ -439,10 +496,11 @@ class AgentStateManager {
     // Convert internal state to public AgentState
     const publicState: AgentState = {
       isRunning: this.state.isRunning,
-      isPaused: this.state.pendingConfirmResolve !== null || this.state.pendingUserReplyResolve !== null,
-      isAborted: this.state.isAborted
+      isPaused:
+        this.state.pendingConfirmResolve !== null || this.state.pendingUserReplyResolve !== null,
+      isAborted: this.state.isAborted,
     };
-    this.listeners.forEach((listener) => listener(publicState));
+    this.listeners.forEach(listener => listener(publicState));
   }
 
   // Promise resolvers
@@ -497,7 +555,9 @@ class AgentStateManager {
   }
 
   /** @returns Maximum recovery attempts allowed per action */
-  get maxRecoveryAttempts(): number { return this.MAX_RECOVERY_ATTEMPTS; }
+  get maxRecoveryAttempts(): number {
+    return this.MAX_RECOVERY_ATTEMPTS;
+  }
   /**
    * Generate a unique key for tracking recovery attempts per action.
    * @param action - The action being recovered
@@ -569,7 +629,7 @@ class AgentStateManager {
   // Cleanup methods
   /** Clean up expired recovery attempt tracking (older than 24 hours) */
   cleanupExpiredRecoveryAttempts(): void {
-    const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000; // 24 hours
     for (const [key, entry] of this.recoveryAttempts) {
       if (entry.timestamp < cutoff) {
         this.recoveryAttempts.delete(key);
@@ -585,9 +645,9 @@ class AgentStateManager {
     return {
       activeAttempts: this.recoveryAttempts.size,
       totalLoggedRecoveries: this.recoveryLog.length,
-      recentFailures: this.recoveryLog.filter(entry =>
-        entry.timestamp > Date.now() - (60 * 60 * 1000) && entry.outcome === 'failed'
-      ).length
+      recentFailures: this.recoveryLog.filter(
+        entry => entry.timestamp > Date.now() - 60 * 60 * 1000 && entry.outcome === 'failed'
+      ).length,
     };
   }
 
@@ -634,8 +694,11 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
 
   switch (type) {
     case 'executeCommand':
-      return typeof (message as any).command === 'string' &&
-        ((message as any).useAutonomous === undefined || typeof (message as any).useAutonomous === 'boolean');
+      return (
+        typeof (message as any).command === 'string' &&
+        ((message as any).useAutonomous === undefined ||
+          typeof (message as any).useAutonomous === 'boolean')
+      );
     case 'stopAgent':
       return true;
     case 'confirmResponse':
@@ -672,22 +735,34 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
  */
 export default defineBackground(() => {
   // ─── Cleanup intervals ───────────────────────────────────────────────
-  setInterval(() => {
-    rateLimiter.cleanup();
-    agentState.cleanupExpiredRecoveryAttempts();
-  }, 5 * 60 * 1000); // Every 5 minutes
+  setInterval(
+    () => {
+      rateLimiter.cleanup();
+      agentState.cleanupExpiredRecoveryAttempts();
+    },
+    5 * 60 * 1000
+  ); // Every 5 minutes
 
   // ─── On install: configure side panel ───────────────────────────
   chrome.runtime.onInstalled.addListener(async () => {
     await withErrorBoundary('extension_installation', async () => {
       // 3. Initialize Global Learning
-      globalLearning.fetchGlobalWisdom().catch(e => logger.log('error', 'Global learning fetch failed', e));
+      globalLearning
+        .fetchGlobalWisdom()
+        .catch(e => logger.log('error', 'Global learning fetch failed', e));
 
       // Set up periodic sync
-      setInterval(() => {
-        globalLearning.publishPatterns().catch(e => console.error('[GlobalLearning] Publish failed:', e));
-        globalLearning.fetchGlobalWisdom().catch(e => console.error('[GlobalLearning] Fetch failed:', e));
-      }, 1000 * 60 * 60); // Every hour
+      setInterval(
+        () => {
+          globalLearning
+            .publishPatterns()
+            .catch(e => console.error('[GlobalLearning] Publish failed:', e));
+          globalLearning
+            .fetchGlobalWisdom()
+            .catch(e => console.error('[GlobalLearning] Fetch failed:', e));
+        },
+        1000 * 60 * 60
+      ); // Every hour
 
       logger.log('info', 'HyperAgent background initialized');
 
@@ -744,7 +819,6 @@ export default defineBackground(() => {
     });
   });
 
-
   // ─── Context menu handler ──────────────────────────────────────
   chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await withErrorBoundary('context_menu_handling', async () => {
@@ -797,7 +871,8 @@ export default defineBackground(() => {
     if (!usageTracker.isPremiumFeatureAllowed('autonomous_mode')) {
       sendToSidePanel({
         type: 'agentDone',
-        finalSummary: 'Autonomous mode requires Premium subscription. Upgrade to unlock unlimited autonomous sessions.',
+        finalSummary:
+          'Autonomous mode requires Premium subscription. Upgrade to unlock unlimited autonomous sessions.',
         success: false,
         stepsUsed: 0,
       });
@@ -830,14 +905,14 @@ export default defineBackground(() => {
         onProgress: (status, step, summary) => {
           sendToSidePanel({ type: 'agentProgress', status, step: step as any, summary });
         },
-        onAskUser: async (question) => {
+        onAskUser: async question => {
           sendToSidePanel({ type: 'askUser', question });
           return await askUserForInfo(question);
         },
         onConfirmActions: async (actions, step, summary) => {
           return await askUserConfirmation(actions, step, summary);
         },
-        executeAction: async (action) => {
+        executeAction: async action => {
           return await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
         },
         captureScreenshot: async () => {
@@ -845,20 +920,35 @@ export default defineBackground(() => {
         },
         onDone: (summary, success) => {
           sendToSidePanel({ type: 'agentDone', finalSummary: summary, success, stepsUsed: 0 });
-        }
+        },
       });
 
       logger.log('info', 'Starting autonomous reasoning for task', { command: redact(command) });
       sendToSidePanel({ type: 'agentProgress', status: 'Thinking (Advanced)...', step: 'plan' });
 
-      // 2. High-Level Reasoning and Planning
       const pageCtx = await getPageContext(tabId);
       const plan = await autonomousIntelligence.understandAndPlan(command, {
+        taskDescription: command,
+        availableTools: [
+          'navigate',
+          'click',
+          'fill',
+          'extract',
+          'scroll',
+          'wait',
+          'hover',
+          'focus',
+          'select',
+        ],
+        previousAttempts: [],
         environmentalData: {
           url: tab.url,
           html: pageCtx.bodyText.slice(0, 5000),
-          screenshotBase64: settings.enableVision ? await captureScreenshot() : undefined
-        }
+          screenshotBase64: settings.enableVision ? await captureScreenshot() : undefined,
+        },
+        userPreferences: {},
+        domainKnowledge: {},
+        successPatterns: [],
       });
 
       logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
@@ -874,12 +964,16 @@ export default defineBackground(() => {
         type: 'agentDone',
         finalSummary,
         success: result.success,
-        stepsUsed: result.results.length
+        stepsUsed: result.results.length,
       });
-
     } catch (err: any) {
       logger.log('error', 'Autonomous loop failed', { error: err.message });
-      sendToSidePanel({ type: 'agentDone', finalSummary: `Autonomous Error: ${err.message}`, success: false, stepsUsed: 0 });
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: `Autonomous Error: ${err.message}`,
+        success: false,
+        stepsUsed: 0,
+      });
     } finally {
       agentState.setRunning(false);
       // Track session usage
@@ -888,154 +982,35 @@ export default defineBackground(() => {
     }
   }
 
-  // ─── Usage Tracking for Monetization ──────────────────────────────────
-interface UsageMetrics {
-  actionsExecuted: number;
-  autonomousSessions: number;
-  totalSessionTime: number;
-  lastActivity: number;
-  subscriptionTier: 'free' | 'premium' | 'unlimited';
-  monthlyUsage: {
-    actions: number;
-    sessions: number;
-    resetDate: number;
-  };
-}
+  chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+    (async () => {
+      await withErrorBoundary('message_processing', async () => {
+        // Rate limiting
+        const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
+        if (!rateLimiter.canAcceptMessage(senderId)) {
+          logger.log('warn', 'Message rate limited', { senderId });
+          sendResponse({ ok: false, error: 'Rate limit exceeded' });
+          return;
+        }
 
-class UsageTracker {
-  private metrics: UsageMetrics = {
-    actionsExecuted: 0,
-    autonomousSessions: 0,
-    totalSessionTime: 0,
-    lastActivity: Date.now(),
-    subscriptionTier: 'free',
-    monthlyUsage: {
-      actions: 0,
-      sessions: 0,
-      resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000) // 30 days
-    }
-  };
+        // Input validation
+        if (!validateExtensionMessage(message)) {
+          logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
+          sendResponse({ ok: false, error: 'Invalid message format' });
+          return;
+        }
 
-  async loadMetrics(): Promise<void> {
-    try {
-      const data = await chrome.storage.local.get('usage_metrics');
-      if (data.usage_metrics) {
-        this.metrics = { ...this.metrics, ...data.usage_metrics };
-        this.checkMonthlyReset();
-      }
-    } catch (err) {
-      console.warn('[UsageTracker] Failed to load metrics:', err);
-    }
-  }
+        logger.log('debug', 'Processing message', { type: message.type, senderId });
 
-  async saveMetrics(): Promise<void> {
-    try {
-      await chrome.storage.local.set({ 'usage_metrics': this.metrics });
-    } catch (err) {
-      console.warn('[UsageTracker] Failed to save metrics:', err);
-    }
-  }
+        // Route message
+        const result = await handleExtensionMessage(message, sender);
+        sendResponse(result);
+      });
+    })();
 
-  private checkMonthlyReset(): void {
-    if (Date.now() > this.metrics.monthlyUsage.resetDate) {
-      // Reset monthly counters
-      this.metrics.monthlyUsage = {
-        actions: 0,
-        sessions: 0,
-        resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000)
-      };
-      this.saveMetrics();
-    }
-  }
-
-  trackAction(actionType: string): void {
-    this.metrics.actionsExecuted++;
-    this.metrics.monthlyUsage.actions++;
-    this.metrics.lastActivity = Date.now();
-    this.saveMetrics();
-  }
-
-  trackAutonomousSession(duration: number): void {
-    this.metrics.autonomousSessions++;
-    this.metrics.totalSessionTime += duration;
-    this.metrics.monthlyUsage.sessions++;
-    this.metrics.lastActivity = Date.now();
-    this.saveMetrics();
-  }
-
-  setSubscriptionTier(tier: 'free' | 'premium' | 'unlimited'): void {
-    this.metrics.subscriptionTier = tier;
-    this.saveMetrics();
-  }
-
-  isPremiumFeatureAllowed(feature: string): boolean {
-    switch (feature) {
-      case 'autonomous_mode':
-        return this.metrics.subscriptionTier !== 'free' || this.metrics.monthlyUsage.sessions < 3;
-      case 'unlimited_actions':
-        return this.metrics.subscriptionTier === 'unlimited';
-      case 'advanced_workflows':
-        return this.metrics.subscriptionTier !== 'free';
-      default:
-        return true;
-    }
-  }
-
-  getUsageLimits(): { actions: number; sessions: number; tier: string } {
-    const limits = {
-      free: { actions: 100, sessions: 3 },
-      premium: { actions: 1000, sessions: 50 },
-      unlimited: { actions: -1, sessions: -1 }
-    };
-
-    return {
-      actions: limits[this.metrics.subscriptionTier].actions,
-      sessions: limits[this.metrics.subscriptionTier].sessions,
-      tier: this.metrics.subscriptionTier
-    };
-  }
-
-  getCurrentUsage(): { actions: number; sessions: number; sessionTime: number } {
-    return {
-      actions: this.metrics.monthlyUsage.actions,
-      sessions: this.metrics.monthlyUsage.sessions,
-      sessionTime: this.metrics.totalSessionTime
-    };
-  }
-}
-
-const usageTracker = new UsageTracker();
-  chrome.runtime.onMessage.addListener(
-    (message: ExtensionMessage, sender, sendResponse) => {
-      (async () => {
-        await withErrorBoundary('message_processing', async () => {
-          // Rate limiting
-          const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
-          if (!rateLimiter.canAcceptMessage(senderId)) {
-            logger.log('warn', 'Message rate limited', { senderId });
-            sendResponse({ ok: false, error: 'Rate limit exceeded' });
-            return;
-          }
-
-          // Input validation
-          if (!validateExtensionMessage(message)) {
-            logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
-            sendResponse({ ok: false, error: 'Invalid message format' });
-            return;
-          }
-
-          logger.log('debug', 'Processing message', { type: message.type, senderId });
-
-          // Route message
-          const result = await handleExtensionMessage(message, sender);
-          sendResponse(result);
-        });
-      })();
-
-      // Keep channel open for async response
-      return true;
-    }
-  );
+    // Keep channel open for async response
+    return true;
+  });
 
   // ─── Message handler function ─────────────────────────────────────
   /**
@@ -1048,7 +1023,10 @@ const usageTracker = new UsageTracker();
    * @param sender - Chrome message sender information
    * @returns Response object with success status and optional data
    */
-  async function handleExtensionMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender): Promise<any> {
+  async function handleExtensionMessage(
+    message: ExtensionMessage,
+    sender: chrome.runtime.MessageSender
+  ): Promise<any> {
     switch (message.type) {
       case 'executeCommand': {
         if (agentState.isRunning) {
@@ -1059,7 +1037,7 @@ const usageTracker = new UsageTracker();
         const loopToRun = message.useAutonomous ? runAutonomousLoop : runAgentLoop;
 
         // Start agent asynchronously
-        loopToRun(message.command).catch((err) => {
+        loopToRun(message.command).catch(err => {
           logger.log('error', 'Agent loop error', err);
           sendToSidePanel({
             type: 'agentDone',
@@ -1105,8 +1083,8 @@ const usageTracker = new UsageTracker();
             currentSessionId: agentState.currentSessionId,
             hasPendingConfirm: agentState.hasPendingConfirm,
             hasPendingReply: agentState.hasPendingReply,
-            recoveryStats: agentState.getRecoveryStats()
-          }
+            recoveryStats: agentState.getRecoveryStats(),
+          },
         };
       }
 
@@ -1125,9 +1103,9 @@ const usageTracker = new UsageTracker();
             recovery: agentState.getRecoveryStats(),
             rateLimitStatus: {
               canAccept: rateLimiter.canAcceptMessage('query'),
-              timeUntilReset: rateLimiter.getTimeUntilReset('query')
-            }
-          }
+              timeUntilReset: rateLimiter.getTimeUntilReset('query'),
+            },
+          },
         };
       }
 
@@ -1142,15 +1120,19 @@ const usageTracker = new UsageTracker();
         return {
           ok: true,
           usage,
-          limits
+          limits,
         };
       }
+
+      default:
+        return { ok: false, error: 'Unknown message type' };
+    }
   }
 
   // ─── Helper functions ─────────────────────────────────────────────
 
   function sendToSidePanel(msg: ExtensionMessage) {
-    chrome.runtime.sendMessage(msg).catch(() => { });
+    chrome.runtime.sendMessage(msg).catch(() => {});
   }
 
   async function getActiveTabId(): Promise<number> {
@@ -1240,18 +1222,34 @@ const usageTracker = new UsageTracker();
     if (action.type === 'click' || action.type === 'pressKey') {
       const desc = ((action as any).description || '').toLowerCase();
       const destructiveKeywords = [
-        'submit', 'buy', 'purchase', 'order', 'confirm', 'delete',
-        'remove', 'post', 'send', 'pay', 'checkout', 'sign out',
-        'log out', 'unsubscribe', 'cancel subscription', 'place order',
-        'complete purchase', 'publish', 'reply', 'comment',
+        'submit',
+        'buy',
+        'purchase',
+        'order',
+        'confirm',
+        'delete',
+        'remove',
+        'post',
+        'send',
+        'pay',
+        'checkout',
+        'sign out',
+        'log out',
+        'unsubscribe',
+        'cancel subscription',
+        'place order',
+        'complete purchase',
+        'publish',
+        'reply',
+        'comment',
       ];
-      if (destructiveKeywords.some((kw) => desc.includes(kw))) return true;
+      if (destructiveKeywords.some(kw => desc.includes(kw))) return true;
     }
     return false;
   }
 
   function askUserConfirmation(actions: Action[], step: number, summary: string): Promise<boolean> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       agentState.setConfirmResolver(resolve);
       sendToSidePanel({
         type: 'confirmActions',
@@ -1269,7 +1267,7 @@ const usageTracker = new UsageTracker();
   }
 
   function askUserForInfo(question: string): Promise<string> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       agentState.setReplyResolver(resolve);
       sendToSidePanel({ type: 'askUser', question });
 
@@ -1288,10 +1286,14 @@ const usageTracker = new UsageTracker();
 
   function delayForErrorType(errorType?: string): number {
     switch (errorType) {
-      case 'ELEMENT_NOT_VISIBLE': return jitter(800, 0.3);
-      case 'ELEMENT_DISABLED': return jitter(1500, 0.25);
-      case 'TIMEOUT': return jitter(1000, 0.3);
-      default: return jitter(300, 0.5);
+      case 'ELEMENT_NOT_VISIBLE':
+        return jitter(800, 0.3);
+      case 'ELEMENT_DISABLED':
+        return jitter(1500, 0.25);
+      case 'TIMEOUT':
+        return jitter(1000, 0.3);
+      default:
+        return jitter(300, 0.5);
     }
   }
 
@@ -1320,7 +1322,11 @@ const usageTracker = new UsageTracker();
         await waitForTabLoad(tabId);
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: `Navigation failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' as ErrorType };
+        return {
+          success: false,
+          error: `Navigation failed: ${err.message}`,
+          errorType: 'NAVIGATION_ERROR' as ErrorType,
+        };
       }
     }
 
@@ -1330,7 +1336,11 @@ const usageTracker = new UsageTracker();
         await waitForTabLoad(tabId);
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: `Go back failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' as ErrorType };
+        return {
+          success: false,
+          error: `Go back failed: ${err.message}`,
+          errorType: 'NAVIGATION_ERROR' as ErrorType,
+        };
       }
     }
 
@@ -1391,16 +1401,16 @@ const usageTracker = new UsageTracker();
     // Handle runMacro action - execute a saved sequence of actions
     if (action.type === 'runMacro') {
       const macroAction = action as MacroAction;
-      const macroResult = await executeMacro(
-        macroAction.macroId,
-        async (subAction: Action) => {
-          // Execute each action in the macro
-          return await executeAction(tabId, subAction, dryRun, autoRetry);
-        }
-      );
+      const macroResult = await executeMacro(macroAction.macroId, async (subAction: Action) => {
+        // Execute each action in the macro
+        return await executeAction(tabId, subAction, dryRun, autoRetry);
+      });
 
       if (macroResult.success) {
-        return { success: true, extractedData: `Macro executed successfully with ${macroResult.results.length} actions` };
+        return {
+          success: true,
+          extractedData: `Macro executed successfully with ${macroResult.results.length} actions`,
+        };
       }
       return { success: false, error: macroResult.error || 'Macro execution failed' };
     }
@@ -1417,7 +1427,10 @@ const usageTracker = new UsageTracker();
       );
 
       if (workflowResult.success) {
-        return { success: true, extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps` };
+        return {
+          success: true,
+          extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps`,
+        };
       }
       return { success: false, error: workflowResult.error || 'Workflow execution failed' };
     }
@@ -1425,17 +1438,32 @@ const usageTracker = new UsageTracker();
     // Higher-order function for the content script action to allow retries
     const attempt = async (): Promise<ActionResult> => {
       try {
-        const response = await chrome.tabs.sendMessage(tabId, { type: 'executeActionOnPage', action });
+        const response = await chrome.tabs.sendMessage(tabId, {
+          type: 'executeActionOnPage',
+          action,
+        });
         // Validate response structure
         if (!response || typeof response !== 'object') {
-          return { success: false, error: 'Invalid response from content script', errorType: 'ACTION_FAILED' as ErrorType };
+          return {
+            success: false,
+            error: 'Invalid response from content script',
+            errorType: 'ACTION_FAILED' as ErrorType,
+          };
         }
         if (typeof response.success !== 'boolean') {
-          return { success: false, error: 'Response missing success field', errorType: 'ACTION_FAILED' as ErrorType };
+          return {
+            success: false,
+            error: 'Response missing success field',
+            errorType: 'ACTION_FAILED' as ErrorType,
+          };
         }
         return response as ActionResult;
       } catch (err: any) {
-        return { success: false, error: `Content script error: ${err.message}`, errorType: 'ACTION_FAILED' as ErrorType };
+        return {
+          success: false,
+          error: `Content script error: ${err.message}`,
+          errorType: 'ACTION_FAILED' as ErrorType,
+        };
       }
     };
 
@@ -1443,13 +1471,25 @@ const usageTracker = new UsageTracker();
 
     // Ensure result is always valid
     if (!result) {
-      result = { success: false, error: 'Unknown action error', errorType: 'ACTION_FAILED' as ErrorType };
+      result = {
+        success: false,
+        error: 'Unknown action error',
+        errorType: 'ACTION_FAILED' as ErrorType,
+      };
     }
 
     // Auto-retry with enhanced error classification and recovery tracking
     if (!result.success && autoRetry) {
       // Validate and sanitize error type
-      const validErrorTypes: ErrorType[] = ['ELEMENT_NOT_FOUND', 'ELEMENT_NOT_VISIBLE', 'ELEMENT_DISABLED', 'ACTION_FAILED', 'TIMEOUT', 'NAVIGATION_ERROR', 'UNKNOWN'];
+      const validErrorTypes: ErrorType[] = [
+        'ELEMENT_NOT_FOUND',
+        'ELEMENT_NOT_VISIBLE',
+        'ELEMENT_DISABLED',
+        'ACTION_FAILED',
+        'TIMEOUT',
+        'NAVIGATION_ERROR',
+        'UNKNOWN',
+      ];
       let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
       if (!validErrorTypes.includes(errorType)) {
         errorType = 'ACTION_FAILED' as ErrorType;
@@ -1465,7 +1505,9 @@ const usageTracker = new UsageTracker();
         return result;
       }
 
-      console.log(`[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts}...`);
+      console.log(
+        `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts}...`
+      );
 
       // Determine recovery strategy based on error type
       let recoveryStrategy = 'basic-retry';
@@ -1499,15 +1541,30 @@ const usageTracker = new UsageTracker();
         // If succeeded, log successful recovery
         if (result.success) {
           if (result.recovered) {
-            agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'recovered');
+            agentState.logRecoveryOutcome(
+              action,
+              errorType || 'UNKNOWN',
+              recoveryStrategy,
+              'recovered'
+            );
           } else {
-            agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'success');
+            agentState.logRecoveryOutcome(
+              action,
+              errorType || 'UNKNOWN',
+              recoveryStrategy,
+              'success'
+            );
           }
           agentState.clearRecoveryAttempt(action);
         }
       } catch (err) {
         // Injection failed — log and return original error
-        agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'injection-failed');
+        agentState.logRecoveryOutcome(
+          action,
+          errorType || 'UNKNOWN',
+          recoveryStrategy,
+          'injection-failed'
+        );
         agentState.clearRecoveryAttempt(action);
       }
     }
@@ -1567,7 +1624,12 @@ const usageTracker = new UsageTracker();
     try {
       for (let step = 1; step <= maxSteps; step++) {
         if (agentState.isAborted) {
-          sendToSidePanel({ type: 'agentDone', finalSummary: 'Stopped.', success: false, stepsUsed: step - 1 });
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: 'Stopped.',
+            success: false,
+            stepsUsed: step - 1,
+          });
           return;
         }
 
@@ -1586,7 +1648,10 @@ const usageTracker = new UsageTracker();
 
         // ── Step 2: Plan ──
         sendToSidePanel({ type: 'agentProgress', status: 'Planning...', step: 'plan' });
-        logger.log('info', 'Calling LLM with command', { command: redact(command), historyCount: history.length });
+        logger.log('info', 'Calling LLM with command', {
+          command: redact(command),
+          historyCount: history.length,
+        });
         let llmResponse: any;
         const llmCallPromise = llmClient.callLLM({ command, history, context });
         const timeoutPromise = new Promise((_, reject) =>
@@ -1594,14 +1659,21 @@ const usageTracker = new UsageTracker();
         );
         try {
           llmResponse = await Promise.race([llmCallPromise, timeoutPromise]);
-          logger.log('info', 'LLM response received', { summary: llmResponse?.summary, actionsCount: llmResponse?.actions?.length, done: llmResponse?.done, askUser: llmResponse?.askUser });
+          logger.log('info', 'LLM response received', {
+            summary: llmResponse?.summary,
+            actionsCount: llmResponse?.actions?.length,
+            done: llmResponse?.done,
+            askUser: llmResponse?.askUser,
+          });
         } catch (err: any) {
-          logger.log('error', 'LLM call failed or timed out', { error: err?.message || String(err) });
+          logger.log('error', 'LLM call failed or timed out', {
+            error: err?.message || String(err),
+          });
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: `LLM call failed: ${err?.message || String(err)}`,
             success: false,
-            stepsUsed: history.length
+            stepsUsed: history.length,
           });
           return;
         }
@@ -1614,12 +1686,21 @@ const usageTracker = new UsageTracker();
           continue;
         }
 
-        sendToSidePanel({ type: 'agentProgress', status: 'Thinking...', step: 'plan', summary: llmResponse.summary });
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: 'Thinking...',
+          step: 'plan',
+          summary: llmResponse.summary,
+        });
 
         // Destructive path
         const hasDestructive = llmResponse.actions.some(isDestructive);
         if (hasDestructive) {
-          const confirmed = await askUserConfirmation(llmResponse.actions, step, llmResponse.summary);
+          const confirmed = await askUserConfirmation(
+            llmResponse.actions,
+            step,
+            llmResponse.summary
+          );
           if (!confirmed || agentState.isAborted) return;
         }
 
@@ -1634,9 +1715,20 @@ const usageTracker = new UsageTracker();
             continue;
           }
 
-          const result = await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
+          const result = await executeAction(
+            tabId,
+            action,
+            settings.dryRun,
+            settings.autoRetry,
+            tab.url
+          );
 
-          if (result && result.success && settings.enableVision && (action.type === 'click' || action.type === 'fill')) {
+          if (
+            result &&
+            result.success &&
+            settings.enableVision &&
+            (action.type === 'click' || action.type === 'fill')
+          ) {
             sendToSidePanel({ type: 'agentProgress', status: 'Verifying...', step: 'verify' });
             try {
               const vScreenshot = await captureScreenshot();
@@ -1669,18 +1761,28 @@ const usageTracker = new UsageTracker();
         history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
 
         if (llmResponse.done || llmResponse.actions.length === 0) {
-          sendToSidePanel({ type: 'agentDone', finalSummary: llmResponse.summary || 'Done', success: true, stepsUsed: step });
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: llmResponse.summary || 'Done',
+            success: true,
+            stepsUsed: step,
+          });
           return;
         }
         await delay(350);
       }
-      sendToSidePanel({ type: 'agentDone', finalSummary: 'Max steps reached.', success: false, stepsUsed: maxSteps });
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Max steps reached.',
+        success: false,
+        stepsUsed: maxSteps,
+      });
     } catch (err: any) {
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: `Agent error: ${err?.message || String(err)}`,
         success: false,
-        stepsUsed: history.length
+        stepsUsed: history.length,
       });
     } finally {
       agentState.setRunning(false);
@@ -1688,7 +1790,10 @@ const usageTracker = new UsageTracker();
   }
 
   // ─── Tab management functions ───────────────────────────────────
-  async function openTab(url: string, active?: boolean): Promise<{ success: boolean; tabId?: number; error?: string }> {
+  async function openTab(
+    url: string,
+    active?: boolean
+  ): Promise<{ success: boolean; tabId?: number; error?: string }> {
     try {
       const tab = await chrome.tabs.create({ url, active: active ?? true });
       if (tab.id) {
@@ -1713,7 +1818,7 @@ const usageTracker = new UsageTracker();
   async function switchToTab(tabId: number): Promise<{ success: boolean; error?: string }> {
     try {
       await chrome.tabs.update(tabId, { active: true });
-      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => { });
+      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => {});
       await waitForTabLoad(tabId);
       return { success: true };
     } catch (err: any) {
@@ -1721,14 +1826,16 @@ const usageTracker = new UsageTracker();
     }
   }
 
-  async function findTabByUrl(pattern: string): Promise<{ success: boolean; tabId?: number; error?: string }> {
+  async function findTabByUrl(
+    pattern: string
+  ): Promise<{ success: boolean; tabId?: number; error?: string }> {
     try {
       if (!isSafeRegex(pattern)) {
         return { success: false, error: 'Invalid or unsafe URL pattern' };
       }
       const tabs = await chrome.tabs.query({});
       const regex = new RegExp(pattern, 'i');
-      const matched = tabs.find((tab) => tab.url && regex.test(tab.url));
+      const matched = tabs.find(tab => tab.url && regex.test(tab.url));
       if (matched?.id) {
         return { success: true, tabId: matched.id };
       }
@@ -1738,12 +1845,16 @@ const usageTracker = new UsageTracker();
     }
   }
 
-  async function getAllTabs(): Promise<{ success: boolean; tabs?: { id: number; url: string; title: string; active: boolean }[]; error?: string }> {
+  async function getAllTabs(): Promise<{
+    success: boolean;
+    tabs?: { id: number; url: string; title: string; active: boolean }[];
+    error?: string;
+  }> {
     try {
       const tabs = await chrome.tabs.query({});
       return {
         success: true,
-        tabs: tabs.map((tab) => ({
+        tabs: tabs.map(tab => ({
           id: tab.id!,
           url: tab.url || '',
           title: tab.title || '',
@@ -1756,7 +1867,7 @@ const usageTracker = new UsageTracker();
   }
 
   async function waitForTabLoad(tabId: number): Promise<void> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       let resolved = false;
       const timeout = setTimeout(() => {
         if (!resolved) {
@@ -1782,11 +1893,14 @@ const usageTracker = new UsageTracker();
   }
 
   function delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   // ─── Reflex Verification Helper ──────────────────────────────────
-  async function verifyActionWithVision(action: Action, screenshotBase64: string): Promise<{ success: boolean; reason?: string }> {
+  async function verifyActionWithVision(
+    action: Action,
+    screenshotBase64: string
+  ): Promise<{ success: boolean; reason?: string }> {
     try {
       const prompt = `
 You are the "Reflex" system of an autonomous agent.
@@ -1819,20 +1933,22 @@ Return JSON:
           {
             role: 'user',
             content: [
-              { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshotBase64}`, detail: 'low' } }
-            ]
-          }
+              {
+                type: 'image_url',
+                image_url: { url: `data:image/png;base64,${screenshotBase64}`, detail: 'low' },
+              },
+            ],
+          },
         ],
         temperature: 0.0, // Strict verification
-        maxTokens: 300
+        maxTokens: 300,
       });
 
       const parsed = JSON.parse(response);
       return {
         success: parsed.success === true,
-        reason: parsed.reason
+        reason: parsed.reason,
       };
-
     } catch (err) {
       console.warn('[Reflex] Verification failed:', err);
       return { success: true }; // Fail open (assume success if check fails)
@@ -1840,7 +1956,10 @@ Return JSON:
   }
 
   // ─── Fallback planner (placeholder for now) ──────────────────────
-  function buildFallbackPlan(command: string, context: PageContext): { summary: string; actions: Action[] } | null {
+  function buildFallbackPlan(
+    command: string,
+    context: PageContext
+  ): { summary: string; actions: Action[] } | null {
     // This would be implemented with the comprehensive workflow system
     return null;
   }
