@@ -9,41 +9,7 @@ import { getContextManager, ContextItem } from './contextManager';
 
 const SINGLE_MODEL = 'google/gemini-2.5-flash';
 
-// ─── Redaction helpers (prevent sensitive leakage to LLM/logs) ──────────
-function redact(value: any): string {
-  const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
-  const REDACTION_TOKEN = '***REDACTED***';
-  const patterns: RegExp[] = [
-    /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g,
-    /\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g,
-    /\b(?:\d[ -]*?){13,19}\b/g,
-    /\b(?:sk|pk|eyJ|ya29)\w{16,}\b/gi,
-    /\b[A-Fa-f0-9]{32,}\b/g,
-    /\b(?:session|auth|token|secret|password|apikey|api_key)\s*[:=]\s*['"][^'"\n]+['"]/gi,
-  ];
-  return patterns.reduce((acc, re) => acc.replace(re, REDACTION_TOKEN), s).slice(0, 20000);
-}
-
-function sanitizeMessages(messages: any[]): any[] {
-  return (messages || []).map((m) => {
-    if (Array.isArray(m.content)) {
-      return {
-        ...m,
-        content: m.content.map((c: any) => {
-          if (c?.type === 'text' && typeof c.text === 'string') {
-            return { ...c, text: redact(c.text) };
-          }
-          // Do not mutate image URLs (may be data URLs for screenshots)
-          return c;
-        })
-      };
-    }
-    if (typeof m.content === 'string') {
-      return { ...m, content: redact(m.content) };
-    }
-    return m;
-  });
-}
+import { redact, sanitizeMessages } from './security';
 
 // ─── Utility Classes ──────────────────────────────────────────────────────
 class RateLimiter {
@@ -251,7 +217,7 @@ function buildMessages(
       pageHeight: 0,
     };
   }
-  
+
   const currentContext = { ...context };
   const screenshot = currentContext?.screenshotBase64;
   if (screenshot) delete currentContext.screenshotBase64;
@@ -446,7 +412,7 @@ function validateResponse(raw: unknown): LLMResponse {
       'wait', 'pressKey', 'hover', 'focus', 'extract',
       'openTab', 'closeTab', 'switchTab', 'getTabs', 'runMacro', 'runWorkflow',
     ] as const;
-    
+
     const actionsRequiringLocator = new Set(['click', 'fill', 'select', 'hover', 'focus', 'extract']);
     const actionsRequiringUrl = new Set(['navigate', 'openTab', 'switchTab']);
     const actionsRequiringKey = new Set(['pressKey']);
@@ -547,9 +513,9 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
-      
+
       const completionModel = SINGLE_MODEL;
-      
+
       console.log(`[HyperAgent] Using completion model: ${completionModel}`);
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
@@ -597,12 +563,12 @@ export class EnhancedLLMClient implements LLMClientInterface {
     try {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
       console.log('[HyperAgent] Raw messages:', JSON.stringify(rawMessages, null, 2));
-      
+
       const messages = sanitizeMessages(rawMessages);
       console.log('[HyperAgent] Sanitized messages:', JSON.stringify(messages, null, 2));
 
       const model = SINGLE_MODEL;
-      
+
       console.log(`[HyperAgent] Using model: ${model}`);
 
       // Debug: log the request body

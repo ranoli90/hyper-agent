@@ -11,6 +11,7 @@ export default defineConfig({
       'activeTab',
       'scripting',
       'storage',
+      'unlimitedStorage',
       'contextMenus',
       'alarms',
     ],

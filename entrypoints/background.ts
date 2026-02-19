@@ -22,7 +22,7 @@ import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
 import { trackActionStart, trackActionEnd, getMetrics, getActionMetrics, getSuccessRateByDomain } from '../shared/metrics';
 import { createSession, getActiveSession, updateSessionPageInfo, addActionToSession, addResultToSession, updateExtractedData } from '../shared/session';
-import { checkDomainAllowed, checkActionAllowed, checkRateLimit, initializeSecuritySettings, getPrivacySettings, getSecurityPolicy, type PrivacySettings, type SecurityPolicy } from '../shared/security';
+import { checkDomainAllowed, checkActionAllowed, checkRateLimit, initializeSecuritySettings, getPrivacySettings, getSecurityPolicy, type PrivacySettings, type SecurityPolicy, redact } from '../shared/security';
 import type {
   ExtensionMessage,
   Action,
@@ -118,20 +118,7 @@ interface LogEntry {
   source: string;
 }
 
-// ─── Security helpers (redaction, regex safety) ─────────────────────────
-function redact(value: any): string {
-  const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
-  const REDACTION_TOKEN = '***REDACTED***';
-  const patterns: RegExp[] = [
-    /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g, // email
-    /\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g, // phone (simple)
-    /\b(?:\d[ -]*?){13,19}\b/g, // cc-like numbers
-    /\b(?:sk|pk|eyJ|ya29)\w{16,}\b/gi, // tokens
-    /\b[A-Fa-f0-9]{32,}\b/g, // long hex ids
-    /\b(?:session|auth|token|secret|password|apikey|api_key)\s*[:=]\s*['"][^'"\n]+['"]/gi,
-  ];
-  return patterns.reduce((acc, re) => acc.replace(re, REDACTION_TOKEN), s).slice(0, 20000);
-}
+// ─── Security helpers ─────────────────────────
 
 function isSafeRegex(pattern: string, maxLength = 256): boolean {
   if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength) return false;
@@ -532,7 +519,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
   switch (type) {
     case 'executeCommand':
       return typeof (message as any).command === 'string' &&
-             ((message as any).useAutonomous === undefined || typeof (message as any).useAutonomous === 'boolean');
+        ((message as any).useAutonomous === undefined || typeof (message as any).useAutonomous === 'boolean');
     case 'stopAgent':
       return true;
     case 'confirmResponse':
@@ -1198,7 +1185,7 @@ export default defineBackground(() => {
     };
 
     let result: ActionResult = await attempt();
-    
+
     // Ensure result is always valid
     if (!result) {
       result = { success: false, error: 'Unknown action error', errorType: 'ACTION_FAILED' as ErrorType };
@@ -1212,7 +1199,7 @@ export default defineBackground(() => {
       if (!validErrorTypes.includes(errorType)) {
         errorType = 'ACTION_FAILED' as ErrorType;
       }
-      
+
       const currentAttempt = agentState.getRecoveryAttempt(action);
 
       // Check if we've exceeded max recovery attempts
@@ -1381,12 +1368,12 @@ export default defineBackground(() => {
         const actionResults = [];
         for (const action of llmResponse.actions) {
           if (agentState.isAborted) break;
-          
+
           if (!action || typeof action !== 'object' || !action.type) {
             logger.log('warn', 'Invalid action structure', { action });
             continue;
           }
-          
+
           const result = await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
 
           if (result && result.success && settings.enableVision && (action.type === 'click' || action.type === 'fill')) {
@@ -1411,7 +1398,7 @@ export default defineBackground(() => {
               // Continue without verification
             }
           }
-          
+
           if (result) {
             actionResults.push({ action, ...result });
           }
@@ -1603,6 +1590,242 @@ Return JSON:
       console.error('[Background] Scheduler alarm handle failed:', err);
     });
   });
+
+  // ─── Core Message Handling ───────────────────────────────────────────
+  function handleExtensionMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void): boolean {
+    // 1. Validate message
+    if (!message || typeof message.type !== 'string') return false;
+
+    // 2. Validate sender (security)
+    if (sender.id !== chrome.runtime.id) return false;
+
+    // 3. Route message
+    switch (message.type) {
+      case 'executeCommand':
+        (async () => {
+          try {
+            await runAgentLoop(message.command);
+            sendResponse({ success: true });
+          } catch (err: any) {
+            console.error('[Background] Command execution failed:', err);
+            sendResponse({ success: false, error: err.message });
+            // Notify sidepanel of error
+            chrome.runtime.sendMessage({
+              type: 'agentError',
+              error: err.message
+            }).catch(() => { });
+          }
+        })();
+        return true; // Async response
+
+      case 'stopAgent':
+        agentState.abort();
+        sendResponse({ success: true });
+        return true;
+
+      case 'confirmResponse':
+        if (agentState.hasPendingConfirm && agentState['state'].pendingConfirmResolve) {
+          agentState['state'].pendingConfirmResolve(message.confirmed);
+          agentState['state'].pendingConfirmResolve = null;
+          sendResponse({ success: true });
+        } else {
+          sendResponse({ success: false, error: 'No pending confirmation' });
+        }
+        return true;
+
+      case 'userReply':
+        if (agentState.hasPendingReply && agentState['state'].pendingUserReplyResolve) {
+          agentState['state'].pendingUserReplyResolve(message.reply);
+          agentState['state'].pendingUserReplyResolve = null;
+          sendResponse({ success: true });
+        } else {
+          // If no pending reply, treat as new command context or log it
+          console.log('[Background] Received user reply without pending request:', message.reply);
+          sendResponse({ success: true });
+        }
+        return true;
+
+      case 'getAgentStatus':
+        sendResponse({
+          isRunning: agentState.isRunning,
+          isPaused: agentState['state'].isPaused
+        });
+        return true;
+    }
+
+    return false;
+  }
+
+  // ─── Main ReAct Agent Loop ───────────────────────────────────────────
+  async function runAgentLoop(initialCommand: string): Promise<void> {
+    if (agentState.isRunning) {
+      throw new Error('Agent is already running');
+    }
+
+    agentState.setRunning(true);
+    let activeSessionId = agentState.currentSessionId;
+
+    try {
+      // 1. Create or get session
+      if (!activeSessionId) {
+        const activeTab = await getActiveTab();
+        if (!activeTab) throw new Error('No active tab found');
+        const session = await createSession(activeTab.url || 'subway-surfers', activeTab.title || 'New Session');
+        activeSessionId = session.id;
+        // Verify session creation
+        if (!session || !session.id) {
+          console.error('[Background] Failed to create session, ID is missing.');
+          // Fallback ID if session creation fails deeply
+          activeSessionId = `fallback_${Date.now()}`;
+        }
+      }
+
+      // 2. Notify start
+      chrome.runtime.sendMessage({
+        type: 'agentProgress',
+        step: {
+          id: 'start',
+          type: 'plan',
+          description: 'Analyzing request...',
+          status: 'running'
+        }
+      } as MsgAgentProgress).catch(() => { });
+
+      // 3. Loop variables
+      const maxSteps = 20;
+      let stepCount = 0;
+      let currentCommand = initialCommand;
+      const history: HistoryEntry[] = [];
+
+      // 4. Execution Loop
+      while (stepCount < maxSteps && !agentState.isAborted) {
+        stepCount++;
+
+        // A. Observe Context
+        const activeTab = await getActiveTab();
+        if (!activeTab?.id) throw new Error('No active tab to control');
+
+        const contextResponse = await sendMessageToTab(activeTab.id, { type: 'getContext' });
+        const pageContext: PageContext = contextResponse?.context || {
+          url: activeTab.url || '',
+          title: activeTab.title || '',
+          bodyText: '',
+          formCount: 0,
+          semanticElements: [],
+          timestamp: Date.now(),
+          scrollPosition: { x: 0, y: 0 },
+          viewportSize: { width: 1280, height: 720 },
+          pageHeight: 0
+        };
+
+        // Update session
+        await updateSessionPageInfo(activeSessionId, pageContext.url, pageContext.title);
+
+        // B. Plan (Call LLM)
+        const llmRequest = {
+          command: currentCommand,
+          history: history,
+          context: pageContext
+        };
+
+        const llmResponse = await llmClient.callLLM(llmRequest);
+
+        // Notify thinking
+        if (llmResponse.thinking) {
+          chrome.runtime.sendMessage({
+            type: 'agentProgress',
+            step: {
+              id: `think_${stepCount}`,
+              type: 'plan',
+              description: llmResponse.thinking,
+              status: 'completed'
+            }
+          } as MsgAgentProgress).catch(() => { });
+        }
+
+        // Add to history
+        history.push({
+          role: 'user',
+          context: pageContext,
+          command: currentCommand
+        });
+
+        history.push({
+          role: 'assistant',
+          response: llmResponse
+        });
+
+        // C. Act
+        if (llmResponse.done) {
+          chrome.runtime.sendMessage({ type: 'agentDone' } as MsgAgentDone).catch(() => { });
+          break;
+        }
+
+        if (llmResponse.askUser) {
+          // Request user input
+          // Implementation for askUser would go here - for now we just log
+          console.log('[Background] LLM requested user input:', llmResponse.askUser);
+          // Break for now as we don't have full UI for this in P1
+          break;
+        }
+
+        // Execute actions
+        for (const action of llmResponse.actions) {
+          if (agentState.isAborted) break;
+
+          // Notify action start
+          chrome.runtime.sendMessage({
+            type: 'agentProgress',
+            step: {
+              id: `act_${stepCount}_${action.type}`,
+              type: 'action',
+              description: (action as any).description || `Executing ${action.type}`,
+              status: 'running'
+            }
+          } as MsgAgentProgress).catch(() => { });
+
+          // Execute on content script
+          const result: ActionResult = await sendMessageToTab(activeTab.id, {
+            type: 'performAction',
+            action: action
+          });
+
+          // Record result
+          await addActionToSession(activeSessionId, action);
+          await addResultToSession(activeSessionId, result);
+
+          // Notify action complete
+          chrome.runtime.sendMessage({
+            type: 'agentProgress',
+            step: {
+              id: `act_${stepCount}_${action.type}`,
+              type: 'action',
+              description: (action as any).description || `Executed ${action.type}`,
+              status: result.success ? 'completed' : 'failed'
+            }
+          } as MsgAgentProgress).catch(() => { });
+
+          // Short delay between actions
+          await delay(500);
+        }
+
+        // Clear command for next iteration (Reflexive)
+        currentCommand = "Continue based on the previous actions and the new page state.";
+      }
+
+    } catch (err: any) {
+      console.error('[Background] Agent loop error:', err);
+      chrome.runtime.sendMessage({
+        type: 'agentError',
+        error: err.message || 'Unknown error in agent loop'
+      }).catch(() => { });
+    } finally {
+      agentState.setRunning(false);
+    }
+  }
+
+  // ─── Message Listener Registration ───────────────────────────────────
+  chrome.runtime.onMessage.addListener(handleExtensionMessage);
 
   // Initialize scheduler on startup
   schedulerEngine.initialize().catch(err => {

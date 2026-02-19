@@ -67,14 +67,14 @@ function domainMatches(hostname: string, pattern: string): boolean {
 export async function getPrivacySettings(): Promise<PrivacySettings> {
   const data = await chrome.storage.local.get(SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS);
   const stored = data[SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS];
-  
+
   if (stored) {
     return {
       ...DEFAULT_PRIVACY_SETTINGS,
       ...stored,
     };
   }
-  
+
   return DEFAULT_PRIVACY_SETTINGS;
 }
 
@@ -82,11 +82,11 @@ export async function getPrivacySettings(): Promise<PrivacySettings> {
 export async function setPrivacySettings(settings: Partial<PrivacySettings>): Promise<void> {
   const current = await getPrivacySettings();
   const updated = { ...current, ...settings };
-  
+
   await chrome.storage.local.set({
     [SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS]: updated,
   });
-  
+
   console.log('[HyperAgent] Privacy settings updated:', updated);
 }
 
@@ -94,14 +94,14 @@ export async function setPrivacySettings(settings: Partial<PrivacySettings>): Pr
 export async function getSecurityPolicy(): Promise<SecurityPolicy> {
   const data = await chrome.storage.local.get(SECURITY_STORAGE_KEYS.SECURITY_POLICY);
   const stored = data[SECURITY_STORAGE_KEYS.SECURITY_POLICY];
-  
+
   if (stored) {
     return {
       ...DEFAULT_SECURITY_POLICY,
       ...stored,
     };
   }
-  
+
   return DEFAULT_SECURITY_POLICY;
 }
 
@@ -109,11 +109,11 @@ export async function getSecurityPolicy(): Promise<SecurityPolicy> {
 export async function setSecurityPolicy(policy: Partial<SecurityPolicy>): Promise<void> {
   const current = await getSecurityPolicy();
   const updated = { ...current, ...policy };
-  
+
   await chrome.storage.local.set({
     [SECURITY_STORAGE_KEYS.SECURITY_POLICY]: updated,
   });
-  
+
   console.log('[HyperAgent] Security policy updated:', updated);
 }
 
@@ -121,9 +121,9 @@ export async function setSecurityPolicy(policy: Partial<SecurityPolicy>): Promis
 export async function checkDomainAllowed(url: string): Promise<boolean> {
   const settings = await getPrivacySettings();
   const hostname = extractHostname(url);
-  
+
   if (!hostname) return false;
-  
+
   // Check blocked domains first
   for (const blocked of settings.blockedDomains) {
     if (domainMatches(hostname, blocked)) {
@@ -131,7 +131,7 @@ export async function checkDomainAllowed(url: string): Promise<boolean> {
       return false;
     }
   }
-  
+
   // If allowedDomains is not empty, check against it
   if (settings.allowedDomains.length > 0) {
     for (const allowed of settings.allowedDomains) {
@@ -142,7 +142,7 @@ export async function checkDomainAllowed(url: string): Promise<boolean> {
     console.log('[HyperAgent] Domain not in allowed list:', hostname);
     return false;
   }
-  
+
   return true;
 }
 
@@ -154,10 +154,10 @@ export async function checkActionAllowed(action: Action, url: string): Promise<{
 }> {
   const policy = await getSecurityPolicy();
   const hostname = extractHostname(url);
-  
+
   // Check if action type requires confirmation
   const requiresConfirmation = policy.requireConfirmationFor.includes(action.type as any);
-  
+
   // Check for navigate action and external URLs
   if (action.type === 'navigate' && !policy.allowExternalUrls) {
     const navUrl = (action as any).url;
@@ -172,7 +172,7 @@ export async function checkActionAllowed(action: Action, url: string): Promise<{
       }
     }
   }
-  
+
   return {
     allowed: true,
     requiresConfirmation,
@@ -190,15 +190,15 @@ export async function checkRateLimit(actionType: string): Promise<{
   const maxPerMinute = policy.maxActionsPerMinute;
   const now = Date.now();
   const windowMs = 60000; // 1 minute window
-  
+
   const key = actionType;
   const entry = actionRateLimits.get(key);
-  
+
   if (!entry) {
     actionRateLimits.set(key, { count: 1, windowStart: now });
     return { allowed: true };
   }
-  
+
   // Check if we're in the same window
   if (now - entry.windowStart < windowMs) {
     if (entry.count >= maxPerMinute) {
@@ -209,7 +209,7 @@ export async function checkRateLimit(actionType: string): Promise<{
     entry.count++;
     return { allowed: true };
   }
-  
+
   // Reset window
   actionRateLimits.set(key, { count: 1, windowStart: now });
   return { allowed: true };
@@ -226,12 +226,46 @@ export async function initializeSecuritySettings(): Promise<void> {
   // Set defaults if not already set
   const privacy = await getPrivacySettings();
   const policy = await getSecurityPolicy();
-  
+
   // Ensure defaults are persisted
   await chrome.storage.local.set({
     [SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS]: privacy,
     [SECURITY_STORAGE_KEYS.SECURITY_POLICY]: policy,
   });
-  
+
   console.log('[HyperAgent] Security settings initialized:', { privacy, policy });
+}
+// ─── Data Redaction & Sanitization ─────────────────────────────────────
+export function redact(value: any): string {
+  const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
+  const REDACTION_TOKEN = '***REDACTED***';
+  const patterns: RegExp[] = [
+    /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g, // email
+    /\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g, // phone (simple)
+    /\b(?:\d[ -]*?){13,19}\b/g, // cc-like numbers
+    /\b(?:sk|pk|eyJ|ya29)\w{16,}\b/gi, // tokens
+    /\b[A-Fa-f0-9]{32,}\b/g, // long hex ids
+    /\b(?:session|auth|token|secret|password|apikey|api_key)\s*[:=]\s*['"][^'"\n]+['"]/gi,
+  ];
+  return patterns.reduce((acc, re) => acc.replace(re, REDACTION_TOKEN), s).slice(0, 20000);
+}
+
+export function sanitizeMessages(messages: any[]): any[] {
+  return (messages || []).map((m) => {
+    if (Array.isArray(m.content)) {
+      return {
+        ...m,
+        content: m.content.map((c: any) => {
+          if (c?.type === 'text' && typeof c.text === 'string') {
+            return { ...c, text: redact(c.text) };
+          }
+          return c;
+        })
+      };
+    }
+    if (typeof m.content === 'string') {
+      return { ...m, content: redact(m.content) };
+    }
+    return m;
+  });
 }

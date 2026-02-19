@@ -8,41 +8,56 @@ import type {
 } from '../../shared/types';
 
 // ─── DOM Elements ───────────────────────────────────────────────
+const safeGetElement = <T extends HTMLElement>(id: string, optional = false): T | null => {
+  const el = document.getElementById(id);
+  if (!el && !optional) {
+    console.error(`[HyperAgent] Critical DOM element missing: #${id}`);
+    return null;
+  }
+  return el as T;
+};
+
 const components = {
-  chatHistory: document.getElementById('chat-history')!,
-  commandInput: document.getElementById('command-input') as HTMLTextAreaElement,
-  btnExecute: document.getElementById('btn-execute') as HTMLButtonElement,
-  btnStop: document.getElementById('btn-stop') as HTMLButtonElement,
-  btnSettings: document.getElementById('btn-settings') as HTMLButtonElement,
-  statusBar: document.getElementById('status-bar')!,
-  statusText: document.getElementById('status-text')!,
-  suggestions: document.getElementById('suggestions-container')!,
-  btnMic: document.getElementById('btn-mic') as HTMLButtonElement,
+  chatHistory: safeGetElement<HTMLElement>('chat-history')!,
+  commandInput: safeGetElement<HTMLTextAreaElement>('command-input')!,
+  btnExecute: safeGetElement<HTMLButtonElement>('btn-execute')!,
+  btnStop: safeGetElement<HTMLButtonElement>('btn-stop')!,
+  btnSettings: safeGetElement<HTMLButtonElement>('btn-settings')!,
+  statusBar: safeGetElement<HTMLElement>('status-bar')!,
+  statusText: safeGetElement<HTMLElement>('status-text')!,
+  suggestions: safeGetElement<HTMLElement>('suggestions-container')!,
+  btnMic: safeGetElement<HTMLButtonElement>('btn-mic')!,
 
   // Tabs
   tabs: document.querySelectorAll('.tab-btn'),
   panes: document.querySelectorAll('.tab-pane'),
 
   // Vision
-  visionSnapshot: document.getElementById('vision-snapshot') as HTMLImageElement,
-  visionPlaceholder: document.getElementById('vision-placeholder')!,
+  visionSnapshot: safeGetElement<HTMLImageElement>('vision-snapshot', true)!, // Optional if vision disabled
+  visionPlaceholder: safeGetElement<HTMLElement>('vision-placeholder')!,
 
   // Modals
-  confirmModal: document.getElementById('confirm-modal')!,
-  confirmSummary: document.getElementById('confirm-summary')!,
-  confirmList: document.getElementById('confirm-actions-list')!,
-  btnConfirm: document.getElementById('btn-confirm')!,
-  btnCancel: document.getElementById('btn-cancel')!,
+  confirmModal: safeGetElement<HTMLElement>('confirm-modal')!,
+  confirmSummary: safeGetElement<HTMLElement>('confirm-summary')!,
+  confirmList: safeGetElement<HTMLElement>('confirm-actions-list')!,
+  btnConfirm: safeGetElement<HTMLButtonElement>('btn-confirm')!,
+  btnCancel: safeGetElement<HTMLButtonElement>('btn-cancel')!,
 
-  askModal: document.getElementById('ask-modal')!,
-  askQuestion: document.getElementById('ask-question')!,
-  askReply: document.getElementById('ask-reply') as HTMLTextAreaElement,
-  btnAskReply: document.getElementById('btn-ask-reply')!,
-  btnAskCancel: document.getElementById('btn-ask-cancel')!,
+  askModal: safeGetElement<HTMLElement>('ask-modal')!,
+  askQuestion: safeGetElement<HTMLElement>('ask-question')!,
+  askReply: safeGetElement<HTMLTextAreaElement>('ask-reply')!,
+  btnAskReply: safeGetElement<HTMLButtonElement>('btn-ask-reply')!,
+  btnAskCancel: safeGetElement<HTMLButtonElement>('btn-ask-cancel')!,
 
   // Stepper
   steps: document.querySelectorAll('.step'),
 };
+
+// Validate critical components
+if (!components.chatHistory || !components.commandInput || !components.btnExecute) {
+  console.error('[HyperAgent] Failed to initialize critical UI components.');
+  // Optionally render a "Broken UI" error message directly to body if completely failed
+}
 
 // ─── State ──────────────────────────────────────────────────────
 const state = {
@@ -105,6 +120,7 @@ components.btnAskCancel.addEventListener('click', () => {
 const SLASH_COMMANDS = {
   '/clear': () => {
     components.chatHistory.innerHTML = '';
+    saveHistory();
     addMessage('Chat history cleared.', 'status');
   },
   '/reset': () => {
@@ -205,6 +221,7 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 
   components.chatHistory.appendChild(div);
   scrollToBottom();
+  saveHistory(); // Persist
   return div;
 }
 
@@ -292,6 +309,29 @@ function setRunning(running: boolean) {
   }
 }
 
+// ─── Persistence ────────────────────────────────────────────────
+async function saveHistory() {
+  const historyHTML = components.chatHistory.innerHTML;
+  await chrome.storage.local.set({ 'chat_history_backup': historyHTML });
+}
+
+async function loadHistory() {
+  const data = await chrome.storage.local.get('chat_history_backup');
+  if (data.chat_history_backup) {
+    components.chatHistory.innerHTML = data.chat_history_backup;
+    scrollToBottom();
+  }
+}
+
+// ─── Utilities ──────────────────────────────────────────────────
+function debounce(func: Function, wait: number) {
+  let timeout: any;
+  return function (...args: any[]) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
 // ─── Event Listeners ────────────────────────────────────────────
 components.btnExecute.addEventListener('click', () => {
   const text = components.commandInput.value;
@@ -312,15 +352,33 @@ components.commandInput.addEventListener('keydown', (e) => {
   }
 });
 
-components.commandInput.addEventListener('input', (e) => {
+const handleInput = debounce((e: Event) => {
   const target = e.target as HTMLTextAreaElement;
+
+  // Auto-resize with max-height
   target.style.height = 'auto';
-  target.style.height = (target.scrollHeight) + 'px';
+  const newHeight = Math.min(target.scrollHeight, 200); // Cap at 200px
+  target.style.height = newHeight + 'px';
+  target.style.overflowY = target.scrollHeight > 200 ? 'auto' : 'hidden';
 
   const val = target.value;
   if (val.startsWith('/')) showSuggestions(val);
   else components.suggestions.classList.add('hidden');
+}, 100);
+
+components.commandInput.addEventListener('input', (e) => {
+  // Immediate resize for better feel, logic in debounce handles suggestions
+  const target = e.target as HTMLTextAreaElement;
+  target.style.height = 'auto';
+  const newHeight = Math.min(target.scrollHeight, 200);
+  target.style.height = newHeight + 'px';
+  target.style.overflowY = target.scrollHeight > 200 ? 'auto' : 'hidden';
+
+  handleInput(e);
 });
+
+// Load history on start
+loadHistory();
 
 components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
@@ -330,7 +388,7 @@ components.btnSettings.addEventListener('click', () => {
 chrome.runtime.onMessage.addListener((message: any) => {
   // Validate message structure
   if (!message || typeof message !== 'object' || !message.type) return;
-  
+
   switch (message.type) {
     case 'agentProgress': {
       if (typeof message.status === 'string') updateStatus(message.status, 'active');
@@ -367,9 +425,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
         console.warn('[HyperAgent] Invalid confirmActions message:', message);
         break;
       }
-      
+
       components.confirmSummary.textContent = message.summary;
-      
+
       // Build actions list
       if (message.actions.length > 0) {
         components.confirmList.innerHTML = '';
@@ -382,9 +440,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
           }
         });
       }
-      
+
       components.confirmModal.classList.remove('hidden');
-      
+
       new Promise<boolean>(resolve => {
         state.confirmResolve = resolve;
         // Timeout after 30 seconds to prevent hanging
@@ -414,6 +472,12 @@ chrome.runtime.onMessage.addListener((message: any) => {
         components.commandInput.focus();
         components.commandInput.dispatchEvent(new Event('input'));
       }
+      break;
+    }
+    case 'agentError': {
+      const error = typeof message.error === 'string' ? message.error : 'Unknown error';
+      addMessage(error, 'error');
+      setRunning(false);
       break;
     }
     default:
