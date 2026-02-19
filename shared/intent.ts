@@ -1,5 +1,4 @@
 import type { CommandIntent } from './types';
-import { normalizeCommand } from './i18n';
 
 // ─── Command Patterns ──────────────────────────────────────────────────
 interface CommandPattern {
@@ -185,8 +184,8 @@ const COMMON_COMMANDS = [
  * Now supports multi-language commands (auto-detects and translates)
  */
 export function parseIntent(command: string): CommandIntent[] {
-  // Detect language and normalize command to English
-  const { normalized, language } = normalizeCommand(command);
+  // Normalize command to lowercase for matching
+  const normalized = command.toLowerCase().trim();
   const intents: CommandIntent[] = [];
 
   if (!normalized) {
@@ -230,7 +229,6 @@ export function parseIntent(command: string): CommandIntent[] {
         action: pattern.action,
         target: target || undefined,
         confidence: pattern.confidence,
-        language,
         originalText: command,
       });
     }
@@ -244,7 +242,6 @@ export function parseIntent(command: string): CommandIntent[] {
         action: 'navigate',
         target: command,
         confidence: 0.9,
-        language,
         originalText: command,
       });
     } else {
@@ -253,7 +250,6 @@ export function parseIntent(command: string): CommandIntent[] {
         action: 'search',
         target: command,
         confidence: 0.6,
-        language,
         originalText: command,
       });
     }

@@ -1,5 +1,23 @@
+/**
+ * @fileoverview HyperAgent Background Service Worker
+ *
+ * This is the core orchestration layer of the HyperAgent autonomous AI browser agent.
+ * The background service worker manages the entire agent lifecycle, coordinates between
+ * different system components, and ensures reliable execution of autonomous tasks.
+ *
+ * Key Responsibilities:
+ * - Orchestrates the ReAct agentic loop (Observe → Plan → Act → Re-observe)
+ * - Manages communication between side panel, content scripts, and external systems
+ * - Handles session management, state coordination, and error recovery
+ * - Provides security enforcement, rate limiting, and resource management
+ * - Coordinates autonomous intelligence with traditional LLM operations
+ *
+ * The background script is the "brain" of the HyperAgent system, making intelligent
+ * decisions about task execution while maintaining safety and reliability.
+ */
+
 import { loadSettings, isSiteBlacklisted, DEFAULTS } from '../shared/config';
-import { callLLM, type HistoryEntry } from '../shared/llmClient';
+import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
 import { trackActionStart, trackActionEnd, getMetrics, getActionMetrics, getSuccessRateByDomain } from '../shared/metrics';
@@ -15,29 +33,419 @@ import type {
   MsgConfirmActions,
   MsgAgentDone,
   ErrorContext,
+  ErrorType,
   ActionResult,
 } from '../shared/types';
+import { withErrorBoundary, withGracefulDegradation, errorBoundary, gracefulDegradation } from '../shared/error-boundary';
+import { schedulerEngine } from '../shared/scheduler-engine';
+import { toolRegistry } from '../shared/tool-system';
+import { autonomousIntelligence } from '../shared/autonomous-intelligence';
+import { globalLearning } from '../shared/global-learning';
 
-export default defineBackground(() => {
-  // ─── Agent state ───────────────────────────────────────────────
-  let agentRunning = false;
-  let agentAborted = false;
-  let pendingConfirmResolve: ((confirmed: boolean) => void) | null = null;
-  let pendingUserReplyResolve: ((reply: string) => void) | null = null;
-  let currentSessionId: string | null = null;
+// ─── Enhanced Background Script with Production Features ─────────────────
 
-  // ─── Advanced Error Recovery State ──────────────────────────────
-  const recoveryAttempts = new Map<string, { attempt: number; strategy: string; timestamp: number }>();
-  const MAX_RECOVERY_ATTEMPTS = 3;
-  const RECOVERY_LOG_MAX_ENTRIES = 100;
-  const recoveryLog: { timestamp: number; action: string; error: string; strategy: string; outcome: string }[] = [];
+/**
+ * Structured logging system for the background service worker.
+ *
+ * Provides consistent, searchable logging with different severity levels,
+ * automatic log rotation, and integration with the extension's monitoring system.
+ */
+class StructuredLogger {
+  /** Current logging level threshold */
+  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
+  /** Maximum number of log entries to retain */
+  private maxEntries = 1000;
+  /** Circular buffer of log entries */
+  private logEntries: LogEntry[] = [];
 
-  // ─── Recovery tracking helper ─────────────────────────────────────
-  function getRecoveryKey(action: Action): string {
+  /**
+   * Log a message with specified level and optional data.
+   * @param level - Severity level of the log entry
+   * @param message - Human-readable log message
+   * @param data - Optional structured data for debugging
+   */
+  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
+    const entry: LogEntry = {
+      timestamp: Date.now(),
+      level,
+      message,
+      data,
+      source: 'background'
+    };
+
+    this.logEntries.push(entry);
+    if (this.logEntries.length > this.maxEntries) {
+      this.logEntries.shift();
+    }
+
+    // Console output based on log level
+    const consoleMethod = level === 'debug' ? 'debug' :
+      level === 'warn' ? 'warn' :
+        level === 'error' ? 'error' : 'log';
+
+    console[consoleMethod](`[HyperAgent:${level.toUpperCase()}] ${message}`, data || '');
+  }
+
+  /**
+   * Retrieve log entries, optionally filtered by level.
+   * @param level - Optional level filter
+   * @returns Array of matching log entries
+   */
+  getEntries(level?: 'debug' | 'info' | 'warn' | 'error'): LogEntry[] {
+    if (!level) return this.logEntries;
+    return this.logEntries.filter(entry => entry.level === level);
+  }
+
+  /** Clear all log entries */
+  clear(): void {
+    this.logEntries = [];
+  }
+}
+
+/**
+ * Log entry structure for structured logging.
+ */
+interface LogEntry {
+  /** Timestamp when the log entry was created */
+  timestamp: number;
+  /** Severity level of the log entry */
+  level: 'debug' | 'info' | 'warn' | 'error';
+  /** Human-readable log message */
+  message: string;
+  /** Optional structured data for debugging */
+  data?: any;
+  /** Source component that generated the log entry */
+  source: string;
+}
+
+// ─── Security helpers (redaction, regex safety) ─────────────────────────
+function redact(value: any): string {
+  const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
+  const REDACTION_TOKEN = '***REDACTED***';
+  const patterns: RegExp[] = [
+    /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g, // email
+    /\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g, // phone (simple)
+    /\b(?:\d[ -]*?){13,19}\b/g, // cc-like numbers
+    /\b(?:sk|pk|eyJ|ya29)\w{16,}\b/gi, // tokens
+    /\b[A-Fa-f0-9]{32,}\b/g, // long hex ids
+    /\b(?:session|auth|token|secret|password|apikey|api_key)\s*[:=]\s*['"][^'"\n]+['"]/gi,
+  ];
+  return patterns.reduce((acc, re) => acc.replace(re, REDACTION_TOKEN), s).slice(0, 20000);
+}
+
+function isSafeRegex(pattern: string, maxLength = 256): boolean {
+  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength) return false;
+  try { new RegExp(pattern); return true; } catch { return false; }
+}
+
+function safeInlineText(str: string, max = 500): string {
+  const s = (str || '').replace(/[\n\r\t]+/g, ' ').replace(/["'`]/g, '');
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+// ─── Message Rate Limiter ───────────────────────────────────────────────
+
+/**
+ * Rate limiter for extension messages to prevent abuse and ensure stability.
+ *
+ * Implements sliding window rate limiting per sender to protect against
+ * excessive message traffic while allowing legitimate usage patterns.
+ */
+class MessageRateLimiter {
+  /** Rate limit tracking per sender */
+  private messageCounts = new Map<string, { count: number; resetTime: number }>();
+  /** Maximum messages allowed per minute per sender */
+  private readonly maxMessagesPerMinute = 120; // Reasonable limit for extension
+  /** Rate limit window duration in milliseconds */
+  private readonly windowMs = 60000; // 1 minute
+
+  /**
+   * Check if a message can be accepted from the given sender.
+   * @param sender - Identifier for the message sender
+   * @returns True if message can be accepted, false if rate limited
+   */
+  canAcceptMessage(sender: string): boolean {
+    const now = Date.now();
+    const senderData = this.messageCounts.get(sender);
+
+    if (!senderData || now > senderData.resetTime) {
+      // Reset or new sender
+      this.messageCounts.set(sender, { count: 1, resetTime: now + this.windowMs });
+      return true;
+    }
+
+    if (senderData.count >= this.maxMessagesPerMinute) {
+      return false; // Rate limited
+    }
+
+    senderData.count++;
+    return true;
+  }
+
+  /**
+   * Get time until rate limit reset for a sender.
+   * @param sender - Sender identifier
+   * @returns Milliseconds until rate limit resets
+   */
+  getTimeUntilReset(sender: string): number {
+    const senderData = this.messageCounts.get(sender);
+    if (!senderData) return 0;
+
+    const now = Date.now();
+    return Math.max(0, senderData.resetTime - now);
+  }
+
+  /** Clean up expired rate limit entries */
+  cleanup(): void {
+    const now = Date.now();
+    for (const [sender, data] of this.messageCounts) {
+      if (now > data.resetTime) {
+        this.messageCounts.delete(sender);
+      }
+    }
+  }
+}
+
+// ─── Agent State Manager ───────────────────────────────────────────────
+
+interface AgentState {
+  isRunning: boolean;
+  isPaused: boolean;
+  isAborted: boolean;
+  currentSessionId?: string | null;
+  hasPendingConfirm?: boolean;
+  hasPendingReply?: boolean;
+}
+
+/**
+ * Comprehensive state management for the autonomous agent.
+ *
+ * Tracks execution state, manages user confirmations and replies,
+ * coordinates recovery attempts, and maintains session information.
+ * This is the central nervous system for agent coordination.
+ */
+class AgentStateManager {
+  /** Core agent execution state */
+  private state = {
+    isRunning: false,
+    isAborted: false,
+    currentSessionId: null as string | null,
+    pendingConfirmResolve: null as ((confirmed: boolean) => void) | null,
+    pendingUserReplyResolve: null as ((reply: string) => void) | null,
+  };
+
+  private listeners: ((state: AgentState) => void)[] = [];
+  private abortController: AbortController | null = null;
+
+  // Recovery state
+  /** Tracks recovery attempts per action to prevent infinite loops */
+  private recoveryAttempts = new Map<string, { attempt: number; strategy: string; timestamp: number }>();
+  /** Maximum recovery attempts allowed per action */
+  private readonly MAX_RECOVERY_ATTEMPTS = 3;
+  /** Maximum recovery log entries to retain */
+  private readonly RECOVERY_LOG_MAX_ENTRIES = 100;
+  /** Recovery attempt history for analysis */
+  private recoveryLog: { timestamp: number; action: string; error: string; strategy: string; outcome: string }[] = [];
+
+  // Getters
+  /** @returns True if agent is currently executing */
+  get isRunning(): boolean { return this.state.isRunning; }
+  /** @returns True if agent execution has been aborted */
+  get isAborted(): boolean { return this.state.isAborted; }
+  /** @returns Current session ID or null */
+  get currentSessionId(): string | null { return this.state.currentSessionId; }
+  /** @returns True if waiting for user confirmation */
+  get hasPendingConfirm(): boolean { return this.state.pendingConfirmResolve !== null; }
+  /** @returns True if waiting for user reply */
+  get hasPendingReply(): boolean { return this.state.pendingUserReplyResolve !== null; }
+
+  getSignal(): AbortSignal | undefined {
+    return this.abortController?.signal;
+  }
+
+  // Setters with validation
+  /**
+   * Set agent running state.
+   * @param running - New running state
+   * @throws Error if running is not boolean
+   */
+  setRunning(running: boolean): void {
+    if (typeof running !== 'boolean') throw new Error('isRunning must be boolean');
+    this.state.isRunning = running;
+
+    if (running) {
+      this.state.isAborted = false;
+      this.abortController = new AbortController();
+    } else {
+      this.abortController = null;
+    }
+    this.notifyListeners();
+  }
+
+  /**
+   * Set agent aborted state.
+   * @param aborted - New aborted state
+   * @throws Error if aborted is not boolean
+   */
+  setAborted(aborted: boolean): void {
+    if (typeof aborted !== 'boolean') throw new Error('isAborted must be boolean');
+    this.state.isAborted = aborted;
+    this.notifyListeners();
+  }
+
+  abort() {
+    this.state.isAborted = true;
+    this.state.isRunning = false;
+
+    if (this.abortController) {
+      this.abortController.abort();
+      this.abortController = null;
+    }
+
+    // Clear any pending confirmations/replies
+    if (this.state.pendingConfirmResolve) {
+      this.state.pendingConfirmResolve(false);
+      this.state.pendingConfirmResolve = null;
+    }
+    if (this.state.pendingUserReplyResolve) {
+      this.state.pendingUserReplyResolve('');
+      this.state.pendingUserReplyResolve = null;
+    }
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Set current session ID.
+   * @param sessionId - New session ID or null
+   * @throws Error if sessionId is not string or null
+   */
+  setCurrentSession(sessionId: string | null): void {
+    if (sessionId !== null && typeof sessionId !== 'string') throw new Error('sessionId must be string or null');
+    this.state.currentSessionId = sessionId;
+  }
+
+  subscribe(listener: (state: AgentState) => void) {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyListeners() {
+    // Convert internal state to public AgentState
+    const publicState: AgentState = {
+      isRunning: this.state.isRunning,
+      isPaused: this.state.pendingConfirmResolve !== null || this.state.pendingUserReplyResolve !== null,
+      isAborted: this.state.isAborted
+    };
+    this.listeners.forEach((listener) => listener(publicState));
+  }
+
+  // Promise resolvers
+  /**
+   * Set resolver for pending confirmation.
+   * @param resolve - Promise resolver function
+   */
+  setConfirmResolver(resolve: (confirmed: boolean) => void): void {
+    if (this.state.pendingConfirmResolve) {
+      this.state.pendingConfirmResolve(false); // Resolve existing with false
+    }
+    this.state.pendingConfirmResolve = resolve;
+  }
+
+  /**
+   * Resolve pending confirmation.
+   * @param confirmed - User's confirmation choice
+   * @returns True if confirmation was resolved
+   */
+  resolveConfirm(confirmed: boolean): boolean {
+    if (this.state.pendingConfirmResolve) {
+      this.state.pendingConfirmResolve(confirmed);
+      this.state.pendingConfirmResolve = null;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Set resolver for pending user reply.
+   * @param resolve - Promise resolver function
+   */
+  setReplyResolver(resolve: (reply: string) => void): void {
+    if (this.state.pendingUserReplyResolve) {
+      this.state.pendingUserReplyResolve(''); // Resolve existing with empty string
+    }
+    this.state.pendingUserReplyResolve = resolve;
+  }
+
+  /**
+   * Resolve pending user reply.
+   * @param reply - User's reply text
+   * @returns True if reply was resolved
+   */
+  resolveReply(reply: string): boolean {
+    if (this.state.pendingUserReplyResolve) {
+      this.state.pendingUserReplyResolve(reply);
+      this.state.pendingUserReplyResolve = null;
+      return true;
+    }
+    return false;
+  }
+
+  /** @returns Maximum recovery attempts allowed per action */
+  get maxRecoveryAttempts(): number { return this.MAX_RECOVERY_ATTEMPTS; }
+  /**
+   * Generate a unique key for tracking recovery attempts per action.
+   * @param action - The action being recovered
+   * @returns Unique recovery key combining action type and content hash
+   */
+  getRecoveryKey(action: Action): string {
     return `${action.type}-${JSON.stringify(action).slice(0, 30)}`;
   }
 
-  function logRecoveryOutcome(action: Action, error: string, strategy: string, outcome: string): void {
+  /**
+   * Get the number of recovery attempts for a specific action.
+   * @param action - The action to check recovery attempts for
+   * @returns Number of recovery attempts made so far
+   */
+  getRecoveryAttempt(action: Action): number {
+    const key = this.getRecoveryKey(action);
+    const entry = this.recoveryAttempts.get(key);
+    return entry?.attempt || 0;
+  }
+
+  /**
+   * Increment the recovery attempt counter for an action.
+   * @param action - The action being recovered
+   * @param strategy - The recovery strategy being used
+   */
+  incrementRecoveryAttempt(action: Action, strategy: string): void {
+    const key = this.getRecoveryKey(action);
+    const entry = this.recoveryAttempts.get(key) || { attempt: 0, strategy: '', timestamp: 0 };
+    entry.attempt += 1;
+    entry.strategy = strategy;
+    entry.timestamp = Date.now();
+    this.recoveryAttempts.set(key, entry);
+  }
+
+  /**
+   * Clear recovery attempt tracking for an action.
+   * @param action - The action to clear recovery tracking for
+   */
+  clearRecoveryAttempt(action: Action): void {
+    const key = this.getRecoveryKey(action);
+    this.recoveryAttempts.delete(key);
+  }
+
+  /**
+   * Log the outcome of a recovery attempt for analysis.
+   * @param action - The action that was recovered
+   * @param error - The original error that triggered recovery
+   * @param strategy - The recovery strategy used
+   * @param outcome - The outcome of the recovery attempt
+   */
+  logRecoveryOutcome(action: Action, error: string, strategy: string, outcome: string): void {
     const entry = {
       timestamp: Date.now(),
       action: action.type,
@@ -45,180 +453,483 @@ export default defineBackground(() => {
       strategy,
       outcome,
     };
-    recoveryLog.push(entry);
+    this.recoveryLog.push(entry);
+
     // Keep log bounded
-    if (recoveryLog.length > RECOVERY_LOG_MAX_ENTRIES) {
-      recoveryLog.shift();
+    if (this.recoveryLog.length > this.RECOVERY_LOG_MAX_ENTRIES) {
+      this.recoveryLog.shift();
     }
+
     console.log(`[HyperAgent] Recovery ${outcome}: ${action.type} - ${error} - ${strategy}`);
   }
 
-  function getRecoveryAttempt(action: Action): number {
-    const key = getRecoveryKey(action);
-    const entry = recoveryAttempts.get(key);
-    return entry?.attempt || 0;
+  // Cleanup methods
+  /** Clean up expired recovery attempt tracking (older than 24 hours) */
+  cleanupExpiredRecoveryAttempts(): void {
+    const cutoff = Date.now() - (24 * 60 * 60 * 1000); // 24 hours
+    for (const [key, entry] of this.recoveryAttempts) {
+      if (entry.timestamp < cutoff) {
+        this.recoveryAttempts.delete(key);
+      }
+    }
   }
 
-  function incrementRecoveryAttempt(action: Action, strategy: string): void {
-    const key = getRecoveryKey(action);
-    const entry = recoveryAttempts.get(key) || { attempt: 0, strategy: '', timestamp: 0 };
-    entry.attempt += 1;
-    entry.strategy = strategy;
-    entry.timestamp = Date.now();
-    recoveryAttempts.set(key, entry);
+  /**
+   * Get comprehensive recovery statistics for monitoring.
+   * @returns Recovery statistics including active attempts and failure rates
+   */
+  getRecoveryStats(): any {
+    return {
+      activeAttempts: this.recoveryAttempts.size,
+      totalLoggedRecoveries: this.recoveryLog.length,
+      recentFailures: this.recoveryLog.filter(entry =>
+        entry.timestamp > Date.now() - (60 * 60 * 1000) && entry.outcome === 'failed'
+      ).length
+    };
   }
 
-  function clearRecoveryAttempt(action: Action): void {
-    const key = getRecoveryKey(action);
-    recoveryAttempts.delete(key);
+  // Reset all state (for testing/cleanup)
+  /** Reset all agent state for testing or cleanup purposes */
+  reset(): void {
+    this.state = {
+      isRunning: false,
+      isAborted: false,
+      currentSessionId: null,
+      pendingConfirmResolve: null,
+      pendingUserReplyResolve: null,
+    };
+    this.recoveryAttempts.clear();
+    this.recoveryLog = [];
   }
+}
+
+// ─── Global instances ───────────────────────────────────────────────────
+/** Global structured logger for consistent logging across the background script */
+const logger = new StructuredLogger();
+/** Global message rate limiter to prevent abuse and ensure stability */
+const rateLimiter = new MessageRateLimiter();
+/** Global agent state manager for coordinating agent execution and recovery */
+const agentState = new AgentStateManager();
+/** Global enhanced LLM client instance with autonomous intelligence integration */
+// llmClient is imported from shared/llmClient as a singleton instance
+
+// ─── Input validation ───────────────────────────────────────────────────
+
+/**
+ * Validate incoming extension messages for security and correctness.
+ *
+ * Ensures messages conform to expected structure and contain required fields
+ * before processing to prevent security vulnerabilities and runtime errors.
+ *
+ * @param message - The message to validate
+ * @returns True if message is valid and properly structured
+ */
+function validateExtensionMessage(message: any): message is ExtensionMessage {
+  if (!message || typeof message !== 'object') return false;
+  const { type } = message as any;
+  if (typeof type !== 'string') return false;
+
+  switch (type) {
+    case 'executeCommand':
+      return typeof (message as any).command === 'string' &&
+             ((message as any).useAutonomous === undefined || typeof (message as any).useAutonomous === 'boolean');
+    case 'stopAgent':
+      return true;
+    case 'confirmResponse':
+      return typeof (message as any).confirmed === 'boolean';
+    case 'userReply':
+      return typeof (message as any).reply === 'string';
+    case 'getAgentStatus':
+    case 'clearHistory':
+    case 'getMetrics':
+      return true;
+    default:
+      return false;
+  }
+}
+
+// ─── Main script ────────────────────────────────────────────────────────
+
+/**
+ * Main background service worker definition using WXT framework.
+ *
+ * This is the entry point for the background script that orchestrates the entire
+ * HyperAgent autonomous AI browser agent. It sets up event listeners, initializes
+ * background tasks, and coordinates all system components.
+ *
+ * Key responsibilities:
+ * - Extension installation and setup
+ * - Context menu handling
+ * - Message routing and validation
+ * - Background task scheduling (cleanup, monitoring)
+ * - Error boundary setup for reliability
+ */
+export default defineBackground(() => {
+  // ─── Cleanup intervals ───────────────────────────────────────────────
+  setInterval(() => {
+    rateLimiter.cleanup();
+    agentState.cleanupExpiredRecoveryAttempts();
+  }, 5 * 60 * 1000); // Every 5 minutes
 
   // ─── On install: configure side panel ───────────────────────────
   chrome.runtime.onInstalled.addListener(async () => {
-    if (chrome.sidePanel?.setPanelBehavior) {
-      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-    }
+    await withErrorBoundary('extension_installation', async () => {
+      // 3. Initialize Global Learning
+      globalLearning.fetchGlobalWisdom().catch(e => logger.log('error', 'Global learning fetch failed', e));
 
-    chrome.contextMenus.create({
-      id: 'hyperagent-send-page',
-      title: 'Send this page to HyperAgent',
-      contexts: ['page'],
+      // Set up periodic sync
+      setInterval(() => {
+        globalLearning.publishPatterns().catch(e => console.error('[GlobalLearning] Publish failed:', e));
+        globalLearning.fetchGlobalWisdom().catch(e => console.error('[GlobalLearning] Fetch failed:', e));
+      }, 1000 * 60 * 60); // Every hour
+
+      logger.log('info', 'HyperAgent background initialized');
+
+      if (chrome.sidePanel?.setPanelBehavior) {
+        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+      }
+
+      // Ensure context menus are cleared before re-creating to avoid "duplicate ID" errors
+      chrome.contextMenus.removeAll(() => {
+        chrome.contextMenus.create({
+          id: 'hyperagent-send-page',
+          title: 'Send this page to HyperAgent',
+          contexts: ['page'],
+        });
+
+        chrome.contextMenus.create({
+          id: 'hyperagent-summarize',
+          title: 'Summarize this page with HyperAgent',
+          contexts: ['page'],
+        });
+
+        chrome.contextMenus.create({
+          id: 'hyperagent-selection',
+          title: 'Ask HyperAgent about selection',
+          contexts: ['selection'],
+        });
+      });
+
+      const settings = await loadSettings();
+      if (!settings.apiKey) {
+        chrome.runtime.openOptionsPage();
+      }
+
+      // Restore session on startup
+      const existingSession = await withErrorBoundary('session_restoration', async () => {
+        return await getActiveSession();
+      });
+
+      if (existingSession) {
+        agentState.setCurrentSession(existingSession.id);
+        logger.log('info', 'Restored session', { sessionId: existingSession.id });
+      }
+
+      // Initialize security settings
+      await withErrorBoundary('security_initialization', async () => {
+        await initializeSecuritySettings();
+        // Initialize Long-Term Memory
+        const { memoryManager } = await import('../shared/memory-system');
+        await memoryManager.initialize();
+        // Initialize Scheduler
+        const { schedulerEngine } = await import('../shared/scheduler-engine');
+        await schedulerEngine.initialize();
+      });
     });
-
-    chrome.contextMenus.create({
-      id: 'hyperagent-summarize',
-      title: 'Summarize this page with HyperAgent',
-      contexts: ['page'],
-    });
-
-    chrome.contextMenus.create({
-      id: 'hyperagent-selection',
-      title: 'Ask HyperAgent about selection',
-      contexts: ['selection'],
-    });
-
-    const settings = await loadSettings();
-    if (!settings.apiKey) {
-      chrome.runtime.openOptionsPage();
-    }
-
-    // Restore session on startup
-    const existingSession = await getActiveSession();
-    if (existingSession) {
-      currentSessionId = existingSession.id;
-      console.log('[HyperAgent] Restored session:', existingSession.id);
-    }
-
-    // Initialize security settings (Iteration 15)
-    await initializeSecuritySettings();
   });
+
 
   // ─── Context menu handler ──────────────────────────────────────
   chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (!tab?.id) return;
+    await withErrorBoundary('context_menu_handling', async () => {
+      if (!tab?.id) {
+        logger.log('warn', 'Context menu clicked without valid tab');
+        return;
+      }
 
-    if (chrome.sidePanel?.open) {
-      await chrome.sidePanel.open({ tabId: tab.id });
-    }
+      // Rate limiting check
+      if (!rateLimiter.canAcceptMessage(`tab_${tab.id}`)) {
+        logger.log('warn', 'Rate limit exceeded for context menu');
+        return;
+      }
 
-    let command = '';
-    switch (info.menuItemId) {
-      case 'hyperagent-send-page':
-        command = `Analyze this page: ${tab.url}`;
-        break;
-      case 'hyperagent-summarize':
-        command = `Summarize the content of this page in detail.`;
-        break;
-      case 'hyperagent-selection':
-        command = `Regarding the selected text: "${info.selectionText?.slice(0, 500)}" — explain or act on this.`;
-        break;
-    }
+      if (chrome.sidePanel?.open) {
+        await chrome.sidePanel.open({ tabId: tab.id });
+      }
 
-    if (command) {
-      setTimeout(() => {
-        sendToSidePanel({ type: 'contextMenuCommand', command });
-      }, 600);
-    }
+      let command = '';
+      switch (info.menuItemId) {
+        case 'hyperagent-send-page':
+          command = `Analyze this page: ${tab.url}`;
+          break;
+        case 'hyperagent-summarize':
+          command = `Summarize the content of this page in detail.`;
+          break;
+        case 'hyperagent-selection':
+          command = `Regarding the selected text: "${safeInlineText(info.selectionText || '', 300)}" — explain or act on this.`;
+          break;
+      }
+
+      if (command) {
+        setTimeout(() => {
+          sendToSidePanel({ type: 'contextMenuCommand', command });
+        }, 600);
+      }
+    });
   });
 
-  // ─── Message routing ───────────────────────────────────────────
+  // ─── Autonomous Mode Integration ─────────────────────────────────────
+
+  /**
+   * High-intelligence execution loop using the AutonomousIntelligenceEngine.
+   * This uses Tree of Thoughts reasoning, advanced planning, and adaptive learning.
+   */
+  async function runAutonomousLoop(command: string) {
+    if (agentState.isRunning) return;
+    agentState.setRunning(true);
+    agentState.setAborted(false);
+
+    const settings = await loadSettings();
+    const tabId = await getActiveTabId();
+    const tab = await chrome.tabs.get(tabId);
+
+    try {
+      // 1. Initialize Autonomous Engine with Callbacks
+      autonomousIntelligence.setLLMClient(llmClient);
+      autonomousIntelligence.setCallbacks({
+        onProgress: (status, step, summary) => {
+          sendToSidePanel({ type: 'agentProgress', status, step: step as any, summary });
+        },
+        onAskUser: async (question) => {
+          sendToSidePanel({ type: 'askUser', question });
+          return await askUserForInfo(question);
+        },
+        onConfirmActions: async (actions, step, summary) => {
+          return await askUserConfirmation(actions, step, summary);
+        },
+        executeAction: async (action) => {
+          return await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
+        },
+        captureScreenshot: async () => {
+          return await captureScreenshot();
+        },
+        onDone: (summary, success) => {
+          sendToSidePanel({ type: 'agentDone', finalSummary: summary, success, stepsUsed: 0 });
+        }
+      });
+
+      logger.log('info', 'Starting autonomous reasoning for task', { command: redact(command) });
+      sendToSidePanel({ type: 'agentProgress', status: 'Thinking (Advanced)...', step: 'plan' });
+
+      // 2. High-Level Reasoning and Planning
+      const pageCtx = await getPageContext(tabId);
+      const plan = await autonomousIntelligence.understandAndPlan(command, {
+        environmentalData: {
+          url: tab.url,
+          html: pageCtx.bodyText.slice(0, 5000),
+          screenshotBase64: settings.enableVision ? await captureScreenshot() : undefined
+        }
+      });
+
+      logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
+
+      // 3. Execute with Adaptation
+      const result = await autonomousIntelligence.executeWithAdaptation(plan);
+
+      const finalSummary = result.success
+        ? `Task completed successfully. Learnings: ${result.learnings.slice(0, 2).join('; ')}`
+        : `Task failed: ${result.error}`;
+
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary,
+        success: result.success,
+        stepsUsed: result.results.length
+      });
+
+    } catch (err: any) {
+      logger.log('error', 'Autonomous loop failed', { error: err.message });
+      sendToSidePanel({ type: 'agentDone', finalSummary: `Autonomous Error: ${err.message}`, success: false, stepsUsed: 0 });
+    } finally {
+      agentState.setRunning(false);
+    }
+  }
+
+  // ─── Enhanced message routing with security ──────────────────────
   chrome.runtime.onMessage.addListener(
-    (message: ExtensionMessage, _sender, sendResponse) => {
-      switch (message.type) {
-        case 'executeCommand': {
-          if (agentRunning) {
-            sendResponse({ ok: false, error: 'Agent is already running' });
-            return true;
+    (message: ExtensionMessage, sender, sendResponse) => {
+      (async () => {
+        await withErrorBoundary('message_processing', async () => {
+          // Rate limiting
+          const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
+          if (!rateLimiter.canAcceptMessage(senderId)) {
+            logger.log('warn', 'Message rate limited', { senderId });
+            sendResponse({ ok: false, error: 'Rate limit exceeded' });
+            return;
           }
-          runAgentLoop(message.command).catch((err) => {
-            console.error('[HyperAgent] Agent loop error:', err);
-            sendToSidePanel({
-              type: 'agentDone',
-              finalSummary: `Agent error: ${err.message || String(err)}`,
-              success: false,
-              stepsUsed: 0,
-            });
-            agentRunning = false;
-          });
-          sendResponse({ ok: true });
-          return true;
-        }
 
-        case 'stopAgent': {
-          agentAborted = true;
-          if (pendingConfirmResolve) {
-            pendingConfirmResolve(false);
-            pendingConfirmResolve = null;
+          // Input validation
+          if (!validateExtensionMessage(message)) {
+            logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
+            sendResponse({ ok: false, error: 'Invalid message format' });
+            return;
           }
-          if (pendingUserReplyResolve) {
-            pendingUserReplyResolve('');
-            pendingUserReplyResolve = null;
-          }
-          return false;
-        }
 
-        case 'confirmResponse': {
-          if (pendingConfirmResolve) {
-            pendingConfirmResolve(message.confirmed);
-            pendingConfirmResolve = null;
-          }
-          return false;
-        }
+          logger.log('debug', 'Processing message', { type: message.type, senderId });
 
-        case 'userReply': {
-          if (pendingUserReplyResolve) {
-            pendingUserReplyResolve(message.reply);
-            pendingUserReplyResolve = null;
-          }
-          return false;
-        }
-      }
-      return false;
+          // Route message
+          const result = await handleExtensionMessage(message, sender);
+          sendResponse(result);
+        });
+      })();
+
+      // Keep channel open for async response
+      return true;
     }
   );
 
-  // ─── Helper: send message to side panel ────────────────────────
-  function sendToSidePanel(msg: ExtensionMessage) {
-    chrome.runtime.sendMessage(msg).catch(() => {});
+  // ─── Message handler function ─────────────────────────────────────
+  /**
+   * Route and handle validated extension messages.
+   *
+   * This function processes all incoming messages from the side panel and content scripts,
+   * routing them to appropriate handlers while maintaining security and state consistency.
+   *
+   * @param message - Validated extension message
+   * @param sender - Chrome message sender information
+   * @returns Response object with success status and optional data
+   */
+  async function handleExtensionMessage(message: ExtensionMessage, sender: chrome.runtime.MessageSender): Promise<any> {
+    switch (message.type) {
+      case 'executeCommand': {
+        if (agentState.isRunning) {
+          return { ok: false, error: 'Agent is already running' };
+        }
+
+        // Determine which loop to run
+        const loopToRun = message.useAutonomous ? runAutonomousLoop : runAgentLoop;
+
+        // Start agent asynchronously
+        loopToRun(message.command).catch((err) => {
+          logger.log('error', 'Agent loop error', err);
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `Agent error: ${err.message || String(err)}`,
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+        });
+
+        return { ok: true };
+      }
+
+      case 'stopAgent': {
+        agentState.setAborted(true);
+        if (agentState.hasPendingConfirm) {
+          agentState.resolveConfirm(false);
+        }
+        if (agentState.hasPendingReply) {
+          agentState.resolveReply('');
+        }
+        return { ok: true };
+      }
+
+      case 'confirmResponse': {
+        const resolved = agentState.resolveConfirm(message.confirmed);
+        return { ok: resolved };
+      }
+
+      case 'userReply': {
+        const resolved = agentState.resolveReply(message.reply);
+        return { ok: resolved };
+      }
+
+      case 'getAgentStatus': {
+        return {
+          ok: true,
+          status: {
+            isRunning: agentState.isRunning,
+            isAborted: agentState.isAborted,
+            currentSessionId: agentState.currentSessionId,
+            hasPendingConfirm: agentState.hasPendingConfirm,
+            hasPendingReply: agentState.hasPendingReply,
+            recoveryStats: agentState.getRecoveryStats()
+          }
+        };
+      }
+
+      case 'clearHistory': {
+        // Clear agent state and recovery logs
+        agentState.reset();
+        logger.clear();
+        return { ok: true };
+      }
+
+      case 'getMetrics': {
+        return {
+          ok: true,
+          metrics: {
+            logs: logger.getEntries(),
+            recovery: agentState.getRecoveryStats(),
+            rateLimitStatus: {
+              canAccept: rateLimiter.canAcceptMessage('query'),
+              timeUntilReset: rateLimiter.getTimeUntilReset('query')
+            }
+          }
+        };
+      }
+
+      default:
+        return { ok: false, error: 'Unknown message type' };
+    }
   }
 
-  // ─── Helper: get active tab ────────────────────────────────────
+  // ─── Helper functions ─────────────────────────────────────────────
+
+  function sendToSidePanel(msg: ExtensionMessage) {
+    chrome.runtime.sendMessage(msg).catch(() => { });
+  }
+
   async function getActiveTabId(): Promise<number> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('No active tab found');
     return tab.id;
   }
 
-  // ─── Helper: ensure content script and get context ─────────────
   async function getPageContext(tabId: number): Promise<PageContext> {
     // Try direct message first
     try {
       const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
       if (response?.context) return response.context;
-    } catch { /* content script not ready */ }
+    } catch (err: any) {
+      // Check if this is a chrome:// URL error (expected behavior)
+      if (err?.message?.includes('Cannot access a chrome:// URL')) {
+        logger.log('info', 'Skipping chrome:// URL context extraction (expected behavior)');
+      } else {
+        console.warn('[HyperAgent] Failed to get direct context:', err);
+      }
+    }
 
-    // Inject content script
+    // Inject content script (skip for chrome:// URLs)
     try {
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url?.startsWith('chrome://')) {
+        // Return minimal context for chrome:// pages
+        return {
+          url: tab.url || '',
+          title: tab.title || 'Chrome Settings',
+          bodyText: '',
+          metaDescription: '',
+          formCount: 0,
+          semanticElements: [],
+          timestamp: Date.now(),
+          scrollPosition: { x: 0, y: 0 },
+          viewportSize: { width: 0, height: 0 },
+          pageHeight: 0,
+        };
+      }
+
       await chrome.scripting.executeScript({
         target: { tabId },
         files: ['/content-scripts/content.js'],
@@ -246,7 +957,6 @@ export default defineBackground(() => {
     };
   }
 
-  // ─── Helper: capture screenshot ────────────────────────────────
   async function captureScreenshot(): Promise<string> {
     try {
       const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, {
@@ -260,7 +970,6 @@ export default defineBackground(() => {
     }
   }
 
-  // ─── Helper: check if action is destructive ────────────────────
   function isDestructive(action: Action): boolean {
     if (action.destructive === true) return true;
     if (action.type === 'navigate') return true;
@@ -279,10 +988,9 @@ export default defineBackground(() => {
     return false;
   }
 
-  // ─── Helper: ask user confirmation ─────────────────────────────
   function askUserConfirmation(actions: Action[], step: number, summary: string): Promise<boolean> {
     return new Promise((resolve) => {
-      pendingConfirmResolve = resolve;
+      agentState.setConfirmResolver(resolve);
       sendToSidePanel({
         type: 'confirmActions',
         actions,
@@ -291,42 +999,52 @@ export default defineBackground(() => {
       } as MsgConfirmActions);
 
       setTimeout(() => {
-        if (pendingConfirmResolve) {
-          pendingConfirmResolve(false);
-          pendingConfirmResolve = null;
+        if (agentState.hasPendingConfirm) {
+          agentState.resolveConfirm(false);
         }
       }, DEFAULTS.CONFIRM_TIMEOUT_MS);
     });
   }
 
-  // ─── Helper: ask user for info ─────────────────────────────────
   function askUserForInfo(question: string): Promise<string> {
     return new Promise((resolve) => {
-      pendingUserReplyResolve = resolve;
+      agentState.setReplyResolver(resolve);
       sendToSidePanel({ type: 'askUser', question });
 
       setTimeout(() => {
-        if (pendingUserReplyResolve) {
-          pendingUserReplyResolve('');
-          pendingUserReplyResolve = null;
+        if (agentState.hasPendingReply) {
+          agentState.resolveReply('');
         }
       }, 120000); // 2 min timeout for user replies
     });
   }
 
-  // ─── Helper: execute a single action with optional retry + error classification ───
+  function jitter(base: number, pct = 0.2): number {
+    const delta = base * pct;
+    return Math.max(0, base + (Math.random() * 2 - 1) * delta);
+  }
+
+  function delayForErrorType(errorType?: string): number {
+    switch (errorType) {
+      case 'ELEMENT_NOT_VISIBLE': return jitter(800, 0.3);
+      case 'ELEMENT_DISABLED': return jitter(1500, 0.25);
+      case 'TIMEOUT': return jitter(1000, 0.3);
+      default: return jitter(300, 0.5);
+    }
+  }
+
   async function executeAction(
     tabId: number,
     action: Action,
     dryRun: boolean,
     autoRetry: boolean,
     pageUrl?: string
-  ): Promise<{ success: boolean; error?: string; errorType?: string; extractedData?: string; recovered?: boolean }> {
-    // Start metrics tracking
-    const actionId = trackActionStart(action, pageUrl);
+  ): Promise<ActionResult> {
     const startTime = Date.now();
-    let pageUrlToTrack = pageUrl;
-    
+
+    // Track action start
+    const actionId = trackActionStart(action, pageUrl);
+
     if (dryRun) {
       console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
       trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
@@ -340,7 +1058,7 @@ export default defineBackground(() => {
         await waitForTabLoad(tabId);
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: `Navigation failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' };
+        return { success: false, error: `Navigation failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' as ErrorType };
       }
     }
 
@@ -350,7 +1068,7 @@ export default defineBackground(() => {
         await waitForTabLoad(tabId);
         return { success: true };
       } catch (err: any) {
-        return { success: false, error: `Go back failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' };
+        return { success: false, error: `Go back failed: ${err.message}`, errorType: 'NAVIGATION_ERROR' as ErrorType };
       }
     }
 
@@ -379,7 +1097,7 @@ export default defineBackground(() => {
 
     if (action.type === 'switchTab') {
       let targetTabId = action.tabId;
-      
+
       // If no tabId provided, try to find by URL pattern
       if (!targetTabId && action.urlPattern) {
         const findResult = await findTabByUrl(action.urlPattern);
@@ -418,7 +1136,7 @@ export default defineBackground(() => {
           return await executeAction(tabId, subAction, dryRun, autoRetry);
         }
       );
-      
+
       if (macroResult.success) {
         return { success: true, extractedData: `Macro executed successfully with ${macroResult.results.length} actions` };
       }
@@ -435,48 +1153,40 @@ export default defineBackground(() => {
           return await executeAction(tabId, subAction, dryRun, autoRetry);
         }
       );
-      
+
       if (workflowResult.success) {
         return { success: true, extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps` };
       }
       return { success: false, error: workflowResult.error || 'Workflow execution failed' };
     }
 
-    // Send to content script
-    const attempt = async (): Promise<{ success: boolean; error?: string; errorType?: string; extractedData?: string; recovered?: boolean }> => {
+    // Higher-order function for the content script action to allow retries
+    const attempt = async (): Promise<ActionResult> => {
       try {
-        const response = await chrome.tabs.sendMessage(tabId, {
-          type: 'performAction',
-          action,
-        });
-        return {
-          success: response?.success ?? false,
-          error: response?.error,
-          errorType: response?.errorType,
-          extractedData: response?.extractedData,
-          recovered: response?.recovered,
-        };
+        const response = await chrome.tabs.sendMessage(tabId, { type: 'executeActionOnPage', action }) as ActionResult;
+        return response;
       } catch (err: any) {
-        return { success: false, error: err.message || String(err), errorType: 'ACTION_FAILED' };
+        return { success: false, error: `Content script error: ${err.message}`, errorType: 'ACTION_FAILED' as ErrorType };
       }
     };
 
-    let result = await attempt();
+    let result: ActionResult = await attempt();
 
     // Auto-retry with enhanced error classification and recovery tracking
     if (!result.success && autoRetry) {
       const errorType = result.errorType;
-      const currentAttempt = getRecoveryAttempt(action);
-      
+      const currentAttempt = agentState.getRecoveryAttempt(action);
+
       // Check if we've exceeded max recovery attempts
-      if (currentAttempt >= MAX_RECOVERY_ATTEMPTS) {
-        logRecoveryOutcome(action, errorType || 'UNKNOWN', 'max-attempts-exceeded', 'failed');
-        clearRecoveryAttempt(action);
+      if (currentAttempt >= agentState.maxRecoveryAttempts) {
+        agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', 'max-attempts-exceeded', 'failed');
+        agentState.clearRecoveryAttempt(action);
+        trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
         return result;
       }
 
-      console.log(`[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${MAX_RECOVERY_ATTEMPTS}...`);
-      
+      console.log(`[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts}...`);
+
       // Determine recovery strategy based on error type
       let recoveryStrategy = 'basic-retry';
       if (errorType === 'ELEMENT_NOT_FOUND') {
@@ -490,54 +1200,222 @@ export default defineBackground(() => {
       } else if (errorType === 'NAVIGATION_ERROR') {
         recoveryStrategy = 'navigation-error-skip';
       }
-      
+
       // Enhanced retry based on error type
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
           files: ['/content-scripts/content.js'],
         });
-        
-        // Wait based on error type - more intelligent delays
-        if (errorType === 'ELEMENT_NOT_VISIBLE') {
-          await delay(800); // Wait for lazy load
-        } else if (errorType === 'ELEMENT_DISABLED') {
-          await delay(1500); // Wait for enable
-        } else if (errorType === 'TIMEOUT') {
-          await delay(1000); // Longer wait for timeout
-        } else {
-          await delay(300);
-        }
-        
+
+        // Wait based on error type with jitter
+        await delay(delayForErrorType(errorType));
+
         // Increment recovery attempt counter
-        incrementRecoveryAttempt(action, recoveryStrategy);
-        
+        agentState.incrementRecoveryAttempt(action, recoveryStrategy);
+
         result = await attempt();
-        
+
         // If succeeded, log successful recovery
         if (result.success) {
           if (result.recovered) {
-            logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'recovered');
+            agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'recovered');
           } else {
-            logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'success');
+            agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'success');
           }
-          clearRecoveryAttempt(action);
+          agentState.clearRecoveryAttempt(action);
         }
       } catch (err) {
         // Injection failed — log and return original error
-        logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'injection-failed');
-        clearRecoveryAttempt(action);
+        agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', recoveryStrategy, 'injection-failed');
+        agentState.clearRecoveryAttempt(action);
       }
     }
 
     // Track metrics for the action result
-    trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrlToTrack);
+    trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
 
     return result;
   }
 
-  // ─── Helper: wait for tab to finish loading ────────────────────
-  function waitForTabLoad(tabId: number): Promise<void> {
+  // ─── Main agent loop ──────────────────────────────────────────
+  async function runAgentLoop(command: string) {
+    agentState.setRunning(true);
+    agentState.setAborted(false);
+
+    const settings = await loadSettings();
+    const maxSteps = settings.maxSteps;
+    const tabId = await getActiveTabId();
+
+    const tab = await chrome.tabs.get(tabId);
+    if (tab.url && isSiteBlacklisted(tab.url, settings.siteBlacklist)) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Site blacklisted.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+
+    let session = await getActiveSession();
+    if (!session || session.pageUrl !== tab.url) {
+      session = await createSession(tab.url || '', tab.title || '');
+    }
+    agentState.setCurrentSession(session.id);
+
+    const history: HistoryEntry[] = [];
+    let requestScreenshot = false;
+
+    try {
+      for (let step = 1; step <= maxSteps; step++) {
+        if (agentState.isAborted) {
+          sendToSidePanel({ type: 'agentDone', finalSummary: 'Stopped.', success: false, stepsUsed: step - 1 });
+          return;
+        }
+
+        // ── Step 1: Observe ──
+        sendToSidePanel({ type: 'agentProgress', status: 'Analyzing page...', step: 'observe' });
+        let context = await getPageContext(tabId);
+
+        if (requestScreenshot || (step === 1 && settings.enableVision)) {
+          const screenshot = await captureScreenshot();
+          if (screenshot) {
+            context = { ...context, screenshotBase64: screenshot };
+            sendToSidePanel({ type: 'visionUpdate', screenshot });
+          }
+          requestScreenshot = false;
+        }
+
+        // ── Step 2: Plan ──
+        sendToSidePanel({ type: 'agentProgress', status: 'Planning...', step: 'plan' });
+        const llmResponse = await llmClient.callLLM({ command, history, context });
+
+        if (llmResponse.askUser) {
+          sendToSidePanel({ type: 'askUser', question: llmResponse.askUser });
+          const reply = await askUserForInfo(llmResponse.askUser);
+          if (!reply || agentState.isAborted) return;
+          history.push({ role: 'user', userReply: reply });
+          continue;
+        }
+
+        sendToSidePanel({ type: 'agentProgress', status: 'Thinking...', step: 'plan', summary: llmResponse.summary });
+
+        // Destructive path
+        const hasDestructive = llmResponse.actions.some(isDestructive);
+        if (hasDestructive) {
+          const confirmed = await askUserConfirmation(llmResponse.actions, step, llmResponse.summary);
+          if (!confirmed || agentState.isAborted) return;
+        }
+
+        // ── Step 4: Act ──
+        sendToSidePanel({ type: 'agentProgress', status: 'Executing...', step: 'act' });
+        const actionResults = [];
+        for (const action of llmResponse.actions) {
+          if (agentState.isAborted) break;
+          const result = await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
+
+          if (result.success && settings.enableVision && (action.type === 'click' || action.type === 'fill')) {
+            sendToSidePanel({ type: 'agentProgress', status: 'Verifying...', step: 'verify' });
+            const vScreenshot = await captureScreenshot();
+            if (vScreenshot) {
+              sendToSidePanel({ type: 'visionUpdate', screenshot: vScreenshot });
+              const isVerified = await verifyActionWithVision(action, vScreenshot);
+              if (!isVerified.success) {
+                result.success = false;
+                result.error = `Visual Failure: ${isVerified.reason}`;
+              }
+            }
+          }
+          actionResults.push({ action, ...result });
+          await delay(DEFAULTS.ACTION_DELAY_MS);
+        }
+
+        history.push({ role: 'user', context, command });
+        history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
+
+        if (llmResponse.done || llmResponse.actions.length === 0) {
+          sendToSidePanel({ type: 'agentDone', finalSummary: llmResponse.summary || 'Done', success: true, stepsUsed: step });
+          return;
+        }
+        await delay(350);
+      }
+      sendToSidePanel({ type: 'agentDone', finalSummary: 'Max steps reached.', success: false, stepsUsed: maxSteps });
+    } finally {
+      agentState.setRunning(false);
+    }
+  }
+
+  // ─── Tab management functions ───────────────────────────────────
+  async function openTab(url: string, active?: boolean): Promise<{ success: boolean; tabId?: number; error?: string }> {
+    try {
+      const tab = await chrome.tabs.create({ url, active: active ?? true });
+      if (tab.id) {
+        await waitForTabLoad(tab.id);
+        return { success: true, tabId: tab.id };
+      }
+      return { success: false, error: 'Failed to create tab' };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function closeTab(tabId: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      await chrome.tabs.remove(tabId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function switchToTab(tabId: number): Promise<{ success: boolean; error?: string }> {
+    try {
+      await chrome.tabs.update(tabId, { active: true });
+      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => { });
+      await waitForTabLoad(tabId);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function findTabByUrl(pattern: string): Promise<{ success: boolean; tabId?: number; error?: string }> {
+    try {
+      if (!isSafeRegex(pattern)) {
+        return { success: false, error: 'Invalid or unsafe URL pattern' };
+      }
+      const tabs = await chrome.tabs.query({});
+      const regex = new RegExp(pattern, 'i');
+      const matched = tabs.find((tab) => tab.url && regex.test(tab.url));
+      if (matched?.id) {
+        return { success: true, tabId: matched.id };
+      }
+      return { success: false, error: `No tab found matching pattern` };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function getAllTabs(): Promise<{ success: boolean; tabs?: { id: number; url: string; title: string; active: boolean }[]; error?: string }> {
+    try {
+      const tabs = await chrome.tabs.query({});
+      return {
+        success: true,
+        tabs: tabs.map((tab) => ({
+          id: tab.id!,
+          url: tab.url || '',
+          title: tab.title || '',
+          active: tab.active,
+        })),
+      };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  async function waitForTabLoad(tabId: number): Promise<void> {
     return new Promise((resolve) => {
       let resolved = false;
       const timeout = setTimeout(() => {
@@ -567,296 +1445,75 @@ export default defineBackground(() => {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  // ─── Tab Management Functions ───────────────────────────────────────
-  async function openTab(url: string, active?: boolean): Promise<{ success: boolean; tabId?: number; error?: string }> {
+  // ─── Reflex Verification Helper ──────────────────────────────────
+  async function verifyActionWithVision(action: Action, screenshotBase64: string): Promise<{ success: boolean; reason?: string }> {
     try {
-      const tab = await chrome.tabs.create({ url, active: active ?? true });
-      if (tab.id) {
-        await waitForTabLoad(tab.id);
-        return { success: true, tabId: tab.id };
-      }
-      return { success: false, error: 'Failed to create tab' };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
+      const prompt = `
+You are the "Reflex" system of an autonomous agent.
+The user performed an action: ${JSON.stringify(action)}
 
-  async function closeTab(tabId: number): Promise<{ success: boolean; error?: string }> {
-    try {
-      await chrome.tabs.remove(tabId);
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
+Look at the screenshot of the page AFTER the action.
+Did the action appear to succeed?
 
-  async function switchToTab(tabId: number): Promise<{ success: boolean; error?: string }> {
-    try {
-      await chrome.tabs.update(tabId, { active: true });
-      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => {});
-      await waitForTabLoad(tabId);
-      return { success: true };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
+Signs of success:
+- Modal closed or opened (if expected)
+- Form submitted (no validation errors visible)
+- Page navigated or content changed
+- "Success" message visible
 
-  async function findTabByUrl(pattern: string): Promise<{ success: boolean; tabId?: number; error?: string }> {
-    try {
-      const tabs = await chrome.tabs.query({});
-      const regex = new RegExp(pattern, 'i');
-      const matched = tabs.find((tab) => tab.url && regex.test(tab.url));
-      if (matched?.id) {
-        return { success: true, tabId: matched.id };
-      }
-      return { success: false, error: `No tab found matching pattern: ${pattern}` };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
+Signs of failure:
+- "Error" or "Invalid" text visible near the element
+- Nothing changed (stuck state)
+- Validation red borders
 
-  async function getAllTabs(): Promise<{ success: boolean; tabs?: { id: number; url: string; title: string; active: boolean }[]; error?: string }> {
-    try {
-      const tabs = await chrome.tabs.query({});
-      return {
-        success: true,
-        tabs: tabs.map((tab) => ({
-          id: tab.id!,
-          url: tab.url || '',
-          title: tab.title || '',
-          active: tab.active,
-        })),
-      };
-    } catch (err: any) {
-      return { success: false, error: err.message };
-    }
-  }
+Return JSON:
+{
+  "success": true | false,
+  "reason": "Brief explanation"
+}`;
 
-  // ─── Main agent loop ──────────────────────────────────────────
-  async function runAgentLoop(command: string) {
-    agentRunning = true;
-    agentAborted = false;
-
-    const settings = await loadSettings();
-    const maxSteps = settings.maxSteps;
-    const tabId = await getActiveTabId();
-
-    // Check site blacklist
-    const tab = await chrome.tabs.get(tabId);
-    if (tab.url && isSiteBlacklisted(tab.url, settings.siteBlacklist)) {
-      sendToSidePanel({
-        type: 'agentDone',
-        finalSummary: 'This site is on your blacklist. HyperAgent will not operate here.',
-        success: false,
-        stepsUsed: 0,
+      // Call LLM with Vision
+      const response = await llmClient.callCompletion({
+        messages: [
+          { role: 'system', content: prompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${screenshotBase64}`, detail: 'low' } }
+            ]
+          }
+        ],
+        temperature: 0.0, // Strict verification
+        maxTokens: 300,
+        responseFormat: 'json_object'
       });
-      agentRunning = false;
-      return;
-    }
 
-    // Initialize or restore session
-    let session = await getActiveSession();
-    if (!session || session.pageUrl !== tab.url) {
-      // Create new session for this page
-      session = await createSession(tab.url || '', tab.title || '');
-      currentSessionId = session.id;
-    } else {
-      currentSessionId = session.id;
-      // Update page info if URL changed
-      await updateSessionPageInfo(session.id, tab.url || '', tab.title || '');
-    }
+      const parsed = JSON.parse(response);
+      return {
+        success: parsed.success === true,
+        reason: parsed.reason
+      };
 
-    const history: HistoryEntry[] = [];
-    let requestScreenshot = false;
-    let consecutiveErrors = 0;
-
-    try {
-      for (let step = 1; step <= maxSteps; step++) {
-        // ── Check abort ──
-        if (agentAborted) {
-          sendToSidePanel({
-            type: 'agentDone',
-            finalSummary: 'Agent stopped by user.',
-            success: false,
-            stepsUsed: step - 1,
-          });
-          return;
-        }
-
-        // ── Step 1: Observe ──
-        sendToSidePanel({
-          type: 'agentProgress',
-          step,
-          maxSteps,
-          summary: 'Analyzing page...',
-          status: 'thinking',
-        } as MsgAgentProgress);
-
-        let context = await getPageContext(tabId);
-
-        // Vision-first fallback: capture screenshot if DOM is sparse or explicitly requested
-        const needsVisionFallback = context.needsScreenshot || context.semanticElements.length < DEFAULTS.VISION_FALLBACK_THRESHOLD;
-        if (needsVisionFallback && settings.enableVision) {
-          requestScreenshot = true;
-        }
-
-        // Capture screenshot if model requested it or vision is enabled for first step
-        if (requestScreenshot || (step === 1 && settings.enableVision)) {
-          const screenshotBase64 = await captureScreenshot();
-          if (screenshotBase64) {
-            context = { ...context, screenshotBase64 };
-          }
-          requestScreenshot = false;
-        }
-
-        // ── Step 2: Plan (call LLM) ──
-        const llmResponse = await callLLM(command, history, context);
-
-        console.log(`[HyperAgent] Step ${step}/${maxSteps}:`, llmResponse.summary);
-
-        // Handle LLM errors with retry
-        if (llmResponse.error && !llmResponse.done) {
-          consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
-            sendToSidePanel({
-              type: 'agentDone',
-              finalSummary: `Stopping after ${consecutiveErrors} consecutive errors. Last: ${llmResponse.summary}`,
-              success: false,
-              stepsUsed: step,
-            });
-            return;
-          }
-          sendToSidePanel({
-            type: 'agentProgress',
-            step,
-            maxSteps,
-            summary: `Error: ${llmResponse.summary}. Retrying...`,
-            status: 'retrying',
-          } as MsgAgentProgress);
-          await delay(2000);
-          continue;
-        }
-        consecutiveErrors = 0;
-
-        // Track if model wants a screenshot next round
-        if (llmResponse.needsScreenshot && settings.enableVision) {
-          requestScreenshot = true;
-        }
-
-        // ── Handle askUser ──
-        if (llmResponse.askUser) {
-          sendToSidePanel({ type: 'askUser', question: llmResponse.askUser });
-          const reply = await askUserForInfo(llmResponse.askUser);
-
-          if (!reply || agentAborted) {
-            sendToSidePanel({
-              type: 'agentDone',
-              finalSummary: reply ? 'Agent stopped.' : 'No reply received. Agent stopped.',
-              success: false,
-              stepsUsed: step,
-            });
-            return;
-          }
-
-          history.push({ role: 'user', userReply: reply });
-          continue; // Re-run LLM with the user's reply
-        }
-
-        // Update side panel
-        const actionDescs = llmResponse.actions.map((a) => (a as any).description || a.type);
-        sendToSidePanel({
-          type: 'agentProgress',
-          step,
-          maxSteps,
-          summary: llmResponse.summary,
-          thinking: llmResponse.thinking,
-          status: llmResponse.done ? 'done' : 'acting',
-          actionDescriptions: actionDescs,
-        } as MsgAgentProgress);
-
-        // ── Check if done ──
-        if (llmResponse.done || llmResponse.actions.length === 0) {
-          history.push({ role: 'user', context, command });
-          history.push({ role: 'assistant', response: llmResponse });
-          sendToSidePanel({
-            type: 'agentDone',
-            finalSummary: llmResponse.summary || 'Task completed.',
-            success: !llmResponse.error,
-            stepsUsed: step,
-          } as MsgAgentDone);
-          return;
-        }
-
-        // ── Step 3: Confirm destructive actions ──
-        const hasDestructive = settings.requireConfirm && llmResponse.actions.some(isDestructive);
-
-        if (hasDestructive) {
-          sendToSidePanel({
-            type: 'agentProgress',
-            step,
-            maxSteps,
-            summary: 'Awaiting your confirmation...',
-            status: 'confirming',
-          } as MsgAgentProgress);
-
-          const confirmed = await askUserConfirmation(llmResponse.actions, step, llmResponse.summary);
-          if (!confirmed || agentAborted) {
-            sendToSidePanel({
-              type: 'agentDone',
-              finalSummary: 'Actions cancelled by user.',
-              success: false,
-              stepsUsed: step,
-            } as MsgAgentDone);
-            return;
-          }
-        }
-
-        // ── Step 4: Execute actions ──
-        const actionResults: { action: Action; success: boolean; error?: string; extractedData?: string }[] = [];
-
-        for (const action of llmResponse.actions) {
-          if (agentAborted) break;
-
-          const result = await executeAction(tabId, action, settings.dryRun, settings.autoRetry);
-          actionResults.push({ action, ...result });
-
-          if (!result.success) {
-            console.warn(`[HyperAgent] Action failed:`, action.type, result.error);
-          }
-
-          // Vision-first verification: capture screenshot after critical actions (click/fill)
-          // This helps verify the action had the expected effect
-          if (DEFAULTS.AUTO_VERIFY_ACTIONS && settings.enableVision && 
-              (action.type === 'click' || action.type === 'fill' || action.type === 'select') &&
-              result.success) {
-            requestScreenshot = true;
-          }
-
-          // Delay between actions
-          await delay(DEFAULTS.ACTION_DELAY_MS);
-        }
-
-        // ── Step 5: Record history ──
-        history.push({ role: 'user', context, command });
-        history.push({
-          role: 'assistant',
-          response: llmResponse,
-          actionsExecuted: actionResults,
-        });
-
-        // Small delay before next observation cycle
-        await delay(350);
-      }
-
-      // Max steps reached
-      sendToSidePanel({
-        type: 'agentDone',
-        finalSummary: `Reached maximum steps (${maxSteps}). The task may not be fully complete. You can increase the limit in settings.`,
-        success: false,
-        stepsUsed: maxSteps,
-      } as MsgAgentDone);
-    } finally {
-      agentRunning = false;
+    } catch (err) {
+      console.warn('[Reflex] Verification failed:', err);
+      return { success: true }; // Fail open (assume success if check fails)
     }
   }
+
+  // ─── Fallback planner (placeholder for now) ──────────────────────
+  function buildFallbackPlan(command: string, context: PageContext): { summary: string; actions: Action[] } | null {
+    // This would be implemented with the comprehensive workflow system
+    return null;
+  }
+  // ─── Scheduler Integration ─────────────────────────────────────
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    schedulerEngine.handleAlarm(alarm).catch(err => {
+      console.error('[Background] Scheduler alarm handle failed:', err);
+    });
+  });
+
+  // Initialize scheduler on startup
+  schedulerEngine.initialize().catch(err => {
+    console.error('[Background] Failed to initialize scheduler:', err);
+  });
 });

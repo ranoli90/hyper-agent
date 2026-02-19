@@ -14,11 +14,49 @@ import type {
   ErrorContext,
   RecoveryStrategy,
 } from '../shared/types';
+import { tiktokModerator } from '../shared/tiktok-moderator';
+import { StealthEngine } from '../shared/stealth-engine';
+
+// ─── Local security/perf helpers ───────────────────────────────────────
+function isSafeRegex(pattern: string, maxLength = 256): boolean {
+  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength) return false;
+  try { new RegExp(pattern); return true; } catch { return false; }
+}
+
+function safeKey(key: string, max = 32): string {
+  const s = (key || '').slice(0, max);
+  return /^[\w\-\s]+$/.test(s) ? s : 'Unidentified';
+}
+
+const allowedMessageTypes = new Set([
+  'getContext', 'performAction', 'executeActionOnPage', 'captureScreenshot',
+  'getSiteConfig', 'startModerator', 'stopModerator', 'updateModerationRules'
+]);
+
+function validateInboundMessage(msg: any): boolean {
+  return !!msg && typeof msg === 'object' && typeof msg.type === 'string' && allowedMessageTypes.has(msg.type);
+}
+
+const messageRate = new Map<string, { count: number; reset: number }>();
+function canAccept(kind: string, maxPerMinute = 240): boolean {
+  const now = Date.now();
+  const entry = messageRate.get(kind);
+  if (!entry || now > entry.reset) {
+    messageRate.set(kind, { count: 1, reset: now + 60000 });
+    return true;
+  }
+  if (entry.count >= maxPerMinute) return false;
+  entry.count++;
+  return true;
+}
 
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
   main() {
+    // Apply stealth masks immediately
+    StealthEngine.applyPropertyMasks();
+
     // ─── Element index registry (survives across getContext calls) ──
     const indexedElements = new Map<number, WeakRef<HTMLElement>>();
     let nextIndex = 0;
@@ -344,7 +382,7 @@ export default defineContentScript({
 
       // Try role + text
       if (targetRole || actionKeywords.role) {
-        const roleMatch = findByRoleAndText(targetRole || actionKeywords.role || 'button', searchText || actionKeywords.text);
+        const roleMatch = findByRoleAndText(targetRole || actionKeywords.role || 'button', searchText || actionKeywords.text || '');
         if (roleMatch) return roleMatch;
       }
 
@@ -506,7 +544,7 @@ export default defineContentScript({
     }
 
     // ─── Advanced Error Recovery Functions ─────────────────────────────
-    
+
     // Define default recovery strategies
     const DEFAULT_RECOVERY_STRATEGIES: RecoveryStrategy[] = [
       {
@@ -549,12 +587,12 @@ export default defineContentScript({
      */
     async function recoverFromError(context: ErrorContext): Promise<Action | null> {
       const { error, action, attempt, pageUrl } = context;
-      
+
       // Find applicable strategy
-      const strategy = DEFAULT_RECOVERY_STRATEGIES.find(s => 
+      const strategy = DEFAULT_RECOVERY_STRATEGIES.find(s =>
         s.errorTypes.includes(error)
       );
-      
+
       if (!strategy) {
         console.log(`[HyperAgent] No recovery strategy for error type: ${error}`);
         return null;
@@ -563,7 +601,7 @@ export default defineContentScript({
       // Check if we've exceeded max retries
       const actionKey = `${action.type}-${JSON.stringify(action).slice(0, 50)}`;
       const currentAttempts = activeRecoveryAttempts.get(actionKey) || 0;
-      
+
       if (currentAttempts >= strategy.maxRetries) {
         console.log(`[HyperAgent] Max retries exceeded for strategy: ${strategy.name}`);
         activeRecoveryAttempts.delete(actionKey);
@@ -616,14 +654,14 @@ export default defineContentScript({
       }
 
       const locator = (action as any).locator;
-      
+
       // Try to find element using smart relocation
       const newElement = smartRelocate(locator, action);
-      
+
       if (newElement) {
         // Get the new element's index
         const newIndex = newElement.getAttribute('data-ha-index');
-        
+
         if (newIndex) {
           // Reconstruct with new index-based locator
           const newAction = { ...action } as Action;
@@ -662,110 +700,55 @@ export default defineContentScript({
     }
 
     // ─── Simulate realistic mouse events ──────────────────────────
-    function simulateClick(el: HTMLElement, doubleClick = false): void {
-      const rect = el.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = rect.top + rect.height / 2;
-      const eventInit: MouseEventInit = {
-        bubbles: true,
-        cancelable: true,
-        view: window,
-        clientX: x,
-        clientY: y,
-        button: 0,
-      };
-
-      el.dispatchEvent(new MouseEvent('pointerover', eventInit));
-      el.dispatchEvent(new MouseEvent('mouseover', eventInit));
-      el.dispatchEvent(new MouseEvent('pointerenter', eventInit));
-      el.dispatchEvent(new MouseEvent('mouseenter', eventInit));
-      el.dispatchEvent(new MouseEvent('pointerdown', eventInit));
-      el.dispatchEvent(new MouseEvent('mousedown', eventInit));
-      el.focus();
-      el.dispatchEvent(new MouseEvent('pointerup', eventInit));
-      el.dispatchEvent(new MouseEvent('mouseup', eventInit));
-      el.dispatchEvent(new MouseEvent('click', eventInit));
+    async function simulateClick(el: HTMLElement, doubleClick = false): Promise<void> {
+      await StealthEngine.clickStealthily(el);
 
       if (doubleClick) {
-        el.dispatchEvent(new MouseEvent('pointerdown', eventInit));
-        el.dispatchEvent(new MouseEvent('mousedown', eventInit));
-        el.dispatchEvent(new MouseEvent('pointerup', eventInit));
-        el.dispatchEvent(new MouseEvent('mouseup', eventInit));
-        el.dispatchEvent(new MouseEvent('click', eventInit));
-        el.dispatchEvent(new MouseEvent('dblclick', eventInit));
+        await delay(100 + Math.random() * 100);
+        await StealthEngine.clickStealthily(el);
       }
     }
 
     // ─── Simulate realistic typing ────────────────────────────────
-    function simulateTyping(el: HTMLElement, value: string, clearFirst = true): void {
+    async function simulateTyping(el: HTMLElement, value: string, clearFirst = true): Promise<void> {
       const inputEl = el as HTMLInputElement | HTMLTextAreaElement;
-      el.focus();
 
       if (clearFirst) {
-        // Use native setter to clear
-        const setter = Object.getOwnPropertyDescriptor(
-          el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-          'value'
-        )?.set;
-        if (setter) {
-          setter.call(inputEl, '');
-        } else {
-          inputEl.value = '';
-        }
+        inputEl.value = '';
         inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        await delay(Math.random() * 200 + 100);
       }
 
-      // Set value using native setter for React/Vue/Angular compatibility
-      const setter = Object.getOwnPropertyDescriptor(
-        el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype,
-        'value'
-      )?.set;
-
-      if (setter) {
-        setter.call(inputEl, value);
-      } else {
-        inputEl.value = value;
-      }
-
-      // Fire full event sequence
-      inputEl.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
-      inputEl.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
-
-      // Also fire keyboard events for frameworks that listen to them
-      for (const char of value.slice(-1)) {
-        inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
-        inputEl.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
-        inputEl.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
-      }
+      await StealthEngine.typeStealthily(inputEl, value);
     }
 
     // ─── Action execution with Self-Healing ─────────────────────────
-    async function performAction(action: Action): ActionResult {
+    async function performAction(action: Action): Promise<ActionResult> {
       try {
         switch (action.type) {
           case 'click': {
             // Try primary locator first
             let el = resolveLocator(action.locator);
-            
+
             // Self-healing: try scroll-before-locate for lazy content
             if (!el) {
               el = await scrollBeforeLocate(action.locator, action);
             }
-            
+
             // Self-healing: try smart re-location
             if (!el) {
               el = smartRelocate(action.locator, action);
             }
-            
+
             if (!el) {
               return { success: false, error: `Element not found: ${JSON.stringify(action.locator)}`, errorType: 'ELEMENT_NOT_FOUND' };
             }
-            
+
             // Check if element is visible
             if (!isVisible(el)) {
               return { success: false, error: 'Element found but not visible', errorType: 'ELEMENT_NOT_VISIBLE' };
             }
-            
+
             // Check if disabled
             const inputEl = el as HTMLInputElement;
             if (inputEl.disabled || el.getAttribute('aria-disabled') === 'true') {
@@ -775,35 +758,36 @@ export default defineContentScript({
                 return { success: false, error: 'Element is disabled', errorType: 'ELEMENT_DISABLED' };
               }
             }
-            
+
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            simulateClick(el, action.doubleClick);
-            
+            await delay(300 + Math.random() * 300);
+            await simulateClick(el, action.doubleClick);
+
             // Wait for DOM to stabilize after click (SPA transitions)
             await waitForDomStable();
-            
+
             return { success: true, recovered: !!el };
           }
 
           case 'fill': {
             let el = resolveLocator(action.locator);
-            
+
             if (!el) {
               el = await scrollBeforeLocate(action.locator, action);
             }
-            
+
             if (!el) {
               el = smartRelocate(action.locator, action);
             }
-            
+
             if (!el) {
               return { success: false, error: `Element not found: ${JSON.stringify(action.locator)}`, errorType: 'ELEMENT_NOT_FOUND' };
             }
-            
+
             if (!isVisible(el)) {
               return { success: false, error: 'Element not visible', errorType: 'ELEMENT_NOT_VISIBLE' };
             }
-            
+
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
             // Handle contenteditable elements
@@ -815,23 +799,23 @@ export default defineContentScript({
               return { success: true };
             }
 
-            simulateTyping(el, action.value, action.clearFirst !== false);
+            await simulateTyping(el, action.value, action.clearFirst !== false);
             return { success: true };
           }
 
           case 'select': {
             let el = resolveLocator(action.locator) as HTMLSelectElement | null;
-            
+
             if (!el) {
               const relocEl = await scrollBeforeLocate(action.locator, action);
               el = relocEl as HTMLSelectElement | null;
             }
-            
+
             if (!el) {
               const relocEl = smartRelocate(action.locator, action);
               el = relocEl as HTMLSelectElement | null;
             }
-            
+
             if (!el) return { success: false, error: `Select element not found`, errorType: 'ELEMENT_NOT_FOUND' };
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
@@ -896,7 +880,7 @@ export default defineContentScript({
             const activeEl = document.activeElement || document.body;
             const mods = action.modifiers || [];
             const keyInit: KeyboardEventInit = {
-              key: action.key,
+              key: safeKey(action.key),
               bubbles: true,
               cancelable: true,
               ctrlKey: mods.includes('ctrl'),
@@ -911,7 +895,8 @@ export default defineContentScript({
             if (action.key === 'Enter') {
               const form = (activeEl as HTMLElement).closest?.('form');
               if (form) {
-                form.requestSubmit?.() || form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                form.requestSubmit?.();
+                form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
               }
             }
             return { success: true };
@@ -964,10 +949,11 @@ export default defineContentScript({
             // Enhanced extract: supports multiple, filtering, and formatting
             const extractAction = action as ExtractAction;
             const { multiple, filter, format, attribute } = extractAction;
-            
+
             // Helper to apply filter regex to extracted data
             const applyFilter = (data: string): string => {
               if (!filter) return data;
+              if (!isSafeRegex(filter)) return data; // Unsafe/invalid pattern ignored
               try {
                 const regex = new RegExp(filter, 'gi');
                 const matches = data.match(regex);
@@ -976,9 +962,9 @@ export default defineContentScript({
                 return data; // Invalid regex, return raw data
               }
             };
-            
+
             // Helper to extract from a single element
-            const extractFromElement = (el: Element): string => {
+            const extractFromElement = (el: HTMLElement): string => {
               let data: string;
               if (attribute) {
                 data = el.getAttribute(attribute) || '';
@@ -987,13 +973,13 @@ export default defineContentScript({
               }
               return applyFilter(data);
             };
-            
+
             // Helper to find sibling elements for structured extraction (tables, lists)
             const findSiblingElements = (el: Element): Element[] => {
               const siblings: Element[] = [];
               const parent = el.parentElement;
               if (!parent) return siblings;
-              
+
               // Check if it's a table row
               if (el.tagName === 'TR') {
                 const cells = parent.querySelectorAll('tr');
@@ -1007,7 +993,7 @@ export default defineContentScript({
               }
               return siblings;
             };
-            
+
             let el = resolveLocator(action.locator);
             if (!el) {
               el = await scrollBeforeLocate(action.locator, action);
@@ -1016,17 +1002,17 @@ export default defineContentScript({
               el = smartRelocate(action.locator, action);
             }
             if (!el) return { success: false, error: `Element not found for extract`, errorType: 'ELEMENT_NOT_FOUND' };
-            
+
             let extractedData: string;
-            
+
             if (multiple) {
               // Multiple extraction: find similar elements or children
               const elements: Element[] = [];
-              
+
               // Try to find children of the same type
               const childSelector = el.tagName.toLowerCase();
               const children = el.querySelectorAll(childSelector);
-              
+
               if (children.length > 1) {
                 // Has multiple children of same type (list items, table rows)
                 children.forEach(child => elements.push(child));
@@ -1040,9 +1026,9 @@ export default defineContentScript({
                   elements.push(el);
                 }
               }
-              
-              const extracted = elements.map(extractFromElement).filter(d => d.length > 0);
-              
+
+              const extracted = elements.map(el => extractFromElement(el as HTMLElement)).filter(d => d.length > 0);
+
               // Format the output
               const outputFormat = format || 'text';
               if (outputFormat === 'json') {
@@ -1056,7 +1042,7 @@ export default defineContentScript({
               // Single extraction (default behavior)
               extractedData = extractFromElement(el);
             }
-            
+
             return { success: true, extractedData: extractedData.slice(0, 10000) };
           }
 
@@ -1071,13 +1057,21 @@ export default defineContentScript({
     // ─── Message listener ─────────────────────────────────────────
     chrome.runtime.onMessage.addListener(
       async (message: ExtensionMessage, _sender, sendResponse) => {
+        // Basic validation and simple rate limiting per type
+        if (!validateInboundMessage(message)) {
+          return false;
+        }
+        if (!canAccept(message.type)) {
+          return false;
+        }
         switch (message.type) {
           case 'getContext': {
             const context = getPageContext();
             sendResponse({ type: 'getContextResponse', context });
             return true;
           }
-          case 'performAction': {
+          case 'performAction':
+          case 'executeActionOnPage': {
             const result = await performAction(message.action);
             // Log action outcome to memory (non-blocking)
             saveActionOutcome(
@@ -1085,7 +1079,7 @@ export default defineContentScript({
               message.action,
               result.success,
               result.errorType
-            ).catch(() => {}); // Ignore errors
+            ).catch(() => { }); // Ignore errors
             sendResponse({ type: 'performActionResponse', ...result });
             return true;
           }
@@ -1096,11 +1090,30 @@ export default defineContentScript({
           case 'getSiteConfig': {
             // Ensure site config is loaded
             await loadSiteConfig();
-            sendResponse({ 
-              type: 'getSiteConfigResponse', 
+            sendResponse({
+              type: 'getSiteConfigResponse',
               config: currentSiteConfig,
               hostname: window.location.hostname
             });
+            return true;
+          }
+          case 'startModerator': {
+            if (window.location.hostname.includes('tiktok.com')) {
+              const started = await tiktokModerator.start();
+              sendResponse({ success: started });
+            } else {
+              sendResponse({ success: false, error: 'Not on TikTok' });
+            }
+            return true;
+          }
+          case 'stopModerator': {
+            tiktokModerator.stop();
+            sendResponse({ success: true });
+            return true;
+          }
+          case 'updateModerationRules': {
+            tiktokModerator.setRules(message.rules);
+            sendResponse({ success: true });
             return true;
           }
         }

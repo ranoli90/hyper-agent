@@ -179,7 +179,9 @@ export class TestIsolationManager {
       const metrics = await this.collectTestMetrics(tab);
       
       // Clean up isolated tab
-      await chrome.tabs.remove(tab.id);
+      if (tab.id) {
+        await chrome.tabs.remove(tab.id);
+      }
       
       const endTime = performance.now();
       
@@ -373,10 +375,12 @@ export class TestIsolationManager {
         }
       });
 
-      if (results && results[0]) {
+      if (results && results[0] && results[0].result) {
         const data = results[0].result;
-        metrics.domNodes = data.domNodes;
-        metrics.renderTime = data.performance.loadEventEnd - data.performance.loadEventStart;
+        metrics.domNodes = data.domNodes || 0;
+        if (data.performance && data.performance instanceof PerformanceNavigationTiming) {
+          metrics.renderTime = data.performance.loadEventEnd - data.performance.loadEventStart;
+        }
       }
     } catch (error) {
       console.error('Failed to collect metrics:', error);

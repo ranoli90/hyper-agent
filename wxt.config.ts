@@ -12,6 +12,7 @@ export default defineConfig({
       'scripting',
       'storage',
       'contextMenus',
+      'alarms',
     ],
     host_permissions: ['<all_urls>'],
     action: {

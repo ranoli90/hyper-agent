@@ -3,6 +3,7 @@ export const STORAGE_KEYS = {
   API_KEY: 'hyperagent_api_key',
   BASE_URL: 'hyperagent_base_url',
   MODEL_NAME: 'hyperagent_model_name',
+  BACKUP_MODEL: 'hyperagent_backup_model',
   MAX_STEPS: 'hyperagent_max_steps',
   REQUIRE_CONFIRM: 'hyperagent_require_confirm',
   DRY_RUN: 'hyperagent_dry_run',
@@ -17,20 +18,37 @@ export const STORAGE_KEYS = {
   ACTIVE_SESSION: 'hyperagent_active_session',
   // Site-specific overrides
   SITE_CONFIGS: 'hyperagent_site_configs',
-  // Security & Privacy (Iteration 15)
+  // Security & Privacy
   PRIVACY_SETTINGS: 'hyperagent_privacy_settings',
   SECURITY_POLICY: 'hyperagent_security_policy',
+  // Advanced autonomous settings
+  ENABLE_SWARM_INTELLIGENCE: 'hyperagent_enable_swarm',
+  ENABLE_AUTONOMOUS_MODE: 'hyperagent_enable_autonomous',
+  LEARNING_ENABLED: 'hyperagent_learning_enabled',
+} as const;
+
+// ─── Validation constants ─────────────────────────────────────────────
+export const VALIDATION = {
+  MAX_STEPS: { MIN: 3, MAX: 50, DEFAULT: 12 },
+  TIMEOUTS: { MIN: 5000, MAX: 300000, DEFAULT: 45000 },
+  RETRIES: { MIN: 0, MAX: 10, DEFAULT: 2 },
+  ELEMENTS: { MIN: 10, MAX: 1000, DEFAULT: 250 },
 } as const;
 
 // ─── Defaults ───────────────────────────────────────────────────────
 export const DEFAULTS = {
-  BASE_URL: 'https://api.openai.com/v1',
-  MODEL_NAME: 'gpt-4o',
+  BASE_URL: 'https://openrouter.ai/api/v1',
+  MODEL_NAME: 'auto', // Intelligent model selection
+  BACKUP_MODEL: 'meta-llama/llama-3.1-70b-instruct',
+  VISION_MODEL: 'google/gemini-pro-vision-1.0',
   MAX_STEPS: 12,
-  REQUIRE_CONFIRM: true,
+  REQUIRE_CONFIRM: false,
   DRY_RUN: false,
   ENABLE_VISION: true,
   AUTO_RETRY: true,
+  ENABLE_SWARM_INTELLIGENCE: false, // Advanced feature - off by default
+  ENABLE_AUTONOMOUS_MODE: false, // Advanced feature - off by default
+  LEARNING_ENABLED: true,
   BODY_TEXT_LIMIT: 10000,
   MAX_SEMANTIC_ELEMENTS: 250,
   ACTION_DELAY_MS: 400,
@@ -56,52 +74,140 @@ export interface Settings {
   apiKey: string;
   baseUrl: string;
   modelName: string;
+  backupModel?: string;
   maxSteps: number;
   requireConfirm: boolean;
   dryRun: boolean;
   enableVision: boolean;
   autoRetry: boolean;
   siteBlacklist: string;
+  // Advanced autonomous settings
+  enableSwarmIntelligence: boolean;
+  enableAutonomousMode: boolean;
+  learningEnabled: boolean;
 }
 
-// ─── Storage helpers ────────────────────────────────────────────────
-export async function loadSettings(): Promise<Settings> {
-  const data = await chrome.storage.local.get([
-    STORAGE_KEYS.API_KEY,
-    STORAGE_KEYS.BASE_URL,
-    STORAGE_KEYS.MODEL_NAME,
-    STORAGE_KEYS.MAX_STEPS,
-    STORAGE_KEYS.REQUIRE_CONFIRM,
-    STORAGE_KEYS.DRY_RUN,
-    STORAGE_KEYS.ENABLE_VISION,
-    STORAGE_KEYS.AUTO_RETRY,
-    STORAGE_KEYS.SITE_BLACKLIST,
-  ]);
+// ─── Settings validation ─────────────────────────────────────────────
+export function validateSettings(settings: Partial<Settings>): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  if (settings.maxSteps !== undefined) {
+    if (settings.maxSteps < VALIDATION.MAX_STEPS.MIN || settings.maxSteps > VALIDATION.MAX_STEPS.MAX) {
+      errors.push(`maxSteps must be between ${VALIDATION.MAX_STEPS.MIN} and ${VALIDATION.MAX_STEPS.MAX}`);
+    }
+  }
+
+  if (settings.baseUrl !== undefined) {
+    try {
+      new URL(settings.baseUrl);
+    } catch {
+      errors.push('baseUrl must be a valid URL');
+    }
+  }
+
+  if (settings.apiKey !== undefined && settings.apiKey.trim() === '') {
+    errors.push('apiKey cannot be empty');
+  }
+
   return {
-    apiKey: data[STORAGE_KEYS.API_KEY] ?? '',
-    baseUrl: data[STORAGE_KEYS.BASE_URL] ?? DEFAULTS.BASE_URL,
-    modelName: data[STORAGE_KEYS.MODEL_NAME] ?? DEFAULTS.MODEL_NAME,
-    maxSteps: data[STORAGE_KEYS.MAX_STEPS] ?? DEFAULTS.MAX_STEPS,
-    requireConfirm: data[STORAGE_KEYS.REQUIRE_CONFIRM] ?? DEFAULTS.REQUIRE_CONFIRM,
-    dryRun: data[STORAGE_KEYS.DRY_RUN] ?? DEFAULTS.DRY_RUN,
-    enableVision: data[STORAGE_KEYS.ENABLE_VISION] ?? DEFAULTS.ENABLE_VISION,
-    autoRetry: data[STORAGE_KEYS.AUTO_RETRY] ?? DEFAULTS.AUTO_RETRY,
-    siteBlacklist: data[STORAGE_KEYS.SITE_BLACKLIST] ?? '',
+    valid: errors.length === 0,
+    errors
   };
 }
 
-export async function saveSettings(settings: Settings): Promise<void> {
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.API_KEY]: settings.apiKey,
-    [STORAGE_KEYS.BASE_URL]: settings.baseUrl,
-    [STORAGE_KEYS.MODEL_NAME]: settings.modelName,
-    [STORAGE_KEYS.MAX_STEPS]: settings.maxSteps,
-    [STORAGE_KEYS.REQUIRE_CONFIRM]: settings.requireConfirm,
-    [STORAGE_KEYS.DRY_RUN]: settings.dryRun,
-    [STORAGE_KEYS.ENABLE_VISION]: settings.enableVision,
-    [STORAGE_KEYS.AUTO_RETRY]: settings.autoRetry,
-    [STORAGE_KEYS.SITE_BLACKLIST]: settings.siteBlacklist,
-  });
+// ─── Storage helpers with error handling ────────────────────────────
+export async function loadSettings(): Promise<Settings> {
+  try {
+    const data = await chrome.storage.local.get([
+      STORAGE_KEYS.API_KEY,
+      STORAGE_KEYS.BASE_URL,
+      STORAGE_KEYS.MODEL_NAME,
+      STORAGE_KEYS.BACKUP_MODEL,
+      STORAGE_KEYS.MAX_STEPS,
+      STORAGE_KEYS.REQUIRE_CONFIRM,
+      STORAGE_KEYS.DRY_RUN,
+      STORAGE_KEYS.ENABLE_VISION,
+      STORAGE_KEYS.AUTO_RETRY,
+      STORAGE_KEYS.SITE_BLACKLIST,
+      STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE,
+      STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE,
+      STORAGE_KEYS.LEARNING_ENABLED,
+    ]);
+
+    const settings: Settings = {
+      apiKey: data[STORAGE_KEYS.API_KEY] || '',
+      baseUrl: data[STORAGE_KEYS.BASE_URL] ?? DEFAULTS.BASE_URL,
+      modelName: data[STORAGE_KEYS.MODEL_NAME] ?? DEFAULTS.MODEL_NAME,
+      backupModel: data[STORAGE_KEYS.BACKUP_MODEL] ?? DEFAULTS.BACKUP_MODEL,
+      maxSteps: data[STORAGE_KEYS.MAX_STEPS] ?? DEFAULTS.MAX_STEPS,
+      requireConfirm: data[STORAGE_KEYS.REQUIRE_CONFIRM] ?? DEFAULTS.REQUIRE_CONFIRM,
+      dryRun: data[STORAGE_KEYS.DRY_RUN] ?? DEFAULTS.DRY_RUN,
+      enableVision: data[STORAGE_KEYS.ENABLE_VISION] ?? DEFAULTS.ENABLE_VISION,
+      autoRetry: data[STORAGE_KEYS.AUTO_RETRY] ?? DEFAULTS.AUTO_RETRY,
+      siteBlacklist: data[STORAGE_KEYS.SITE_BLACKLIST] ?? '',
+      enableSwarmIntelligence: data[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE] ?? DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
+      enableAutonomousMode: data[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE] ?? DEFAULTS.ENABLE_AUTONOMOUS_MODE,
+      learningEnabled: data[STORAGE_KEYS.LEARNING_ENABLED] ?? DEFAULTS.LEARNING_ENABLED,
+    };
+
+    // Validate loaded settings
+    const validation = validateSettings(settings);
+    if (!validation.valid) {
+      console.warn('[Config] Invalid settings loaded:', validation.errors);
+      // Don't fail, just log warnings - use defaults for invalid values
+    }
+
+    return settings;
+  } catch (error) {
+    console.error('[Config] Failed to load settings:', error);
+    // Return safe defaults on error
+    return {
+      apiKey: '',
+      baseUrl: DEFAULTS.BASE_URL,
+      modelName: DEFAULTS.MODEL_NAME,
+      backupModel: DEFAULTS.BACKUP_MODEL,
+      maxSteps: DEFAULTS.MAX_STEPS,
+      requireConfirm: DEFAULTS.REQUIRE_CONFIRM,
+      dryRun: DEFAULTS.DRY_RUN,
+      enableVision: DEFAULTS.ENABLE_VISION,
+      autoRetry: DEFAULTS.AUTO_RETRY,
+      siteBlacklist: '',
+      enableSwarmIntelligence: DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
+      enableAutonomousMode: DEFAULTS.ENABLE_AUTONOMOUS_MODE,
+      learningEnabled: DEFAULTS.LEARNING_ENABLED,
+    };
+  }
+}
+
+export async function saveSettings(settings: Settings): Promise<{ success: boolean; errors?: string[] }> {
+  try {
+    // Validate settings before saving
+    const validation = validateSettings(settings);
+    if (!validation.valid) {
+      return { success: false, errors: validation.errors };
+    }
+
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.API_KEY]: settings.apiKey,
+      [STORAGE_KEYS.BASE_URL]: settings.baseUrl,
+      [STORAGE_KEYS.MODEL_NAME]: settings.modelName,
+      [STORAGE_KEYS.BACKUP_MODEL]: settings.backupModel,
+      [STORAGE_KEYS.MAX_STEPS]: settings.maxSteps,
+      [STORAGE_KEYS.REQUIRE_CONFIRM]: settings.requireConfirm,
+      [STORAGE_KEYS.DRY_RUN]: settings.dryRun,
+      [STORAGE_KEYS.ENABLE_VISION]: settings.enableVision,
+      [STORAGE_KEYS.AUTO_RETRY]: settings.autoRetry,
+      [STORAGE_KEYS.SITE_BLACKLIST]: settings.siteBlacklist,
+      [STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE]: settings.enableSwarmIntelligence,
+      [STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE]: settings.enableAutonomousMode,
+      [STORAGE_KEYS.LEARNING_ENABLED]: settings.learningEnabled,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Config] Failed to save settings:', error);
+    return { success: false, errors: ['Failed to save settings to storage'] };
+  }
 }
 
 export function isSiteBlacklisted(url: string, blacklist: string): boolean {

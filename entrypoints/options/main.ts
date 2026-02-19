@@ -3,9 +3,10 @@ import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig, getUserSiteConfigs 
 import type { SiteConfig } from '../../shared/types';
 
 // ─── DOM references ─────────────────────────────────────────────
+const apiProviderInput = document.getElementById('api-provider') as HTMLSelectElement;
 const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
-const baseUrlInput = document.getElementById('base-url') as HTMLInputElement;
-const modelNameInput = document.getElementById('model-name') as HTMLInputElement;
+const modelNameInput = document.getElementById('model-name') as HTMLSelectElement;
+const backupModelInput = document.getElementById('backup-model') as HTMLSelectElement;
 const maxStepsInput = document.getElementById('max-steps') as HTMLInputElement;
 const maxStepsValue = document.getElementById('max-steps-value')!;
 const requireConfirmInput = document.getElementById('require-confirm') as HTMLInputElement;
@@ -15,6 +16,20 @@ const autoRetryInput = document.getElementById('auto-retry') as HTMLInputElement
 const siteBlacklistInput = document.getElementById('site-blacklist') as HTMLTextAreaElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
+
+// Status indicators
+const apiStatusDot = document.getElementById('api-status')!;
+const apiStatusText = document.getElementById('api-status-text')!;
+const modelStatusText = document.getElementById('model-status-text')!;
+
+// ─── API Provider URLs ───────────────────────────────────────────
+const PROVIDER_URLS = {
+  openrouter: 'https://openrouter.ai/api/v1',
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com',
+  google: 'https://generativelanguage.googleapis.com',
+  custom: ''
+} as const;
 
 // ─── Site Config DOM references ──────────────────────────────────
 const siteConfigDomainInput = document.getElementById('site-config-domain') as HTMLInputElement;
@@ -32,9 +47,36 @@ const siteConfigsList = document.getElementById('site-configs-list')!;
 // ─── Load current settings ──────────────────────────────────────
 async function loadCurrentSettings() {
   const settings = await loadSettings();
-  apiKeyInput.value = settings.apiKey;
-  baseUrlInput.value = settings.baseUrl;
+
+  // Detect API provider from base URL
+  const provider = detectProviderFromUrl(settings.baseUrl);
+  apiProviderInput.value = provider;
+
+  // Handle API key display
+  const hasApiKey = settings.apiKey && settings.apiKey !== DEFAULTS.DEFAULT_API_KEY;
+  apiKeyInput.value = hasApiKey ? settings.apiKey : '';
+
+  // Show indicator if using default key
+  if (settings.apiKey === DEFAULTS.DEFAULT_API_KEY) {
+    apiKeyInput.placeholder = "Using pre-configured OpenRouter key (secure)";
+    apiKeyInput.style.borderColor = "#10b981"; // Green border for default
+    apiStatusDot.className = 'status-dot connected';
+    apiStatusText.textContent = 'API: ✅ Connected';
+  } else if (hasApiKey) {
+    apiKeyInput.placeholder = "sk-or-v1-...";
+    apiKeyInput.style.borderColor = "#10b981"; // Green for custom key
+    apiStatusDot.className = 'status-dot connected';
+    apiStatusText.textContent = 'API: ✅ Connected';
+  } else {
+    apiKeyInput.placeholder = "sk-or-v1-...";
+    apiKeyInput.style.borderColor = ""; // Reset border
+    apiStatusDot.className = 'status-dot disconnected';
+    apiStatusText.textContent = 'API: ❌ Not configured';
+  }
+
   modelNameInput.value = settings.modelName;
+  modelStatusText.textContent = settings.modelName === 'auto' ? 'Model: 🤖 Auto' : `Model: ${settings.modelName}`;
+  backupModelInput.value = settings.backupModel || DEFAULTS.BACKUP_MODEL;
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -44,6 +86,15 @@ async function loadCurrentSettings() {
   siteBlacklistInput.value = settings.siteBlacklist;
 }
 
+// ─── Detect provider from URL ───────────────────────────────────
+function detectProviderFromUrl(url: string): string {
+  if (url.includes('openrouter.ai')) return 'openrouter';
+  if (url.includes('openai.com')) return 'openai';
+  if (url.includes('anthropic.com')) return 'anthropic';
+  if (url.includes('googleapis.com')) return 'google';
+  return 'custom';
+}
+
 // ─── Max steps slider ───────────────────────────────────────────
 maxStepsInput.addEventListener('input', () => {
   maxStepsValue.textContent = maxStepsInput.value;
@@ -51,10 +102,13 @@ maxStepsInput.addEventListener('input', () => {
 
 // ─── Save settings ──────────────────────────────────────────────
 btnSave.addEventListener('click', async () => {
+  const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
+
   await saveSettings({
-    apiKey: apiKeyInput.value.trim(),
-    baseUrl: baseUrlInput.value.trim() || DEFAULTS.BASE_URL,
+    apiKey: apiKeyValue,
+    baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
     modelName: modelNameInput.value.trim() || DEFAULTS.MODEL_NAME,
+    backupModel: backupModelInput.value.trim() || DEFAULTS.BACKUP_MODEL,
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
@@ -65,6 +119,12 @@ btnSave.addEventListener('click', async () => {
 
   saveStatus.classList.remove('hidden');
   setTimeout(() => saveStatus.classList.add('hidden'), 2000);
+});
+
+// ─── API Provider change handler ────────────────────────────────
+apiProviderInput.addEventListener('change', () => {
+  // Provider change doesn't need to update base URL since it's handled automatically
+  console.log('Provider changed to:', apiProviderInput.value);
 });
 
 // ─── Initialize ─────────────────────────────────────────────────
@@ -91,7 +151,7 @@ async function loadSiteConfigs() {
 function renderSiteConfigs(configs: SiteConfig[]) {
   // Separate default and user configs
   const userConfigs = configs.filter(c => !isDefaultConfig(c.domain));
-  
+
   if (userConfigs.length === 0) {
     siteConfigsList.innerHTML = '<p class="empty-message">No custom site configs. Default configs are applied automatically.</p>';
     return;
@@ -199,4 +259,18 @@ function clearSiteConfigForm() {
   siteConfigWaitInput.value = '400';
   siteConfigWaitValue.textContent = '400';
   siteConfigSelectorsInput.value = '';
+}
+
+// ─── UI Event Listeners ──────────────────────────────────────────
+
+// Toggle advanced settings
+const toggleAdvancedBtn = document.getElementById('toggle-advanced');
+if (toggleAdvancedBtn) {
+  toggleAdvancedBtn.addEventListener('click', function () {
+    const panel = document.getElementById('advanced-panel');
+    if (panel) {
+      panel.classList.toggle('hidden');
+      toggleAdvancedBtn.textContent = panel.classList.contains('hidden') ? '⚙️ Site Overrides' : '🔽 Hide Overrides';
+    }
+  });
 }

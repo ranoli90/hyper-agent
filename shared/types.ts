@@ -14,9 +14,16 @@ export interface ContextWindow {
 }
 
 // ─── LLM Request with Context Window ───────────────────────────────────
+// ─── LLM Request with Context Window ───────────────────────────────────
 export interface LLMRequest {
-  messages: Message[];
+  messages?: Message[];
   contextWindow?: ContextWindow;
+  // Extended properties used by llmClient.ts
+  command?: string;
+  history?: any[]; // Using any[] to avoid circular dependency with HistoryEntry if needed
+  context?: PageContext;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 // ─── Message Types ─────────────────────────────────────────────────────
@@ -244,6 +251,13 @@ export interface SwitchTabAction {
   destructive?: boolean;
 }
 
+export interface SubmitAction {
+  type: 'submit';
+  locator: Locator;
+  description?: string;
+  destructive?: boolean;
+}
+
 export interface GetTabsAction {
   type: 'getTabs';
   description?: string;
@@ -288,9 +302,24 @@ export type Action =
   | OpenTabAction
   | CloseTabAction
   | SwitchTabAction
+  | SubmitAction
   | GetTabsAction
   | MacroAction
   | WorkflowAction;
+
+// ─── LLM Interface ─────────────────────────────────────────────────────
+export interface CompletionRequest {
+  messages: Message[];
+  temperature?: number;
+  maxTokens?: number;
+  responseFormat?: 'text' | 'json_object';
+}
+
+export interface LLMClientInterface {
+  callLLM(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse>;
+  callCompletion(request: CompletionRequest, signal?: AbortSignal): Promise<string>;
+  getEmbedding(text: string): Promise<number[]>;
+}
 
 // ─── LLM Response ───────────────────────────────────────────────────
 export interface LLMResponse {
@@ -307,6 +336,7 @@ export interface LLMResponse {
 export interface MsgExecuteCommand {
   type: 'executeCommand';
   command: string;
+  useAutonomous?: boolean;
 }
 
 export interface MsgStopAgent {
@@ -336,6 +366,11 @@ export interface MsgPerformActionResponse {
   recovered?: boolean;
 }
 
+export interface MsgExecuteActionOnPage {
+  type: 'executeActionOnPage';
+  action: Action;
+}
+
 export interface MsgCaptureScreenshot {
   type: 'captureScreenshot';
 }
@@ -345,13 +380,18 @@ export interface MsgCaptureScreenshotResponse {
   dataUrl: string;
 }
 
+export interface MsgVisionUpdate {
+  type: 'visionUpdate';
+  screenshot: string;
+}
+
 export interface MsgAgentProgress {
   type: 'agentProgress';
-  step: number;
-  maxSteps: number;
-  summary: string;
+  step?: 'observe' | 'plan' | 'act' | 'verify' | string;
+  maxSteps?: number;
+  summary?: string;
   thinking?: string;
-  status: 'thinking' | 'acting' | 'confirming' | 'retrying' | 'done' | 'error';
+  status: string;
   actionDescriptions?: string[];
 }
 
@@ -440,6 +480,44 @@ export interface MsgSecurityCheckResponse {
   type: 'securityCheckResponse';
   allowed: boolean;
   reason?: string;
+}
+
+// ─── Background Status & Metrics ──────────────────────────────────────
+
+export interface MsgGetAgentStatus {
+  type: 'getAgentStatus';
+}
+
+export interface MsgGetAgentStatusResponse {
+  type: 'getAgentStatusResponse';
+  status: {
+    isRunning: boolean;
+    isAborted: boolean;
+    currentSessionId: string | null;
+    hasPendingConfirm: boolean;
+    hasPendingReply: boolean;
+    recoveryStats: any;
+  };
+}
+
+export interface MsgClearHistory {
+  type: 'clearHistory';
+}
+
+export interface MsgGetMetrics {
+  type: 'getMetrics';
+}
+
+export interface MsgGetMetricsResponse {
+  type: 'getMetricsResponse';
+  metrics: {
+    logs: any[];
+    recovery: any;
+    rateLimitStatus: {
+      canAccept: boolean;
+      timeUntilReset: number;
+    };
+  };
 }
 
 // ─── Intent Types ───────────────────────────────────────────────────────
@@ -550,6 +628,7 @@ export type ExtensionMessage =
   | MsgPerformActionResponse
   | MsgCaptureScreenshot
   | MsgCaptureScreenshotResponse
+  | MsgExecuteActionOnPage
   | MsgAgentProgress
   | MsgConfirmActions
   | MsgConfirmResponse
@@ -557,6 +636,7 @@ export type ExtensionMessage =
   | MsgContextMenuCommand
   | MsgAskUser
   | MsgUserReply
+  | MsgVisionUpdate
   | MsgGetTabsResponse
   | MsgIntentSuggestion
   | MsgGetSiteConfig
@@ -565,5 +645,50 @@ export type ExtensionMessage =
   | MsgGetSecuritySettings
   | MsgGetSecuritySettingsResponse
   | MsgSetSecuritySettings
+  | MsgSetSecuritySettingsResponse
   | MsgSecurityCheck
-  | MsgSecurityCheckResponse;
+  | MsgSecurityCheckResponse
+  // Background status and metrics
+  | MsgGetAgentStatus
+  | MsgGetAgentStatusResponse
+  | MsgClearHistory
+  | MsgGetMetrics
+  | MsgGetMetricsResponse
+  // TikTok Moderator
+  | MsgStartModerator
+  | MsgStopModerator
+  | MsgUpdateModerationRules
+  | MsgModerationLog
+  | MsgModeratorStats;
+
+export interface MsgStartModerator {
+  type: 'startModerator';
+}
+
+export interface MsgStopModerator {
+  type: 'stopModerator';
+}
+
+export interface MsgUpdateModerationRules {
+  type: 'updateModerationRules';
+  rules: any[]; // Using any[] to avoid circular dependency
+}
+
+export interface MsgModerationLog {
+  type: 'moderationLog';
+  log: any; // ModerationLog
+}
+
+export interface MsgSetSecuritySettingsResponse {
+  type: 'setSecuritySettingsResponse';
+  success: boolean;
+  error?: string;
+}
+
+export interface MsgModeratorStats {
+  type: 'moderatorStats';
+  stats: {
+    checked: number;
+    actions: number;
+  };
+}

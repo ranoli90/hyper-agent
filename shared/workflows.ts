@@ -173,7 +173,7 @@ export async function runWorkflow(
   }
   
   const results: any[] = [];
-  let currentStepId = workflow.startStep || workflow.steps[0]?.id;
+  let currentStepId: string | null = workflow.startStep || workflow.steps[0]?.id;
   
   if (!currentStepId) {
     return { success: false, error: 'No start step found' };
