@@ -1,11 +1,6 @@
 import type { LLMResponse, PageContext, Action, LLMRequest, LLMClientInterface, CompletionRequest } from './types';
 import { DEFAULTS, loadSettings } from './config';
 
-function isAnthropicModel(model: string | undefined | null): boolean {
-  if (!model) return false;
-  return /anthropic|claude/i.test(model);
-}
-
 import { analyzeRequest, selectOptimalModel, selectFallbackModel, shouldSwitchModel, type RequestAnalysis } from './intelligent-model-selection';
 import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
@@ -403,25 +398,13 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    // Try with backup models for fallback reasoning
+    // Use auto-selected model for fallback reasoning
     const fallbackModels = [
-      settings.backupModel || DEFAULTS.BACKUP_MODEL, // User's backup model preference
-      DEFAULTS.MODEL_NAME, // Fallback to default if backup unavailable
+      'x-ai/grok-4.1-fast',
+      'google/gemini-2.5-flash-lite',
     ];
 
-    // AGGRESSIVE: Filter out any Anthropic models from fallback
-    const safeFallbackModels = fallbackModels.filter(model => {
-      if (isAnthropicModel(model)) {
-        console.warn(`[HyperAgent] Blocking Anthropic fallback model: ${model}`);
-        return false;
-      }
-      return true;
-    });
-
-    // If no safe models, use Google Gemini
-    const finalFallbackModels = safeFallbackModels.length > 0 ? safeFallbackModels : [DEFAULTS.MODEL_NAME];
-
-    for (const model of finalFallbackModels) {
+    for (const model of fallbackModels) {
       try {
         const resp = await fetch(`${settings.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -612,24 +595,12 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
-      // Use user-selected model, handle auto-detect, fallback to default
-      let completionModel = settings.modelName || DEFAULTS.MODEL_NAME;
       
-      // Handle auto-detect model selection
-      if (completionModel === 'auto') {
-        // Force use of Google models for auto-detect (avoid Anthropic)
-        completionModel = 'google/gemini-2.0-flash-001';
-        console.log(`[HyperAgent] Auto-detect selected completion model: ${completionModel}`);
-      }
-      
-      // AGGRESSIVE: Block any Anthropic/Claude models
-      if (isAnthropicModel(completionModel)) {
-        console.warn(`[HyperAgent] Blocking Anthropic completion model: ${completionModel} - switching to Google Gemini`);
-        completionModel = 'google/gemini-2.0-flash-001';
-      }
+      // Auto-select best model for this task
+      const optimalModel = selectOptimalModel(analyzeRequest('', { }));
+      const completionModel = optimalModel.id;
       
       console.log(`[HyperAgent] Using completion model: ${completionModel}`);
-      console.log('[DEBUG] Sending payload to OpenRouter:', { model: completionModel, provider: completionModel?.split('/')[0] });
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -680,23 +651,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
       const messages = sanitizeMessages(rawMessages);
 
-      // Use user-selected model, handle auto-detect, fallback to default
-      let model = settings.modelName || DEFAULTS.MODEL_NAME;
+      // Auto-select optimal model based on task analysis
+      const optimalModel = selectOptimalModel(analysis);
+      const model = optimalModel.id;
       
-      // Handle auto-detect model selection
-      if (model === 'auto') {
-        // Force use of Google models for auto-detect (avoid Anthropic)
-        model = 'google/gemini-2.0-flash-001';
-        console.log(`[HyperAgent] Auto-detect selected: ${model}`);
-      }
-      
-      // AGGRESSIVE: Block any Anthropic/Claude models
-      if (isAnthropicModel(model)) {
-        console.warn(`[HyperAgent] Blocking Anthropic model: ${model} - switching to Google Gemini`);
-        model = 'google/gemini-2.0-flash-001';
-      }
-      
-      console.log(`[HyperAgent] Using model: ${model}`);
+      console.log(`[HyperAgent] Auto-selected model: ${model} for task type: ${analysis.primaryTask}`);
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',

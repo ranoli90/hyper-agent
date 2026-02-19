@@ -296,17 +296,12 @@ Your Specialization: ${agent.specialization}
     const { llmClient } = await import('./llmClient');
 
     try {
-      // CRITICAL FIX: Swarm agents must NEVER use user settings directly
-      // They bypass all model filtering and can send Anthropic requests
-      // Force swarm agents to always use Google Gemini
-      const safeModel = 'google/gemini-2.0-flash-001';
-
+      // Swarm agents use auto-select which picks between Grok and Gemini
       const response = await llmClient.callCompletion({
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         maxTokens: 2000,
-        responseFormat: 'json_object',
-        model: safeModel  // Force safe model for swarm agents
+        responseFormat: 'json_object'
       });
 
       return JSON.parse(response);

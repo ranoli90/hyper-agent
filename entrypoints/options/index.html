@@ -56,7 +56,6 @@
               <select id="api-provider" class="compact-select">
                 <option value="openrouter">OpenRouter</option>
                 <option value="google">Google Gemini</option>
-                <option value="openai">OpenAI</option>
                 <option value="custom">Custom Endpoint</option>
               </select>
             </div>
@@ -66,27 +65,12 @@
               <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..." autocomplete="off" />
             </div>
 
-            <div class="form-row">
-              <label>Model Selection</label>
-              <select id="model-name" class="compact-select">
-                <option value="auto">Auto-Detect Best Model</option>
-                <optgroup label="Google">
-                  <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-                  <option value="google/gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
-                  <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
-                </optgroup>
-                <optgroup label="OpenAI">
-                  <option value="openai/gpt-4-turbo">GPT-4 Turbo</option>
-                  <option value="openai/gpt-4-vision-preview">GPT-4 Vision</option>
-                  <option value="openai/gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                </optgroup>
-                <optgroup label="Other Providers">
-                  <option value="meta-llama/llama-3.1-8b-instruct">Llama 3.1 8B</option>
-                  <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
-                  <option value="mistralai/mistral-7b-instruct">Mistral 7B</option>
-                  <option value="mistralai/mixtral-8x7b-instruct">Mixtral 8x7B</option>
-                </optgroup>
-              </select>
+            <div class="form-row model-info">
+              <label>Model</label>
+              <div class="model-status-box">
+                <span class="model-badge">Auto-Select</span>
+                <span class="model-desc">System automatically chooses between Grok 4.1 Fast and Gemini 2.5 Flash Lite based on task requirements.</span>
+              </div>
             </div>
           </div>
 
@@ -139,15 +123,6 @@
 
           <div class="settings-card">
             <h3>Advanced</h3>
-
-            <div class="form-row">
-              <label>Fallback Model</label>
-              <select id="backup-model" class="compact-select">
-                <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-                <option value="google/gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
-                <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
-              </select>
-            </div>
 
             <button id="toggle-advanced" class="btn-secondary">Domain Overrides</button>
           </div>
@@ -212,7 +187,7 @@
       <!-- Save Button -->
       <div class="save-section">
         <button id="btn-save" class="btn-primary">Apply Changes</button>
-        <span id="save-status" class="hidden">✅ Saved!</span>
+        <span id="save-status" class="hidden">Saved!</span>
       </div>
     </div>
 
@@ -240,178 +215,27 @@
         </div>
         <div class="modal-buttons mt-12">
           <button id="btn-ask-cancel" class="btn-secondary">Cancel</button>
-    </div>
-  </div>
-
-  <div class="settings-card">
-    <h3>Behavior</h3>
-
-    <div class="form-row">
-      <label>Maximum Steps</label>
-      <div class="slider-container">
-        <input type="range" id="max-steps" min="3" max="20" value="12" class="slider" />
-        <span id="max-steps-value" class="slider-value">12</span>
-      </div>
-    </div>
-
-    <div class="toggle-grid">
-      <label class="toggle-item">
-        <input type="checkbox" id="enable-vision" checked />
-        <span>Visual Analysis</span>
-      </label>
-
-      <label class="toggle-item">
-        <input type="checkbox" id="auto-retry" checked />
-        <span>Auto Recovery</span>
-      </label>
-
-      <label class="toggle-item">
-        <input type="checkbox" id="require-confirm" checked />
-        <span>Require Confirmation</span>
-      </label>
-
-      <label class="toggle-item">
-        <input type="checkbox" id="dry-run" />
-        <span>Simulation Mode</span>
-      </label>
-    </div>
-  </div>
-</div>
-
-<!-- Right Column -->
-<div class="settings-column">
-  <div class="settings-card">
-    <h3>Security</h3>
-
-    <div class="form-row">
-      <label>Restricted Domains</label>
-      <textarea id="site-blacklist" rows="3" class="compact-textarea"
-        placeholder="bankofamerica.com&#10;chase.com"></textarea>
-    </div>
-  </div>
-
-  <div class="settings-card">
-    <h3>Advanced</h3>
-
-    <div class="form-row">
-      <label>Fallback Model</label>
-      <select id="backup-model" class="compact-select">
-        <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash</option>
-        <option value="google/gemini-2.5-pro-exp-03-25">Gemini 2.5 Pro</option>
-        <option value="google/gemini-1.5-pro">Gemini 1.5 Pro</option>
-      </select>
-    </div>
-
-    <button id="toggle-advanced" class="btn-secondary">Domain Overrides</button>
-  </div>
-</div>
-
-<!-- Collapsible Advanced Settings -->
-<div id="advanced-panel" class="advanced-panel hidden">
-  <div class="settings-card full-width">
-    <h3>Domain-Specific Configuration</h3>
-    <p class="section-desc">Customize behavior for specific websites</p>
-
-    <div class="advanced-grid">
-      <div class="form-row">
-        <label>Domain</label>
-        <input type="text" id="site-config-domain" placeholder="amazon.com" />
-      </div>
-
-      <div class="form-row">
-        <label>Description</label>
-        <input type="text" id="site-config-description" placeholder="E-commerce site" />
-      </div>
-
-      <div class="form-row">
-        <label>Retry Attempts</label>
-        <div class="slider-container">
-          <input type="range" id="site-config-max-retries" min="1" max="10" value="2" class="slider" />
-          <span id="site-config-retries-value" class="slider-value">2</span>
+          <button id="btn-ask-reply" class="btn-primary">Send Reply</button>
         </div>
       </div>
+    </div>
 
-      <div class="form-row">
-        <label>Action Delay (ms)</label>
-        <div class="slider-container">
-          <input type="range" id="site-config-wait" min="0" max="2000" step="100" value="400" class="slider" />
-          <span id="site-config-wait-value" class="slider-value">400</span>
-        </div>
-      </div>
-
-      <label class="toggle-item">
-        <input type="checkbox" id="site-config-scroll" checked />
-        <span>Enable Auto-Scroll</span>
-      </label>
-
-      <div class="form-row full-width">
-        <label>Custom Selectors</label>
-        <textarea id="site-config-selectors" rows="2" placeholder="[data-product-id], .product-card"></textarea>
+    <div class="danger-zone">
+      <h3>Danger Zone</h3>
+      <div class="danger-actions">
+        <button id="clear-cache" class="btn-warning">Clear Cache</button>
+        <button id="reset-settings" class="btn-danger">Reset All Settings</button>
       </div>
     </div>
 
-    <div class="button-row">
-      <button id="btn-add-site-config" class="btn-secondary">Add Configuration</button>
-      <button id="btn-delete-site-config" class="btn-danger">Remove</button>
+    <!-- Tips -->
+    <div class="tips-banner">
+      <strong>Pro Tip:</strong> The system automatically selects the best model (Grok 4.1 Fast or Gemini 2.5 Flash Lite) for each task.
     </div>
 
-    <div class="site-configs-list" id="site-configs-list">
-      <p class="empty-message">No site overrides configured</p>
-    </div>
-  </div>
-</div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-<!-- Save Button -->
-<div class="save-section">
-  <button id="btn-save" class="btn-primary">Apply Changes</button>
-  <span id="save-status" class="hidden">✅ Saved!</span>
-</div>
-
-<div id="confirm-modal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>Confirmation Required</h3>
-    </div>
-    <p id="confirm-message" class="confirm-message"></p>
-    <div class="modal-buttons">
-      <button id="btn-cancel" class="btn-secondary">Cancel</button>
-      <button id="btn-confirm" class="btn-primary btn-danger-bg">Confirm</button>
-    </div>
-  </div>
-</div>
-
-<div id="ask-modal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>Input Required</h3>
-    </div>
-    <p id="ask-question" class="ask-question"></p>
-    <div class="input-wrapper">
-      <textarea id="ask-reply" rows="2" placeholder="Type your reply..."></textarea>
-    </div>
-    <div class="modal-buttons mt-12">
-      <button id="btn-ask-cancel" class="btn-secondary">Cancel</button>
-      <button id="btn-ask-reply" class="btn-primary">Send Reply</button>
-    </div>
-  </div>
-</div>
-
-<div class="danger-zone">
-  <h3>⚠️ Danger Zone</h3>
-  <div class="danger-actions">
-    <button id="clear-cache" class="btn-warning">Clear Model Cache</button>
-    <button id="reset-settings" class="btn-danger">Reset All Settings</button>
-  </div>
-</div>
-
-<!-- Tips -->
-<div class="tips-banner">
-  <strong>Pro Tip:</strong> Use "Auto-Detect Best Model" for optimal performance across different tasks.
-</div>
-
-<div id="toast-container" class="toast-container" aria-live="polite"></div>
-
-<script type="module" src="./main.ts"></script>
+    <script type="module" src="./main.ts"></script>
 </body>
 
 </html>

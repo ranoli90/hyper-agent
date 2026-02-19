@@ -6,8 +6,6 @@ import type { SiteConfig } from '../../shared/types';
 // ─── DOM references ─────────────────────────────────────────────
 const apiProviderInput = document.getElementById('api-provider') as HTMLSelectElement;
 const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
-const modelNameInput = document.getElementById('model-name') as HTMLSelectElement;
-const backupModelInput = document.getElementById('backup-model') as HTMLSelectElement;
 const maxStepsInput = document.getElementById('max-steps') as HTMLInputElement;
 const maxStepsValue = document.getElementById('max-steps-value')!;
 const requireConfirmInput = document.getElementById('require-confirm') as HTMLInputElement;
@@ -122,9 +120,8 @@ async function loadCurrentSettings() {
     status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
   });
 
-  modelNameInput.value = settings.modelName;
-  modelStatusText.textContent = settings.modelName === 'auto' ? 'Model: 🤖 Auto' : `Model: ${settings.modelName}`;
-  backupModelInput.value = settings.backupModel || DEFAULTS.BACKUP_MODEL;
+  // Model is always auto-selected now
+  modelStatusText.textContent = 'Model: Auto (Grok/Gemini)';
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -156,8 +153,8 @@ btnSave.addEventListener('click', async () => {
   await saveSettings({
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: modelNameInput.value.trim() || DEFAULTS.MODEL_NAME,
-    backupModel: backupModelInput.value.trim() || DEFAULTS.BACKUP_MODEL,
+    modelName: 'auto', // Always auto-select model
+    backupModel: 'x-ai/grok-4.1-fast',
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
@@ -193,7 +190,7 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
         'X-Title': 'HyperAgent',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
+        model: 'x-ai/grok-4.1-fast',
         messages: [{ role: 'user', content: 'Test' }],
         temperature: 0,
         max_tokens: 1,

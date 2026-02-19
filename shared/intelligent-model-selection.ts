@@ -37,48 +37,25 @@ export interface RequestAnalysis {
   confidence: number;
 }
 
-// ─── Reliable Paid Model Database (OpenRouter) ───────────────────────────────────
-// Only includes models from available providers (google-ai-studio, google-vertex)
+// ─── Available Models (Auto-Selected Based on Task) ───────────────────────────────────
+// Only two models are used - system automatically picks based on task requirements
 const PAID_MODELS: ModelCapabilities[] = [
   {
-    id: 'google/gemini-2.0-flash-001',
-    name: 'Gemini 2.0 Flash',
-    provider: 'google',
-    contextWindow: 1048576,
-    strengths: ['vision', 'speed', 'multimodal', 'long context'],
-    weaknesses: ['complex reasoning'],
-    bestFor: [TaskType.VISUAL_ANALYSIS, TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION],
+    id: 'x-ai/grok-4.1-fast',
+    name: 'Grok 4.1 Fast',
+    provider: 'x-ai',
+    contextWindow: 131072,
+    strengths: ['reasoning', 'speed', 'coding', 'analysis', 'multimodal'],
+    weaknesses: [],
+    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.MULTI_STEP_WORKFLOW, TaskType.ERROR_RECOVERY],
     speed: 'fast',
     cost: 'low',
     supportsJson: true,
     supportsVision: true,
     performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 10,
-      [TaskType.COMPLEX_AUTOMATION]: 8,
-      [TaskType.TEXT_EXTRACTION]: 10,
-      [TaskType.FORM_FILLING]: 9,
-      [TaskType.VISUAL_ANALYSIS]: 10,
-      [TaskType.DECISION_MAKING]: 8,
-      [TaskType.ERROR_RECOVERY]: 8,
-      [TaskType.MULTI_STEP_WORKFLOW]: 8
-    }
-  },
-  {
-    id: 'google/gemini-2.5-pro-exp-03-25',
-    name: 'Gemini 2.5 Pro Experimental',
-    provider: 'google',
-    contextWindow: 2097152,
-    strengths: ['advanced reasoning', 'long context', 'multimodal', 'coding'],
-    weaknesses: ['cost'],
-    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.MULTI_STEP_WORKFLOW],
-    speed: 'medium',
-    cost: 'medium',
-    supportsJson: true,
-    supportsVision: true,
-    performance: {
       [TaskType.SIMPLE_NAVIGATION]: 9,
       [TaskType.COMPLEX_AUTOMATION]: 10,
-      [TaskType.TEXT_EXTRACTION]: 10,
+      [TaskType.TEXT_EXTRACTION]: 9,
       [TaskType.FORM_FILLING]: 9,
       [TaskType.VISUAL_ANALYSIS]: 10,
       [TaskType.DECISION_MAKING]: 10,
@@ -87,26 +64,26 @@ const PAID_MODELS: ModelCapabilities[] = [
     }
   },
   {
-    id: 'google/gemini-1.5-pro',
-    name: 'Gemini 1.5 Pro',
+    id: 'google/gemini-2.5-flash-lite',
+    name: 'Gemini 2.5 Flash Lite',
     provider: 'google',
     contextWindow: 1048576,
-    strengths: ['balanced performance', 'reasoning', 'multimodal'],
-    weaknesses: ['speed'],
-    bestFor: [TaskType.DECISION_MAKING, TaskType.ERROR_RECOVERY, TaskType.COMPLEX_AUTOMATION],
-    speed: 'medium',
-    cost: 'medium',
+    strengths: ['vision', 'speed', 'multimodal', 'long context'],
+    weaknesses: [],
+    bestFor: [TaskType.VISUAL_ANALYSIS, TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING],
+    speed: 'fast',
+    cost: 'low',
     supportsJson: true,
     supportsVision: true,
     performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 8,
-      [TaskType.COMPLEX_AUTOMATION]: 9,
-      [TaskType.TEXT_EXTRACTION]: 9,
-      [TaskType.FORM_FILLING]: 8,
-      [TaskType.VISUAL_ANALYSIS]: 9,
-      [TaskType.DECISION_MAKING]: 10,
-      [TaskType.ERROR_RECOVERY]: 9,
-      [TaskType.MULTI_STEP_WORKFLOW]: 9
+      [TaskType.SIMPLE_NAVIGATION]: 10,
+      [TaskType.COMPLEX_AUTOMATION]: 8,
+      [TaskType.TEXT_EXTRACTION]: 10,
+      [TaskType.FORM_FILLING]: 10,
+      [TaskType.VISUAL_ANALYSIS]: 10,
+      [TaskType.DECISION_MAKING]: 8,
+      [TaskType.ERROR_RECOVERY]: 8,
+      [TaskType.MULTI_STEP_WORKFLOW]: 8
     }
   }
 ];
@@ -300,8 +277,8 @@ export function selectOptimalModel(analysis: RequestAnalysis): ModelCapabilities
   });
 
   if (candidates.length === 0) {
-    // Fallback to best general model
-    return PAID_MODELS.find(m => m.id === 'google/gemini-2.0-flash-001') || PAID_MODELS[0];
+    // Fallback to grok-4.1-fast as default
+    return PAID_MODELS.find(m => m.id === 'x-ai/grok-4.1-fast') || PAID_MODELS[0];
   }
 
   // Score each candidate

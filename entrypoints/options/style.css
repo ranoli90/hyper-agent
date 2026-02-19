@@ -1151,3 +1151,40 @@ h2:first-child {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
 }
+
+/* Model Status Box */
+.model-info {
+  background: var(--surface-tertiary);
+  padding: 16px;
+  border-radius: 12px;
+  margin-top: 8px;
+}
+
+.model-status-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.model-badge::before {
+  content: '⚡';
+}
+
+.model-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
