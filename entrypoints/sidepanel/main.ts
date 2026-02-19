@@ -54,9 +54,18 @@ const components = {
 };
 
 // Validate critical components
-if (!components.chatHistory || !components.commandInput || !components.btnExecute) {
-  console.error('[HyperAgent] Failed to initialize critical UI components.');
-  // Optionally render a "Broken UI" error message directly to body if completely failed
+try {
+  if (!components.chatHistory || !components.commandInput || !components.btnExecute) {
+    throw new Error('Critical UI components missing from DOM');
+  }
+} catch (err: any) {
+  console.error('[HyperAgent] Fatal UI Init Error:', err);
+  document.body.innerHTML = `<div style="padding:20px;color:red;">
+    <h3>Fatal Error</h3>
+    <p>Failed to initialize UI components.</p>
+    <pre>${err.message}</pre>
+  </div>`;
+  throw err;
 }
 
 // ─── State ──────────────────────────────────────────────────────
@@ -444,16 +453,24 @@ chrome.runtime.onMessage.addListener((message: any) => {
       components.confirmModal.classList.remove('hidden');
 
       new Promise<boolean>(resolve => {
-        state.confirmResolve = resolve;
-        // Timeout after 30 seconds to prevent hanging
+        // Store resolve function in state so buttons can call it
+        state.confirmResolve = (val: boolean) => {
+          resolve(val);
+          state.confirmResolve = null;
+        };
+        // Auto-reject after 60s
         setTimeout(() => {
           if (state.confirmResolve) {
             state.confirmResolve(false);
-            state.confirmResolve = null;
           }
-        }, 30000);
+        }, 60000);
       }).then(confirmed => {
-        chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed });
+        // Ensure confirmed is boolean
+        chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed: !!confirmed });
+        components.confirmModal.classList.add('hidden');
+      }).catch(err => {
+        console.error('Confirmation error:', err);
+        components.confirmModal.classList.add('hidden');
       });
       break;
     }

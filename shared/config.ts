@@ -39,9 +39,9 @@ export const VALIDATION = {
 export const DEFAULTS = {
   BASE_URL: 'https://openrouter.ai/api/v1',
   DEFAULT_API_KEY: '', // Empty default; user must provide their API key
-  MODEL_NAME: 'google/gemini-2.5-flash',
-  BACKUP_MODEL: 'google/gemini-2.5-flash',
-  VISION_MODEL: 'google/gemini-2.5-flash',
+  MODEL_NAME: 'google/gemini-2.0-flash-001',
+  BACKUP_MODEL: 'google/gemini-2.0-flash-001',
+  VISION_MODEL: 'google/gemini-2.0-flash-001',
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
   DRY_RUN: false,
@@ -164,7 +164,7 @@ export async function loadSettings(): Promise<Settings> {
       learningEnabled: data[STORAGE_KEYS.LEARNING_ENABLED] ?? DEFAULTS.LEARNING_ENABLED,
     };
 
-     // Validate loaded settings
+    // Validate loaded settings
     const validation = validateSettings(settings);
     if (!validation.valid) {
       console.warn('[Config] Invalid settings loaded:', validation.errors);

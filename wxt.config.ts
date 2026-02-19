@@ -20,7 +20,8 @@ export default defineConfig({
       default_title: 'Open HyperAgent',
     },
     side_panel: {
-      default_path: 'sidepanel.html',
+      default_path: 'entrypoints/sidepanel/index.html',
     },
+
   },
 });

@@ -1657,6 +1657,8 @@ Return JSON:
   }
 
   // ─── Main ReAct Agent Loop ───────────────────────────────────────────
+
+  // --- Main ReAct Agent Loop -------------------------------------------
   async function runAgentLoop(initialCommand: string): Promise<void> {
     if (agentState.isRunning) {
       throw new Error('Agent is already running');
@@ -1674,14 +1676,23 @@ Return JSON:
         activeSessionId = session.id;
         // Verify session creation
         if (!session || !session.id) {
-          console.error('[Background] Failed to create session, ID is missing.');
-          // Fallback ID if session creation fails deeply
-          activeSessionId = `fallback_${Date.now()}`;
+          console.error('[Background] Session creation failure, using fallback.');
+          activeSessionId = `session_fallback_${Date.now()}`;
         }
       }
+      agentState.setCurrentSession(activeSessionId);
 
-      // 2. Notify start
-      chrome.runtime.sendMessage({
+      const tabId = (await getActiveTab())?.id;
+      if (!tabId) throw new Error('No active tab ID found');
+
+      // 2. Loop variables
+      const MAX_STEPS = 20;
+      let stepCount = 0;
+      let currentCommand = initialCommand;
+      const history: HistoryEntry[] = [];
+
+      // Notify start
+      sendToSidePanel({
         type: 'agentProgress',
         step: {
           id: 'start',
@@ -1689,19 +1700,18 @@ Return JSON:
           description: 'Analyzing request...',
           status: 'running'
         }
-      } as MsgAgentProgress).catch(() => { });
+      });
 
-      // 3. Loop variables
-      const maxSteps = 20;
-      let stepCount = 0;
-      let currentCommand = initialCommand;
-      const history: HistoryEntry[] = [];
-
-      // 4. Execution Loop
-      while (stepCount < maxSteps && !agentState.isAborted) {
+      // 3. Execution Loop
+      while (stepCount < MAX_STEPS && !agentState.isAborted) {
         stepCount++;
 
         // A. Observe Context
+        sendToSidePanel({
+          type: 'agentProgress',
+          step: { id: 'obs_' + stepCount, type: 'observation', description: 'Observing page state', status: 'pending' }
+        });
+
         const activeTab = await getActiveTab();
         if (!activeTab?.id) throw new Error('No active tab to control');
 
@@ -1722,6 +1732,11 @@ Return JSON:
         await updateSessionPageInfo(activeSessionId, pageContext.url, pageContext.title);
 
         // B. Plan (Call LLM)
+        sendToSidePanel({
+          type: 'agentProgress',
+          step: { id: 'plan_' + stepCount, type: 'planning', description: 'Generating action plan', status: 'pending' }
+        });
+
         const llmRequest = {
           command: currentCommand,
           history: history,
@@ -1732,15 +1747,15 @@ Return JSON:
 
         // Notify thinking
         if (llmResponse.thinking) {
-          chrome.runtime.sendMessage({
+          sendToSidePanel({
             type: 'agentProgress',
             step: {
-              id: `think_${stepCount}`,
+              id: 'think_' + stepCount,
               type: 'plan',
               description: llmResponse.thinking,
               status: 'completed'
             }
-          } as MsgAgentProgress).catch(() => { });
+          });
         }
 
         // Add to history
@@ -1757,16 +1772,16 @@ Return JSON:
 
         // C. Act
         if (llmResponse.done) {
-          chrome.runtime.sendMessage({ type: 'agentDone' } as MsgAgentDone).catch(() => { });
+          sendToSidePanel({ type: 'agentDone', finalSummary: llmResponse.summary, success: true, stepsUsed: stepCount });
           break;
         }
 
-        if (llmResponse.askUser) {
+        if (llmResponse.askUser && llmResponse.askUser.trim()) {
           // Request user input
-          // Implementation for askUser would go here - for now we just log
-          console.log('[Background] LLM requested user input:', llmResponse.askUser);
-          // Break for now as we don't have full UI for this in P1
-          break;
+          const reply = await askUserForInfo(llmResponse.askUser);
+          if (!reply || agentState.isAborted) return;
+          history.push({ role: 'user', userReply: reply });
+          continue; // Re-plan with user input
         }
 
         // Execute actions
@@ -1774,61 +1789,159 @@ Return JSON:
           if (agentState.isAborted) break;
 
           // Notify action start
-          chrome.runtime.sendMessage({
+          sendToSidePanel({
             type: 'agentProgress',
             step: {
-              id: `act_${stepCount}_${action.type}`,
+              id: 'act_' + stepCount + '_' + action.type,
               type: 'action',
-              description: (action as any).description || `Executing ${action.type}`,
+              description: (action as any).description || ('Executing ' + action.type),
               status: 'running'
             }
-          } as MsgAgentProgress).catch(() => { });
+          });
 
           // Execute on content script
-          const result: ActionResult = await sendMessageToTab(activeTab.id, {
-            type: 'performAction',
-            action: action
-          });
+          const result: ActionResult = await executeAction(activeTab.id, action, false, false, activeTab.url);
 
           // Record result
           await addActionToSession(activeSessionId, action);
           await addResultToSession(activeSessionId, result);
 
           // Notify action complete
-          chrome.runtime.sendMessage({
+          sendToSidePanel({
             type: 'agentProgress',
             step: {
-              id: `act_${stepCount}_${action.type}`,
+              id: 'act_' + stepCount + '_' + action.type,
               type: 'action',
-              description: (action as any).description || `Executed ${action.type}`,
+              description: (action as any).description || ('Executed ' + action.type),
               status: result.success ? 'completed' : 'failed'
             }
-          } as MsgAgentProgress).catch(() => { });
+          });
 
           // Short delay between actions
           await delay(500);
         }
 
-        // Clear command for next iteration (Reflexive)
+        // Clear command for next iteration
         currentCommand = "Continue based on the previous actions and the new page state.";
       }
 
     } catch (err: any) {
       console.error('[Background] Agent loop error:', err);
-      chrome.runtime.sendMessage({
+      sendToSidePanel({
         type: 'agentError',
         error: err.message || 'Unknown error in agent loop'
-      }).catch(() => { });
+      });
     } finally {
       agentState.setRunning(false);
     }
   }
 
-  // ─── Message Listener Registration ───────────────────────────────────
+  // --- Shared Helper Functions ------------------------------------------
+  async function getActiveTab(): Promise<chrome.tabs.Tab | undefined> {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tabs[0];
+  }
+
+  async function getActiveTabId(): Promise<number> {
+    const tab = await getActiveTab();
+    if (!tab?.id) throw new Error('No active tab found');
+    return tab.id;
+  }
+
+  async function sendMessageToTab(tabId: number, message: any): Promise<any> {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (err) {
+      console.warn('[Background] Failed to send message to tab:', err);
+      return null;
+    }
+  }
+
+  async function getPageContext(tabId: number): Promise<PageContext | null> {
+    try {
+      const resp = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
+      return resp;
+    } catch (err) {
+      console.warn('[Background] Failed to get page context:', err);
+      return null;
+    }
+  }
+
+  async function captureScreenshot(): Promise<string | undefined> {
+    try {
+      const activeTab = await getActiveTab();
+      if (!activeTab?.windowId) return undefined;
+      return await chrome.tabs.captureVisibleTab(activeTab.windowId, { format: 'png', quality: 60 });
+    } catch (err) {
+      console.warn('Screenshot capture failed:', err);
+      return undefined;
+    }
+  }
+
+  async function askUserConfirmation(actions: Action[], step: number, summary: string): Promise<boolean> {
+    sendToSidePanel({
+      type: 'agentProgress',
+      step: {
+        id: 'confirm_' + step,
+        type: 'confirm',
+        description: 'Waiting for user confirmation...',
+        status: 'pending'
+      },
+      summary
+    });
+
+    return new Promise((resolve) => {
+      agentState.setConfirmResolver(resolve);
+      setTimeout(() => {
+        if (agentState['state'].pendingConfirmResolve) {
+          agentState.resolveConfirm(false);
+        }
+      }, 300000);
+    });
+  }
+
+  async function askUserForInfo(question: string): Promise<string> {
+    sendToSidePanel({ type: 'askUser', question });
+    return new Promise((resolve) => {
+      agentState.setReplyResolver(resolve);
+    });
+  }
+
+  async function executeAction(tabId: number, action: Action, dryRun: boolean, autoRetry: boolean, url?: string): Promise<ActionResult> {
+    if (dryRun) {
+      return { success: true, extractedData: 'Dry run execution' };
+    }
+
+    const securityCheck = await checkActionAllowed(action, url || '');
+    if (!securityCheck.allowed) {
+      if (securityCheck.requiresConfirmation) {
+        const confirmed = await askUserConfirmation([action], 0, "Security Check");
+        if (!confirmed) return { success: false, error: 'User denied action' };
+      } else {
+        return { success: false, error: securityCheck.reason || 'Action blocked by security policy' };
+      }
+    }
+
+    try {
+      const result = await sendMessageToTab(tabId, { type: 'performAction', action });
+      return result || { success: false, error: 'No response from content script' };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  }
+
+  function isDestructive(action: Action): boolean {
+    const type = action.type;
+    return type === 'click' || type === 'fill' || type === 'pressKey';
+  }
+
+  function sendToSidePanel(msg: any) {
+    chrome.runtime.sendMessage(msg).catch(() => { });
+  }
+
+  // Register listeners
   chrome.runtime.onMessage.addListener(handleExtensionMessage);
 
-  // Initialize scheduler on startup
-  schedulerEngine.initialize().catch(err => {
-    console.error('[Background] Failed to initialize scheduler:', err);
-  });
+  // Init scheduler
+  schedulerEngine.initialize().catch(err => console.error(err));
 });

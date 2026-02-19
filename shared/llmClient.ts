@@ -7,7 +7,7 @@ import { IntelligenceContext } from './ai-types';
 import { CacheEntry } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 
-const SINGLE_MODEL = 'google/gemini-2.5-flash';
+const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
 
 import { redact, sanitizeMessages } from './security';
 
@@ -337,7 +337,7 @@ Respond with valid JSON:
             messages: [{ role: 'user', content: reasoningPrompt }],
             temperature: 0.1,
             max_tokens: 1000,
-            provider: 'google-ai-studio', // Force Google provider for OpenRouter
+
           }),
           signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
         });
@@ -531,7 +531,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           messages: safeMessages,
           temperature: request.temperature ?? 0.7,
           max_tokens: request.maxTokens ?? 1000,
-          provider: 'google-ai-studio', // Force Google provider for OpenRouter
+
         }),
         signal: signal || AbortSignal.timeout(60000),
       });
@@ -577,7 +577,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         messages,
         temperature: 0.7,
         max_tokens: 4096,
-        provider: 'google-ai-studio', // Force Google provider for OpenRouter
+
       };
       console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
 
