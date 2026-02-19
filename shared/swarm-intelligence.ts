@@ -300,8 +300,7 @@ Your Specialization: ${agent.specialization}
       const response = await llmClient.callCompletion({
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
-        maxTokens: 2000,
-        responseFormat: 'json_object'
+        maxTokens: 2000
       });
 
       return JSON.parse(response);

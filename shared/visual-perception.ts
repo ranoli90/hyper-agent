@@ -63,8 +63,7 @@ Return format:
                     { role: 'user', content: userMessageContent }
                 ],
                 temperature: 0.1,
-                maxTokens: 2000,
-                responseFormat: "json_object"
+                maxTokens: 2000
             });
 
             // Parse JSON response safely

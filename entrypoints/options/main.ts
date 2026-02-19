@@ -120,8 +120,8 @@ async function loadCurrentSettings() {
     status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
   });
 
-  // Model is always auto-selected now
-  modelStatusText.textContent = 'Model: Auto (Grok/Gemini)';
+  // Model is fixed to google/gemini-2.5-flash
+  modelStatusText.textContent = 'Model: google/gemini-2.5-flash';
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -153,8 +153,8 @@ btnSave.addEventListener('click', async () => {
   await saveSettings({
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: 'auto', // Always auto-select model
-    backupModel: 'minimax/minimax-m2.5',
+    modelName: 'google/gemini-2.5-flash',
+    backupModel: 'google/gemini-2.5-flash',
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
@@ -190,7 +190,7 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
         'X-Title': 'HyperAgent',
       },
       body: JSON.stringify({
-        model: 'minimax/minimax-m2.5',
+        model: 'google/gemini-2.5-flash',
         messages: [{ role: 'user', content: 'Test' }],
         temperature: 0,
         max_tokens: 1,
@@ -486,12 +486,7 @@ function attachDangerZoneHandlers() {
     }
 
     await loadCurrentSettings();
-    showNotification(
-      keysToDelete.length
-        ? `Model cache cleared. Removed ${keysToDelete.length + keysToRemove.length} entries. Using Google Gemini.`
-        : 'Model cache cleared - using Google Gemini',
-      'success'
-    );
+    showNotification('Cache cleared successfully', 'success');
   });
 }
 

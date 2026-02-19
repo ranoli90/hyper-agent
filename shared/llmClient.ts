@@ -1,13 +1,13 @@
 import type { LLMResponse, PageContext, Action, LLMRequest, LLMClientInterface, CompletionRequest } from './types';
 import { DEFAULTS, loadSettings } from './config';
 
-import { analyzeRequest, selectOptimalModel, selectFallbackModel, shouldSwitchModel, type RequestAnalysis } from './intelligent-model-selection';
 import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
 import { IntelligenceContext } from './ai-types';
 import { CacheEntry } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
-import { ModelOptimizer } from './model-optimizer';
+
+const SINGLE_MODEL = 'google/gemini-2.5-flash';
 
 // ─── Redaction helpers (prevent sensitive leakage to LLM/logs) ──────────
 function redact(value: any): string {
@@ -70,65 +70,21 @@ class TokenCounter {
 // ─── Dynamic Intelligence System Prompt ───────────────────────────────
 // Instead of hardcoded workflows, use autonomous reasoning that adapts to any task
 
-const DYNAMIC_SYSTEM_PROMPT = `You are HyperAgent, an autonomous AI that dynamically understands and executes ANY task without preprogrammed workflows.
+const DYNAMIC_SYSTEM_PROMPT = `You are HyperAgent, an autonomous AI assistant that helps users with web automation tasks.
 
-CORE CAPABILITY: You figure things out on your own. Don't follow templates - analyze the task, understand what needs to be done, and determine the best approach dynamically.
+You can:
+- Navigate to websites
+- Click buttons and fill forms
+- Extract information from pages
+- Take screenshots for visual analysis
 
-INTELLIGENCE FEATURES:
-- Dynamic task analysis: Understand any request, no matter the domain
-- Adaptive execution: Modify your approach based on context and results
-- Self-learning: Learn from successes and failures to improve
-- Creative problem-solving: Think of novel solutions, not just follow recipes
-
-AVAILABLE TOOLS (use dynamically based on task needs):
-- Web browsing and interaction (click, fill, scroll, navigate)
-- Data extraction and analysis
-- Multi-tab management
-- Research and information gathering
-- Problem-solving and decision-making
-
-RESPONSE FORMAT — Return ONLY valid JSON:
+Always respond with valid JSON containing:
 {
-  "thinking": "Your dynamic reasoning about what this task requires and how to approach it",
-  "summary": "Brief explanation of your autonomous analysis and planned approach",
-  "actions": [
-    // Dynamically determined actions based on task analysis
-    // No hardcoded workflows - figure out what actions are needed
-  ],
+  "summary": "Brief explanation of what you're doing",
+  "actions": [{"type": "action_type", "description": "what to do"}],
   "needsScreenshot": false,
-  "done": false,
-  "askUser": null
-}
-
-DYNAMIC REASONING PROCESS:
-1. Analyze the task: What is actually being asked? What are the real requirements?
-2. Assess context: What tools do I have? What's the current state?
-3. Determine approach: What strategy makes sense for this specific task?
-4. Plan execution: What steps are needed? In what order?
-Remember: You're not following a script. You're intelligently solving problems.
-
-RULES:
-1. Think step-by-step in "thinking". Summarize for the user in "summary".
-2. Prefer 1-3 actions per step. You'll get fresh context after each batch.
-3. Mark "destructive":true for ANY action that submits forms, makes purchases, posts content, deletes data, sends messages, signs out, or navigates away from a page with unsaved state. When in doubt, mark destructive.
-4. Set "done":true when the task is fully complete OR impossible to complete.
-5. Set "needsScreenshot":true when you need visual layout info (CAPTCHAs, image-heavy pages, complex layouts).
-6. Set "askUser":"question text" if you need information from the user (credentials, preferences, ambiguous choices). This pauses execution.
-7. NEVER guess passwords, payment info, or personal data. Always askUser.
-8. If an action failed in the previous step's results, the system now automatically retries with self-healing (fuzzy matching, scroll-to-locate, ARIA matching). Adapt by trying different locators if needed.
-9. For forms: fill fields first, then submit. Don't submit and fill in the same step.
-10. For navigation: after navigating, return only a wait action — you'll get fresh context next step.
-11. If you're stuck after 3+ attempts at the same sub-task, set done:true and explain what went wrong.
-12. Always provide a "description" for every action — the user sees these for confirmation.
-13. The agent now has self-healing: if an element is not found, it automatically tries fuzzy text matching, ARIA labels, role+text combinations, and scroll-to-reveal strategies.
-14. LONG-TERM MEMORY: The agent now learns from past interactions on each domain. It remembers which locators have been successful or failed for specific action types. On repeat visits to known sites, it will prioritize previously successful locators. This improves efficiency on frequently visited websites.
-15. VISION-FIRST FALLBACK: When the DOM has fewer than 10 semantic elements (sparse or failed to extract), the agent automatically requests a screenshot for visual understanding. Additionally, after performing click/fill/select actions, the agent captures verification screenshots to confirm the action had the expected effect. Screenshots complement the DOM data when available for better accuracy.
-17. ENHANCED EXTRACT: The extract action now supports multiple extraction, regex filtering, and output formatting. Use "multiple":true to extract all matching elements, "filter" for regex patterns (e.g., "\\$\\d+" for prices), and "format" as "text", "json", or "csv". Common patterns like "go to X", "find X", "click X", "search for X", and more are recognized. The agent is also aware that commands may be incomplete and will attempt to interpret user intent from the available context.
-18. COMMAND MACROS: The agent can save and replay sequences of actions using macros. Use runMacro with a macroId to execute a saved sequence. Users can create macros through the side panel UI to save frequently used action sequences (like login flows, form fills, or multi-step processes).
-19. ADVANCED ERROR RECOVERY: The agent now has sophisticated error recovery capabilities. When actions fail, the system automatically attempts multiple recovery strategies: (a) Retry with self-healing - tries fuzzy text matching, ARIA labels, role+text combinations; (b) Scroll-to-reveal - scrolls the page to find lazy-loaded elements; (c) Reconstruct action - can rebuild actions with alternative locators; (d) Fallback strategy - can use alternative approaches to achieve the same goal. The agent is aware of these capabilities and can suggest alternative approaches when initial attempts fail.
-20. MULTI-LANGUAGE SUPPORT: The agent now supports commands in 9 languages: English, Spanish, French, German, Chinese, Japanese, Korean, Portuguese, and Russian. Commands in any supported language are automatically detected and translated to English before processing. This allows users to issue commands in their native language (e.g., "clic sur le bouton" in French, "klicka pa knappen" in Swedish would be handled). The system detects language from command text patterns and translates action keywords to English for processing.
-21. WORKFLOW ORCHESTRATION: The agent now supports complex multi-step workflows with conditional logic. Workflows are defined as a sequence of steps with conditions, success/error branches, and can navigate between steps dynamically. Use runWorkflow with a workflowId to execute a saved workflow. Workflows enable complex automation scenarios like: checking for element presence before proceeding, handling errors gracefully with alternative paths, and creating reusable automation templates for common tasks. Users can create and manage workflows through the side panel UI.
-22. ENHANCED SECURITY & PRIVACY: The agent now has enhanced security controls. Privacy settings allow users to control screenshot capture, action history storage, and data sharing. Security policies enforce rate limiting (max actions per minute), require confirmation for sensitive actions (fill, navigate), and can restrict external URL access. The agent checks domain permissions and rate limits before executing actions, and will prompt for confirmation when required by security policy. Users can configure these settings through the options page to customize their security posture.`;
+  "done": false
+}`;
 
 // ─── History entry ──────────────────────────────────────────────────
 export interface HistoryEntry {
@@ -398,13 +354,9 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    // Use auto-selected model for fallback reasoning
-    const fallbackModels = [
-      'minimax/minimax-m2.5',
-      'moonshotai/kimi-k2.5',
-    ];
+    const model = SINGLE_MODEL;
 
-    for (const model of fallbackModels) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const resp = await fetch(`${settings.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -419,7 +371,7 @@ Respond with valid JSON:
             messages: [{ role: 'user', content: reasoningPrompt }],
             temperature: 0.1,
             max_tokens: 1000,
-            response_format: { type: 'json_object' },
+            provider: 'google-ai-studio', // Force Google provider for OpenRouter
           }),
           signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
         });
@@ -433,11 +385,11 @@ Respond with valid JSON:
 
         const parsed = extractJSON(content);
         if (parsed && validateResponse(parsed)) {
-          console.log(`[HyperAgent] Intelligent fallback succeeded with ${model}`);
+          console.log(`[HyperAgent] Intelligent fallback succeeded`);
           return parsed as LLMResponse;
         }
       } catch (err) {
-        console.log(`[HyperAgent] Fallback model ${model} failed:`, err);
+        console.log(`[HyperAgent] Fallback attempt ${attempt + 1} failed:`, err);
         continue;
       }
     }
@@ -596,9 +548,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
       
-      // Auto-select best model for this task
-      const optimalModel = selectOptimalModel(analyzeRequest('', { }));
-      const completionModel = optimalModel.id;
+      const completionModel = SINGLE_MODEL;
       
       console.log(`[HyperAgent] Using completion model: ${completionModel}`);
 
@@ -615,6 +565,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           messages: safeMessages,
           temperature: request.temperature ?? 0.7,
           max_tokens: request.maxTokens ?? 1000,
+          provider: 'google-ai-studio', // Force Google provider for OpenRouter
         }),
         signal: signal || AbortSignal.timeout(60000),
       });
@@ -634,28 +585,35 @@ export class EnhancedLLMClient implements LLMClientInterface {
   }
 
   private async makeTraditionalCall(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
-    // Fallback to traditional LLM call
     const settings = await loadSettings();
-    const analysis = analyzeRequest(request.command || '', request.context);
-
-    return await this.makeAPICall(request, settings, analysis, signal);
+    return await this.makeAPICall(request, settings, signal);
   }
 
   private async makeAPICall(
     request: LLMRequest,
     settings: any,
-    analysis: RequestAnalysis,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
     try {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
-      const messages = sanitizeMessages(rawMessages);
-
-      // Auto-select optimal model based on task analysis
-      const optimalModel = selectOptimalModel(analysis);
-      const model = optimalModel.id;
+      console.log('[HyperAgent] Raw messages:', JSON.stringify(rawMessages, null, 2));
       
-      console.log(`[HyperAgent] Auto-selected model: ${model} for task type: ${analysis.primaryTask}`);
+      const messages = sanitizeMessages(rawMessages);
+      console.log('[HyperAgent] Sanitized messages:', JSON.stringify(messages, null, 2));
+
+      const model = SINGLE_MODEL;
+      
+      console.log(`[HyperAgent] Using model: ${model}`);
+
+      // Debug: log the request body
+      const requestBody = {
+        model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 4096,
+        provider: 'google-ai-studio', // Force Google provider for OpenRouter
+      };
+      console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',
@@ -665,12 +623,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           'HTTP-Referer': 'https://hyperagent.ai',
           'X-Title': 'HyperAgent',
         },
-        body: JSON.stringify({
-          model,
-          messages,
-          temperature: 0.7,
-          max_tokens: 4096,
-        }),
+        body: JSON.stringify(requestBody),
         signal: signal || AbortSignal.timeout(45000),
       });
 

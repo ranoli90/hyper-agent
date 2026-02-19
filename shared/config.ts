@@ -170,12 +170,8 @@ export async function loadSettings(): Promise<Settings> {
       console.warn('[Config] Invalid settings loaded:', validation.errors);
     }
 
-    // Note: Model names are not validated here. OpenRouter API supports all major providers:
-    // - Google models (google/)
-    // - Anthropic models (claude-)
-    // - OpenAI models (gpt-)
-    // - And many others. Let the API validate which models are available.
-    // This allows users to configure any provider/model they have access to.
+    // Note: Only google/gemini-2.5-flash via OpenRouter is supported.
+    // All model selections are forced to this model.
 
     return settings;
   } catch (error) {

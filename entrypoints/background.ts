@@ -1577,8 +1577,7 @@ Return JSON:
           }
         ],
         temperature: 0.0, // Strict verification
-        maxTokens: 300,
-        responseFormat: 'json_object'
+        maxTokens: 300
       });
 
       const parsed = JSON.parse(response);
