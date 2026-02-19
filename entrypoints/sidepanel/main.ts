@@ -33,6 +33,13 @@ const components = {
   tabs: document.querySelectorAll('.tab-btn'),
   panes: document.querySelectorAll('.tab-pane'),
 
+  usageActions: safeGetElement<HTMLElement>('usage-actions')!,
+  usageSessions: safeGetElement<HTMLElement>('usage-sessions')!,
+  usageTier: safeGetElement<HTMLElement>('usage-tier')!,
+  marketplaceList: safeGetElement<HTMLElement>('marketplace-list')!,
+  btnUpgradePremium: safeGetElement<HTMLButtonElement>('btn-upgrade-premium')!,
+  btnUpgradeUnlimited: safeGetElement<HTMLButtonElement>('btn-upgrade-unlimited')!,
+
   // Vision
   visionSnapshot: safeGetElement<HTMLImageElement>('vision-snapshot', true)!, // Optional if vision disabled
   visionPlaceholder: safeGetElement<HTMLElement>('vision-placeholder')!,
@@ -107,6 +114,13 @@ function switchTab(tabId: string) {
   components.panes.forEach(pane => {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
   });
+
+  // Load tab-specific content
+  if (tabId === 'marketplace') {
+    loadMarketplace();
+  } else if (tabId === 'subscription') {
+    updateUsageDisplay();
+  }
 }
 
 components.tabs.forEach(tab => {
@@ -409,13 +423,88 @@ async function loadHistory() {
   }
 }
 
-// ─── Utilities ──────────────────────────────────────────────────
-function debounce(func: Function, wait: number) {
-  let timeout: any;
-  return function (...args: any[]) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
+function updateUsageDisplay() {
+  chrome.runtime.sendMessage({ type: 'getUsage' }, (response) => {
+    if (response?.usage) {
+      const { actions, sessions, sessionTime } = response.usage;
+      const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
+
+      components.usageActions.textContent = `${actions} / ${limitActions === -1 ? '∞' : limitActions}`;
+      components.usageSessions.textContent = `${sessions} / ${limitSessions === -1 ? '∞' : limitSessions}`;
+      components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+    }
+  });
+}
+
+function loadMarketplace() {
+  // Sample workflows for the marketplace
+  const workflows = [
+    {
+      id: 'web-scraper',
+      name: 'Web Scraper',
+      description: 'Automatically extract data from web pages',
+      price: 'Free',
+      category: 'Data'
+    },
+    {
+      id: 'email-automation',
+      name: 'Email Automation',
+      description: 'Send personalized emails based on triggers',
+      price: '$4.99',
+      category: 'Communication'
+    },
+    {
+      id: 'social-media-poster',
+      name: 'Social Media Poster',
+      description: 'Schedule and post to multiple social platforms',
+      price: '$9.99',
+      category: 'Marketing'
+    },
+    {
+      id: 'invoice-processor',
+      name: 'Invoice Processor',
+      description: 'Extract and process invoice data automatically',
+      price: '$14.99',
+      category: 'Business'
+    }
+  ];
+
+  components.marketplaceList.innerHTML = '';
+  workflows.forEach(workflow => {
+    const card = document.createElement('div');
+    card.className = 'workflow-card';
+    card.innerHTML = `
+      <h4>${workflow.name}</h4>
+      <p>${workflow.description}</p>
+      <div class="workflow-meta">
+        <span class="category">${workflow.category}</span>
+        <span class="price">${workflow.price}</span>
+      </div>
+      <button class="install-btn" data-workflow-id="${workflow.id}">
+        ${workflow.price === 'Free' ? 'Install' : 'Purchase'}
+      </button>
+    `;
+    components.marketplaceList.appendChild(card);
+  });
+
+  // Add event listeners for install buttons
+  components.marketplaceList.querySelectorAll('.install-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const workflowId = (e.target as HTMLElement).dataset.workflowId;
+      if (workflowId) {
+        installWorkflow(workflowId);
+      }
+    });
+  });
+}
+
+function installWorkflow(workflowId: string) {
+  // Placeholder for workflow installation
+  addMessage(`Installing workflow: ${workflowId}`, 'status');
+  // In real implementation, this would download and install the workflow
+  setTimeout(() => {
+    addMessage(`Workflow ${workflowId} installed successfully!`, 'agent');
+  }, 2000);
 }
 
 // ─── Event Listeners ────────────────────────────────────────────
@@ -610,8 +699,18 @@ let voiceInterface = new VoiceInterface({
   }
 });
 
-components.btnMic.addEventListener('click', () => {
-  voiceInterface.isListening ? voiceInterface.stopListening() : voiceInterface.startListening();
+components.btnUpgradePremium.addEventListener('click', () => {
+  // Open Stripe checkout for Premium plan
+  const stripeUrl = 'https://buy.stripe.com/premium-plan-checkout-url'; // Placeholder
+  chrome.tabs.create({ url: stripeUrl });
+  addMessage('Redirecting to Stripe checkout for Premium plan...', 'status');
+});
+
+components.btnUpgradeUnlimited.addEventListener('click', () => {
+  // Open Stripe checkout for Unlimited plan
+  const stripeUrl = 'https://buy.stripe.com/unlimited-plan-checkout-url'; // Placeholder
+  chrome.tabs.create({ url: stripeUrl });
+  addMessage('Redirecting to Stripe checkout for Unlimited plan...', 'status');
 });
 
 // Init

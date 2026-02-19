@@ -5,7 +5,7 @@
   - banner [ref=e3]:
     - generic [ref=e4]:
       - button "Chat" [ref=e5]
-      - button "Vision" [ref=e6]
+      - button "Vision" [active] [ref=e6]
       - button "Tasks" [ref=e7]
       - button "Memory" [ref=e8]
     - button "⚙️" [ref=e9]
@@ -39,23 +39,25 @@
       - generic [ref=e41]: Ver
     - text: Ready
   - generic [ref=e42]:
-    - textbox "Type a command..." [ref=e44]
-    - generic [ref=e45]:
-      - button "🎤" [ref=e46]
-      - button "Stop" [ref=e47]
-      - button "Run" [ref=e48]
-  - generic [ref=e50]:
-    - heading "Confirm" [level=3] [ref=e51]
+    - generic [ref=e43]:
+      - textbox "Type a command..." [ref=e44]
+      - generic [ref=e45]: 0 / 2000
+    - generic [ref=e46]:
+      - button "🎤" [ref=e47]
+      - button "Stop" [ref=e48]
+      - button "Run" [ref=e49]
+  - generic [ref=e51]:
+    - heading "Confirm" [level=3] [ref=e52]
     - paragraph
     - list
-    - generic [ref=e52]:
-      - button "Cancel" [ref=e53]
-      - button "Confirm" [ref=e54]
-  - generic [ref=e56]:
-    - heading "Question" [level=3] [ref=e57]
+    - generic [ref=e53]:
+      - button "Cancel" [ref=e54]
+      - button "Confirm" [ref=e55]
+  - generic [ref=e57]:
+    - heading "Question" [level=3] [ref=e58]
     - paragraph
-    - textbox "Reply..." [ref=e58]
-    - generic [ref=e59]:
-      - button "Cancel" [ref=e60]
-      - button "Reply" [ref=e61]
+    - textbox "Reply..." [ref=e59]
+    - generic [ref=e60]:
+      - button "Cancel" [ref=e61]
+      - button "Reply" [ref=e62]
 ```

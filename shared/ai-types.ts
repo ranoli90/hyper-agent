@@ -53,12 +53,14 @@ export interface AutonomousPlan {
 export interface PlanStep {
     id: string;
     description: string;
-    action: string;
-    prerequisites: string[];
-    successCriteria: string[];
-    timeout: number;
-    retryPolicy: RetryConfig;
+    action: Action | any; // Allow flexible action structure for autonomous execution
+    prerequisites?: string[];
+    successCriteria?: string[];
+    timeout?: number;
+    retryPolicy?: RetryConfig;
     confidence?: number;
+    verification?: string;
+    dependencies?: string[];
 }
 
 export interface StepResult {

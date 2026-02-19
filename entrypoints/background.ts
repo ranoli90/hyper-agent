@@ -23,24 +23,140 @@ import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workf
 import { trackActionStart, trackActionEnd, getMetrics, getActionMetrics, getSuccessRateByDomain } from '../shared/metrics';
 import { createSession, getActiveSession, updateSessionPageInfo, addActionToSession, addResultToSession, updateExtractedData } from '../shared/session';
 import { checkDomainAllowed, checkActionAllowed, checkRateLimit, initializeSecuritySettings, getPrivacySettings, getSecurityPolicy, type PrivacySettings, type SecurityPolicy, redact } from '../shared/security';
-import type {
+import {
   ExtensionMessage,
   Action,
-  MacroAction,
-  WorkflowAction,
-  PageContext,
-  MsgAgentProgress,
-  MsgConfirmActions,
-  MsgAgentDone,
-  ErrorContext,
-  ErrorType,
   ActionResult,
+  MsgAgentProgress,
+  MsgAgentDone,
+  MsgConfirmActions,
+  MsgAskUser,
+  ErrorType,
+  PageContext,
+  DEFAULTS,
 } from '../shared/types';
 import { withErrorBoundary, withGracefulDegradation, errorBoundary, gracefulDegradation } from '../shared/error-boundary';
-import { schedulerEngine } from '../shared/scheduler-engine';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
+
+// ─── Usage Tracking for Monetization ──────────────────────────────────
+interface UsageMetrics {
+  actionsExecuted: number;
+  autonomousSessions: number;
+  totalSessionTime: number;
+  lastActivity: number;
+  subscriptionTier: 'free' | 'premium' | 'unlimited';
+  monthlyUsage: {
+    actions: number;
+    sessions: number;
+    resetDate: number;
+  };
+}
+
+class UsageTracker {
+  private metrics: UsageMetrics = {
+    actionsExecuted: 0,
+    autonomousSessions: 0,
+    totalSessionTime: 0,
+    lastActivity: Date.now(),
+    subscriptionTier: 'free',
+    monthlyUsage: {
+      actions: 0,
+      sessions: 0,
+      resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000) // 30 days
+    }
+  };
+
+  async loadMetrics(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get('usage_metrics');
+      if (data.usage_metrics) {
+        this.metrics = { ...this.metrics, ...data.usage_metrics };
+        this.checkMonthlyReset();
+      }
+    } catch (err) {
+      console.warn('[UsageTracker] Failed to load metrics:', err);
+    }
+  }
+
+  async saveMetrics(): Promise<void> {
+    try {
+      await chrome.storage.local.set({ 'usage_metrics': this.metrics });
+    } catch (err) {
+      console.warn('[UsageTracker] Failed to save metrics:', err);
+    }
+  }
+
+  private checkMonthlyReset(): void {
+    if (Date.now() > this.metrics.monthlyUsage.resetDate) {
+      // Reset monthly counters
+      this.metrics.monthlyUsage = {
+        actions: 0,
+        sessions: 0,
+        resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000)
+      };
+      this.saveMetrics();
+    }
+  }
+
+  trackAction(actionType: string): void {
+    this.metrics.actionsExecuted++;
+    this.metrics.monthlyUsage.actions++;
+    this.metrics.lastActivity = Date.now();
+    this.saveMetrics();
+  }
+
+  trackAutonomousSession(duration: number): void {
+    this.metrics.autonomousSessions++;
+    this.metrics.totalSessionTime += duration;
+    this.metrics.monthlyUsage.sessions++;
+    this.metrics.lastActivity = Date.now();
+    this.saveMetrics();
+  }
+
+  setSubscriptionTier(tier: 'free' | 'premium' | 'unlimited'): void {
+    this.metrics.subscriptionTier = tier;
+    this.saveMetrics();
+  }
+
+  isPremiumFeatureAllowed(feature: string): boolean {
+    switch (feature) {
+      case 'autonomous_mode':
+        return this.metrics.subscriptionTier !== 'free' || this.metrics.monthlyUsage.sessions < 3;
+      case 'unlimited_actions':
+        return this.metrics.subscriptionTier === 'unlimited';
+      case 'advanced_workflows':
+        return this.metrics.subscriptionTier !== 'free';
+      default:
+        return true;
+    }
+  }
+
+  getUsageLimits(): { actions: number; sessions: number; tier: string } {
+    const limits = {
+      free: { actions: 100, sessions: 3 },
+      premium: { actions: 1000, sessions: 50 },
+      unlimited: { actions: -1, sessions: -1 }
+    };
+
+    return {
+      actions: limits[this.metrics.subscriptionTier].actions,
+      sessions: limits[this.metrics.subscriptionTier].sessions,
+      tier: this.metrics.subscriptionTier
+    };
+  }
+
+  getCurrentUsage(): { actions: number; sessions: number; sessionTime: number } {
+    return {
+      actions: this.metrics.monthlyUsage.actions,
+      sessions: this.metrics.monthlyUsage.sessions,
+      sessionTime: this.metrics.totalSessionTime
+    };
+  }
+}
+
+const usageTracker = new UsageTracker();
 
 // ─── Enhanced Background Script with Production Features ─────────────────
 
@@ -676,8 +792,22 @@ export default defineBackground(() => {
    */
   async function runAutonomousLoop(command: string) {
     if (agentState.isRunning) return;
+
+    // Check premium feature access
+    if (!usageTracker.isPremiumFeatureAllowed('autonomous_mode')) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Autonomous mode requires Premium subscription. Upgrade to unlock unlimited autonomous sessions.',
+        success: false,
+        stepsUsed: 0,
+      });
+      return;
+    }
+
     agentState.setRunning(true);
     agentState.setAborted(false);
+
+    const sessionStart = Date.now();
 
     const settings = await loadSettings();
     if (!settings.apiKey) {
@@ -752,10 +882,129 @@ export default defineBackground(() => {
       sendToSidePanel({ type: 'agentDone', finalSummary: `Autonomous Error: ${err.message}`, success: false, stepsUsed: 0 });
     } finally {
       agentState.setRunning(false);
+      // Track session usage
+      const sessionDuration = Date.now() - sessionStart;
+      usageTracker.trackAutonomousSession(sessionDuration);
     }
   }
 
-  // ─── Enhanced message routing with security ──────────────────────
+  // ─── Usage Tracking for Monetization ──────────────────────────────────
+interface UsageMetrics {
+  actionsExecuted: number;
+  autonomousSessions: number;
+  totalSessionTime: number;
+  lastActivity: number;
+  subscriptionTier: 'free' | 'premium' | 'unlimited';
+  monthlyUsage: {
+    actions: number;
+    sessions: number;
+    resetDate: number;
+  };
+}
+
+class UsageTracker {
+  private metrics: UsageMetrics = {
+    actionsExecuted: 0,
+    autonomousSessions: 0,
+    totalSessionTime: 0,
+    lastActivity: Date.now(),
+    subscriptionTier: 'free',
+    monthlyUsage: {
+      actions: 0,
+      sessions: 0,
+      resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000) // 30 days
+    }
+  };
+
+  async loadMetrics(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get('usage_metrics');
+      if (data.usage_metrics) {
+        this.metrics = { ...this.metrics, ...data.usage_metrics };
+        this.checkMonthlyReset();
+      }
+    } catch (err) {
+      console.warn('[UsageTracker] Failed to load metrics:', err);
+    }
+  }
+
+  async saveMetrics(): Promise<void> {
+    try {
+      await chrome.storage.local.set({ 'usage_metrics': this.metrics });
+    } catch (err) {
+      console.warn('[UsageTracker] Failed to save metrics:', err);
+    }
+  }
+
+  private checkMonthlyReset(): void {
+    if (Date.now() > this.metrics.monthlyUsage.resetDate) {
+      // Reset monthly counters
+      this.metrics.monthlyUsage = {
+        actions: 0,
+        sessions: 0,
+        resetDate: Date.now() + (30 * 24 * 60 * 60 * 1000)
+      };
+      this.saveMetrics();
+    }
+  }
+
+  trackAction(actionType: string): void {
+    this.metrics.actionsExecuted++;
+    this.metrics.monthlyUsage.actions++;
+    this.metrics.lastActivity = Date.now();
+    this.saveMetrics();
+  }
+
+  trackAutonomousSession(duration: number): void {
+    this.metrics.autonomousSessions++;
+    this.metrics.totalSessionTime += duration;
+    this.metrics.monthlyUsage.sessions++;
+    this.metrics.lastActivity = Date.now();
+    this.saveMetrics();
+  }
+
+  setSubscriptionTier(tier: 'free' | 'premium' | 'unlimited'): void {
+    this.metrics.subscriptionTier = tier;
+    this.saveMetrics();
+  }
+
+  isPremiumFeatureAllowed(feature: string): boolean {
+    switch (feature) {
+      case 'autonomous_mode':
+        return this.metrics.subscriptionTier !== 'free' || this.metrics.monthlyUsage.sessions < 3;
+      case 'unlimited_actions':
+        return this.metrics.subscriptionTier === 'unlimited';
+      case 'advanced_workflows':
+        return this.metrics.subscriptionTier !== 'free';
+      default:
+        return true;
+    }
+  }
+
+  getUsageLimits(): { actions: number; sessions: number; tier: string } {
+    const limits = {
+      free: { actions: 100, sessions: 3 },
+      premium: { actions: 1000, sessions: 50 },
+      unlimited: { actions: -1, sessions: -1 }
+    };
+
+    return {
+      actions: limits[this.metrics.subscriptionTier].actions,
+      sessions: limits[this.metrics.subscriptionTier].sessions,
+      tier: this.metrics.subscriptionTier
+    };
+  }
+
+  getCurrentUsage(): { actions: number; sessions: number; sessionTime: number } {
+    return {
+      actions: this.metrics.monthlyUsage.actions,
+      sessions: this.metrics.monthlyUsage.sessions,
+      sessionTime: this.metrics.totalSessionTime
+    };
+  }
+}
+
+const usageTracker = new UsageTracker();
   chrome.runtime.onMessage.addListener(
     (message: ExtensionMessage, sender, sendResponse) => {
       (async () => {
@@ -887,9 +1136,15 @@ export default defineBackground(() => {
         return { ok: true, dataUrl };
       }
 
-      default:
-        return { ok: false, error: 'Unknown message type' };
-    }
+      case 'getUsage': {
+        const usage = usageTracker.getCurrentUsage();
+        const limits = usageTracker.getUsageLimits();
+        return {
+          ok: true,
+          usage,
+          limits
+        };
+      }
   }
 
   // ─── Helper functions ─────────────────────────────────────────────
@@ -1260,6 +1515,11 @@ export default defineBackground(() => {
     // Track metrics for the action result
     trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
 
+    // Track usage for billing
+    if (result.success) {
+      usageTracker.trackAction(action.type);
+    }
+
     return result;
   }
 
@@ -1586,9 +1846,10 @@ Return JSON:
   }
 
   // ─── Scheduler Integration ─────────────────────────────────────
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    schedulerEngine.handleAlarm(alarm).catch((err: any) => {
-      console.error('[Background] Scheduler alarm handle failed:', err);
-    });
-  });
+  // TODO: Implement proper scheduler initialization
+  // chrome.alarms.onAlarm.addListener((alarm) => {
+  //   schedulerEngine.handleAlarm(alarm).catch((err: any) => {
+  //     console.error('[Background] Scheduler alarm handle failed:', err);
+  //   });
+  // });
 });

@@ -18,6 +18,8 @@
         <button class="tab-btn" data-tab="vision">Vision</button>
         <button class="tab-btn" data-tab="tasks">Tasks</button>
         <button class="tab-btn" data-tab="memory">Memory</button>
+        <button class="tab-btn" data-tab="marketplace">Marketplace</button>
+        <button class="tab-btn" data-tab="subscription">Subscription</button>
       </div>
       <button id="btn-settings" title="Settings">⚙️</button>
     </header>
@@ -64,6 +66,76 @@
            <div id="memory-stats">0 sessions</div>
            <div id="memory-list"></div>
          </div>
+      </section>
+
+      <!-- Marketplace Tab -->
+      <section id="tab-marketplace" class="tab-pane">
+        <div class="panel-inner">
+          <h3>Workflow Marketplace</h3>
+          <p>Discover and install powerful automation workflows</p>
+          <div id="marketplace-list" class="workflow-grid">
+            <!-- Workflows loaded dynamically -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Subscription Tab -->
+      <section id="tab-subscription" class="tab-pane">
+        <div class="panel-inner">
+          <h3>Subscription</h3>
+          <div id="usage-display" class="usage-card">
+            <h4>Current Usage</h4>
+            <div class="usage-stats">
+              <div class="stat">
+                <span class="label">Actions:</span>
+                <span id="usage-actions">0 / 100</span>
+              </div>
+              <div class="stat">
+                <span class="label">Sessions:</span>
+                <span id="usage-sessions">0 / 3</span>
+              </div>
+              <div class="stat">
+                <span class="label">Tier:</span>
+                <span id="usage-tier">Free</span>
+              </div>
+            </div>
+          </div>
+          <div class="subscription-options">
+            <div class="plan-card free">
+              <h4>Free</h4>
+              <p>Basic features</p>
+              <ul>
+                <li>100 actions/month</li>
+                <li>3 autonomous sessions</li>
+                <li>Basic workflows</li>
+              </ul>
+              <span class="current">Current</span>
+            </div>
+            <div class="plan-card premium">
+              <h4>Premium</h4>
+              <p>$9.99/month</p>
+              <ul>
+                <li>1000 actions/month</li>
+                <li>50 autonomous sessions</li>
+                <li>Advanced workflows</li>
+                <li>Priority support</li>
+              </ul>
+              <button id="btn-upgrade-premium">Upgrade</button>
+            </div>
+            <div class="plan-card unlimited">
+              <h4>Unlimited</h4>
+              <p>$29.99/month</p>
+              <ul>
+                <li>Unlimited actions</li>
+                <li>Unlimited sessions</li>
+                <li>All premium features</li>
+                <li>Custom workflows</li>
+                <li>API access</li>
+              </ul>
+              <button id="btn-upgrade-unlimited">Upgrade</button>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 

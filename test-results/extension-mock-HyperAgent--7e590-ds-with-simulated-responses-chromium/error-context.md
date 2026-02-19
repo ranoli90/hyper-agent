@@ -1,0 +1,63 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - button "Chat" [ref=e5]
+      - button "Vision" [ref=e6]
+      - button "Tasks" [ref=e7]
+      - button "Memory" [ref=e8]
+    - button "⚙️" [ref=e9]
+  - main [ref=e10]:
+    - generic [ref=e13]:
+      - img "Snapshot" [ref=e14]
+      - generic [ref=e15]: No active vision feed.
+    - generic [ref=e17]:
+      - generic [ref=e18]:
+        - heading "Active Tasks" [level=3] [ref=e19]
+        - button "New" [ref=e20]
+      - generic [ref=e21]:
+        - generic [ref=e22]:
+          - generic [ref=e23]: "1"
+          - paragraph [ref=e24]: Enter a command
+        - generic [ref=e25]:
+          - generic [ref=e26]: "2"
+          - paragraph [ref=e27]: Agent analyzes
+        - generic [ref=e28]:
+          - generic [ref=e29]: "3"
+          - paragraph [ref=e30]: Agent executes
+      - generic [ref=e31]: No tasks running.
+    - generic [ref=e33]:
+      - heading "Memory" [level=3] [ref=e34]
+      - generic [ref=e35]: 0 sessions
+  - generic [ref=e36]:
+    - generic [ref=e37]:
+      - generic [ref=e38]: Obs
+      - generic [ref=e39]: Plan
+      - generic [ref=e40]: Act
+      - generic [ref=e41]: Ver
+    - text: Ready
+  - generic [ref=e42]:
+    - generic [ref=e43]:
+      - textbox "Type a command..." [active] [ref=e44]: /clear
+      - generic [ref=e45]: 0 / 2000
+    - generic [ref=e46]:
+      - button "🎤" [ref=e47]
+      - button "Stop" [ref=e48]
+      - button "Run" [ref=e49]
+  - generic [ref=e51]:
+    - heading "Confirm" [level=3] [ref=e52]
+    - paragraph
+    - list
+    - generic [ref=e53]:
+      - button "Cancel" [ref=e54]
+      - button "Confirm" [ref=e55]
+  - generic [ref=e57]:
+    - heading "Question" [level=3] [ref=e58]
+    - paragraph
+    - textbox "Reply..." [ref=e59]
+    - generic [ref=e60]:
+      - button "Cancel" [ref=e61]
+      - button "Reply" [ref=e62]
+```
