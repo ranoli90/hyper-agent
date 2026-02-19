@@ -51,6 +51,8 @@
 - **Cross-Tab Synchronization**: Coordinated operations across browser tabs
 - **Persistent Storage**: Chrome storage API with encryption and backup
 - **Real-time Monitoring**: Performance metrics and system health monitoring
+- **Reliable Typing UX**: Debounced input, auto-resizing chat, and history persistence
+- **Enhanced Security**: Centralized data redaction and strict type safety
 
 ## 🎯 **What HyperAgent Can Do**
 

@@ -366,6 +366,34 @@ Options page section for managing site configs:
 3. **Advanced error recovery**: More sophisticated recovery strategies
 4. **Multi-language support**: Handle non-English commands
 
+## Iteration 7: Reliable UX & Security Polish
+
+**Date:** 2026-02-19
+**Version:** 2.7.0
+**Focus:** Enhancing user experience with reliable input and robust security
+
+### Architectural Patterns Discovered
+
+#### 1. Input Stabilization
+Implemented a debounce mechanism for the sidepanel input to prevent state thrashing during rapid typing. Added auto-resizing textareas to improve visibility of long commands.
+
+#### 2. Persistence Layer
+Integrated `chrome.storage.local` to persist chat history across closing and reopening the extension, ensuring context is never lost.
+
+#### 3. Centralized Security
+Moved sensitive data redaction logic to a shared security module (`shared/security.ts`), ensuring consistent application of privacy rules across both the background script and LLM client.
+
+### Efficiency Gains Achieved
+
+- **Reduced Render Cycles**: Debouncing prevents unnecessary UI updates.
+- **Improved Retention**: Users no longer lose context when the sidepanel closes.
+- **Code Maintainability**: Centralized security logic reduces code duplication and potential vectors for data leaks.
+
+### Next Iteration Priorities
+
+1. **Vision-first fallback**: Continued refinement of screenshot capabilities.
+2. **Command macros**: Saving common workflows.
+
 ## Iteration 16: Advanced Test Isolation & Parallel Execution Engine
 
 **Date:** 2026-02-18
