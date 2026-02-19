@@ -38,9 +38,9 @@ export const VALIDATION = {
 // ─── Defaults ───────────────────────────────────────────────────────
 export const DEFAULTS = {
   BASE_URL: 'https://openrouter.ai/api/v1',
-  MODEL_NAME: 'auto', // Intelligent model selection
-  BACKUP_MODEL: 'meta-llama/llama-3.1-70b-instruct',
-  VISION_MODEL: 'google/gemini-pro-vision-1.0',
+  MODEL_NAME: 'openai/gpt-4o-mini', // Cheap, fast, reliable
+  BACKUP_MODEL: 'google/gemini-2.0-flash-001', // Fast, cheap backup
+  VISION_MODEL: 'google/gemini-2.0-flash-001', // Vision-capable
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
   DRY_RUN: false,
@@ -105,9 +105,9 @@ export function validateSettings(settings: Partial<Settings>): { valid: boolean;
     }
   }
 
-  if (settings.apiKey !== undefined && settings.apiKey.trim() === '') {
-    errors.push('apiKey cannot be empty');
-  }
+  // Only validate apiKey if it's being explicitly set to empty
+  // Don't warn on initial load when no key has been set yet
+  // (apiKey !== undefined means it's being explicitly saved)
 
   return {
     valid: errors.length === 0,

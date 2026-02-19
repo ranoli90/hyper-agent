@@ -379,10 +379,10 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    // Try with a simpler model for fallback reasoning
+    // Try with backup models for fallback reasoning
     const fallbackModels = [
-      'meta-llama/llama-3.1-8b-instruct', // Fast and reliable
-      'anthropic/claude-3-haiku', // Good at following instructions
+      'meta-llama/llama-3.1-70b-instruct', // Strong reasoning
+      'google/gemini-2.5-flash', // Fast backup
     ];
 
     for (const model of fallbackModels) {
@@ -391,7 +391,9 @@ Respond with valid JSON:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${settings.apiKey}`,
+            'Authorization': `Bearer ${settings.apiKey}`,
+            'HTTP-Referer': 'https://hyperagent.ai',
+            'X-Title': 'HyperAgent',
           },
           body: JSON.stringify({
             model,
@@ -400,7 +402,7 @@ Respond with valid JSON:
             max_tokens: 1000,
             response_format: { type: 'json_object' },
           }),
-          signal: AbortSignal.timeout(10000), // 10 second timeout
+          signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
         });
 
         if (!resp.ok) continue;
@@ -523,13 +525,13 @@ export class EnhancedLLMClient implements LLMClientInterface {
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      if (autonomousPlan) {
-        // Convert autonomous plan to LLMResponse format
-        return this.convertPlanToResponse(autonomousPlan);
+      // If the autonomous plan has no executable actions, fall back to traditional LLM to avoid no-op plans
+      if (!autonomousPlan || !Array.isArray((autonomousPlan as any).actions) || ((autonomousPlan as any).actions?.length ?? 0) === 0) {
+        return await this.makeTraditionalCall(request, signal);
       }
 
-      // Fallback to traditional LLM call if autonomous planning fails
-      return await this.makeTraditionalCall(request, signal);
+      // Convert autonomous plan to LLMResponse format
+      return this.convertPlanToResponse(autonomousPlan);
     } catch (error) {
       if ((error as Error).name === 'AbortError') throw error;
       console.error('[HyperAgent] Autonomous intelligence failed, using fallback:', error);
@@ -541,7 +543,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
     // Convert autonomous intelligence plan to LLMResponse format
     return {
       thinking: plan.reasoning,
-      summary: plan.summary,
+      summary: plan.summary || plan.reasoning || plan.taskDescription || 'Plan generated.',
       actions: plan.actions || [],
       needsScreenshot: plan.needsScreenshot || false,
       done: plan.done || false,
@@ -555,23 +557,30 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
+      // Use a reliable model for completions
+      const completionModel = 'google/gemini-2.0-flash-001';
+      console.log(`[HyperAgent] Using completion model: ${completionModel}`);
+      
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
+          'Authorization': `Bearer ${settings.apiKey}`,
+          'HTTP-Referer': 'https://hyperagent.ai',
+          'X-Title': 'HyperAgent',
         },
         body: JSON.stringify({
-          model: 'gpt-4o', // Default to a strong model for reasoning/perception
+          model: completionModel,
           messages: safeMessages,
           temperature: request.temperature ?? 0.7,
           max_tokens: request.maxTokens ?? 1000,
-          response_format: request.responseFormat ? { type: request.responseFormat } : undefined,
         }),
         signal: signal || AbortSignal.timeout(60000),
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[HyperAgent] Completion error ${response.status}:`, errorText);
         throw new Error(`Completion request failed: ${response.status}`);
       }
 
@@ -601,27 +610,31 @@ export class EnhancedLLMClient implements LLMClientInterface {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
       const messages = sanitizeMessages(rawMessages);
 
-      // Select optimal model based on analysis
-      const optimalModel = selectOptimalModel(analysis);
+      // Use a reliable model directly
+      const model = 'google/gemini-2.0-flash-001';
+      console.log(`[HyperAgent] Using model: ${model}`);
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
+          'Authorization': `Bearer ${settings.apiKey}`,
+          'HTTP-Referer': 'https://hyperagent.ai',
+          'X-Title': 'HyperAgent',
         },
         body: JSON.stringify({
-          model: optimalModel.id,
+          model,
           messages,
-          temperature: 0.7, // Default
-          max_tokens: 4096, // Default for most models
-          response_format: { type: 'json_object' },
+          temperature: 0.7,
+          max_tokens: 4096,
         }),
-        signal: signal || AbortSignal.timeout(30000),
+        signal: signal || AbortSignal.timeout(45000),
       });
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`[HyperAgent] API error ${response.status}:`, errorText);
+        throw new Error(`API request failed: ${response.status} - ${errorText.slice(0, 500)}`);
       }
 
       const data = await response.json();
@@ -633,6 +646,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
       const parsed = extractJSON(content);
       if (!parsed) {
+        console.warn('[HyperAgent] Failed to parse JSON from response:', content.slice(0, 500));
         const fallback = await buildIntelligentFallback(request.command || '', request.context || this.createEmptyContext(), {
           baseUrl: settings.baseUrl,
           apiKey: settings.apiKey,
@@ -645,7 +659,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         };
       }
 
-      return parsed as LLMResponse;
+      return validateResponse(parsed);
     } catch (error: any) {
       if (error.name === 'AbortError') throw error;
       console.error('[HyperAgent] API call failed:', error);
@@ -673,20 +687,23 @@ export class EnhancedLLMClient implements LLMClientInterface {
     if (!settings.apiKey) throw new Error("API Key not set");
 
     try {
+      // Use OpenRouter's text-embedding adapter (works with the API key)
       const response = await fetch(`${settings.baseUrl}/embeddings`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${settings.apiKey}`,
+          'HTTP-Referer': 'https://hyperagent.ai', // Required by OpenRouter for some models
         },
         body: JSON.stringify({
-          model: 'text-embedding-3-small', // Default efficient model
+          model: 'text-embedding-3-small',
           input: text,
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`Embedding request failed: ${response.status}`);
+        console.warn('[HyperAgent] Embedding request failed, returning empty');
+        return [];
       }
 
       const data = await response.json();

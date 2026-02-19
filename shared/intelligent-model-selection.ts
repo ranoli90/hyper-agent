@@ -37,144 +37,98 @@ export interface RequestAnalysis {
   confidence: number;
 }
 
-// ─── Free Model Database (OpenRouter) ───────────────────────────────────
+// ─── Reliable Cheap Model Database (OpenRouter) ───────────────────────────────────
 const FREE_MODELS: ModelCapabilities[] = [
   {
-    id: 'meta-llama/llama-3.1-70b-instruct',
-    name: 'Llama 3.1 70B',
-    provider: 'meta',
-    contextWindow: 131072,
-    strengths: ['balanced performance', 'reasoning', 'versatility'],
-    weaknesses: ['very complex tasks', 'speed'],
-    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING],
-    speed: 'medium',
-    cost: 'free',
-    supportsJson: true,
-    supportsVision: false,
-    performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 9,
-      [TaskType.COMPLEX_AUTOMATION]: 9,
-      [TaskType.TEXT_EXTRACTION]: 10,
-      [TaskType.FORM_FILLING]: 9,
-      [TaskType.VISUAL_ANALYSIS]: 0,
-      [TaskType.DECISION_MAKING]: 8,
-      [TaskType.ERROR_RECOVERY]: 8,
-      [TaskType.MULTI_STEP_WORKFLOW]: 8
-    }
-  },
-  {
-    id: 'meta-llama/llama-3.1-8b-instruct',
-    name: 'Llama 3.1 8B',
-    provider: 'meta',
-    contextWindow: 131072,
-    strengths: ['speed', 'simple tasks', 'efficiency'],
-    weaknesses: ['complex reasoning', 'long context', 'creativity'],
-    bestFor: [TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING],
-    speed: 'fast',
-    cost: 'free',
-    supportsJson: true,
-    supportsVision: false,
-    performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 10,
-      [TaskType.COMPLEX_AUTOMATION]: 6,
-      [TaskType.TEXT_EXTRACTION]: 8,
-      [TaskType.FORM_FILLING]: 10,
-      [TaskType.VISUAL_ANALYSIS]: 0,
-      [TaskType.DECISION_MAKING]: 5,
-      [TaskType.ERROR_RECOVERY]: 7,
-      [TaskType.MULTI_STEP_WORKFLOW]: 5
-    }
-  },
-  {
-    id: 'microsoft/wizardlm-2-8x22b',
-    name: 'WizardLM 2 8x22B',
-    provider: 'microsoft',
-    contextWindow: 65536,
-    strengths: ['reasoning', 'instruction following', 'complex tasks'],
-    weaknesses: ['speed', 'vision'],
-    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.ERROR_RECOVERY],
-    speed: 'medium',
-    cost: 'free',
-    supportsJson: true,
-    supportsVision: false,
-    performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 8,
-      [TaskType.COMPLEX_AUTOMATION]: 9,
-      [TaskType.TEXT_EXTRACTION]: 8,
-      [TaskType.FORM_FILLING]: 8,
-      [TaskType.VISUAL_ANALYSIS]: 0,
-      [TaskType.DECISION_MAKING]: 9,
-      [TaskType.ERROR_RECOVERY]: 9,
-      [TaskType.MULTI_STEP_WORKFLOW]: 8
-    }
-  },
-  {
-    id: 'mistralai/mistral-7b-instruct',
-    name: 'Mistral 7B',
-    provider: 'mistral',
-    contextWindow: 32768,
-    strengths: ['speed', 'efficiency', 'balanced tasks'],
-    weaknesses: ['complex reasoning', 'long context'],
-    bestFor: [TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING],
-    speed: 'fast',
-    cost: 'free',
-    supportsJson: true,
-    supportsVision: false,
-    performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 9,
-      [TaskType.COMPLEX_AUTOMATION]: 7,
-      [TaskType.TEXT_EXTRACTION]: 9,
-      [TaskType.FORM_FILLING]: 9,
-      [TaskType.VISUAL_ANALYSIS]: 0,
-      [TaskType.DECISION_MAKING]: 6,
-      [TaskType.ERROR_RECOVERY]: 7,
-      [TaskType.MULTI_STEP_WORKFLOW]: 6
-    }
-  },
-  {
-    id: 'google/gemini-flash-1.5',
-    name: 'Gemini Flash 1.5',
-    provider: 'google',
-    contextWindow: 1048576,
-    strengths: ['vision', 'speed', 'multimodal', 'long context'],
+    id: 'openai/gpt-4o-mini',
+    name: 'GPT-4o Mini',
+    provider: 'openai',
+    contextWindow: 128000,
+    strengths: ['fast', 'reliable', 'instruction following', 'json'],
     weaknesses: ['complex reasoning depth'],
-    bestFor: [TaskType.VISUAL_ANALYSIS, TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION],
+    bestFor: [TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING, TaskType.COMPLEX_AUTOMATION],
     speed: 'fast',
-    cost: 'free',
+    cost: 'low',
     supportsJson: true,
     supportsVision: true,
     performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 9,
-      [TaskType.COMPLEX_AUTOMATION]: 7,
-      [TaskType.TEXT_EXTRACTION]: 9,
-      [TaskType.FORM_FILLING]: 8,
-      [TaskType.VISUAL_ANALYSIS]: 10,
-      [TaskType.DECISION_MAKING]: 6,
-      [TaskType.ERROR_RECOVERY]: 7,
-      [TaskType.MULTI_STEP_WORKFLOW]: 6
+      [TaskType.SIMPLE_NAVIGATION]: 10,
+      [TaskType.COMPLEX_AUTOMATION]: 9,
+      [TaskType.TEXT_EXTRACTION]: 10,
+      [TaskType.FORM_FILLING]: 10,
+      [TaskType.VISUAL_ANALYSIS]: 9,
+      [TaskType.DECISION_MAKING]: 9,
+      [TaskType.ERROR_RECOVERY]: 9,
+      [TaskType.MULTI_STEP_WORKFLOW]: 9
     }
   },
   {
-    id: 'anthropic/claude-3-haiku',
-    name: 'Claude 3 Haiku',
-    provider: 'anthropic',
-    contextWindow: 200000,
-    strengths: ['speed', 'balanced performance', 'safety', 'long context'],
-    weaknesses: ['very complex tasks', 'vision'],
-    bestFor: [TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING, TaskType.DECISION_MAKING],
+    id: 'google/gemini-2.0-flash-001',
+    name: 'Gemini 2.0 Flash',
+    provider: 'google',
+    contextWindow: 1048576,
+    strengths: ['vision', 'speed', 'multimodal', 'long context'],
+    weaknesses: ['complex reasoning'],
+    bestFor: [TaskType.VISUAL_ANALYSIS, TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION],
     speed: 'fast',
-    cost: 'free',
+    cost: 'low',
     supportsJson: true,
-    supportsVision: false,
+    supportsVision: true,
     performance: {
       [TaskType.SIMPLE_NAVIGATION]: 10,
       [TaskType.COMPLEX_AUTOMATION]: 8,
       [TaskType.TEXT_EXTRACTION]: 10,
-      [TaskType.FORM_FILLING]: 10,
-      [TaskType.VISUAL_ANALYSIS]: 0,
+      [TaskType.FORM_FILLING]: 9,
+      [TaskType.VISUAL_ANALYSIS]: 10,
       [TaskType.DECISION_MAKING]: 8,
       [TaskType.ERROR_RECOVERY]: 8,
-      [TaskType.MULTI_STEP_WORKFLOW]: 7
+      [TaskType.MULTI_STEP_WORKFLOW]: 8
+    }
+  },
+  {
+    id: 'meta-llama/llama-3.3-70b-instruct',
+    name: 'Llama 3.3 70B',
+    provider: 'meta',
+    contextWindow: 131072,
+    strengths: ['balanced performance', 'reasoning', 'versatility'],
+    weaknesses: ['speed'],
+    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.MULTI_STEP_WORKFLOW],
+    speed: 'medium',
+    cost: 'low',
+    supportsJson: true,
+    supportsVision: false,
+    performance: {
+      [TaskType.SIMPLE_NAVIGATION]: 9,
+      [TaskType.COMPLEX_AUTOMATION]: 10,
+      [TaskType.TEXT_EXTRACTION]: 10,
+      [TaskType.FORM_FILLING]: 9,
+      [TaskType.VISUAL_ANALYSIS]: 0,
+      [TaskType.DECISION_MAKING]: 9,
+      [TaskType.ERROR_RECOVERY]: 9,
+      [TaskType.MULTI_STEP_WORKFLOW]: 10
+    }
+  },
+  {
+    id: 'deepseek/deepseek-chat',
+    name: 'DeepSeek Chat',
+    provider: 'deepseek',
+    contextWindow: 64000,
+    strengths: ['reasoning', 'coding', 'instruction following'],
+    weaknesses: ['vision'],
+    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.ERROR_RECOVERY],
+    speed: 'medium',
+    cost: 'low',
+    supportsJson: true,
+    supportsVision: false,
+    performance: {
+      [TaskType.SIMPLE_NAVIGATION]: 9,
+      [TaskType.COMPLEX_AUTOMATION]: 10,
+      [TaskType.TEXT_EXTRACTION]: 9,
+      [TaskType.FORM_FILLING]: 9,
+      [TaskType.VISUAL_ANALYSIS]: 0,
+      [TaskType.DECISION_MAKING]: 10,
+      [TaskType.ERROR_RECOVERY]: 10,
+      [TaskType.MULTI_STEP_WORKFLOW]: 10
     }
   }
 ];
@@ -369,7 +323,7 @@ export function selectOptimalModel(analysis: RequestAnalysis): ModelCapabilities
 
   if (candidates.length === 0) {
     // Fallback to best general model
-    return FREE_MODELS.find(m => m.id === 'meta-llama/llama-3.1-70b-instruct') || FREE_MODELS[0];
+    return FREE_MODELS.find(m => m.id === 'openai/gpt-4o-mini') || FREE_MODELS[0];
   }
 
   // Score each candidate

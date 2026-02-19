@@ -70,6 +70,37 @@ components.tabs.forEach(tab => {
   });
 });
 
+// Confirm / cancel modal actions
+components.btnConfirm.addEventListener('click', () => {
+  components.confirmModal.classList.add('hidden');
+  if (state.confirmResolve) {
+    state.confirmResolve(true);
+    state.confirmResolve = null;
+  }
+});
+
+components.btnCancel.addEventListener('click', () => {
+  components.confirmModal.classList.add('hidden');
+  if (state.confirmResolve) {
+    state.confirmResolve(false);
+    state.confirmResolve = null;
+  }
+});
+
+// Ask user modal actions
+components.btnAskReply.addEventListener('click', () => {
+  const reply = components.askReply.value.trim();
+  components.askModal.classList.add('hidden');
+  components.askReply.value = '';
+  chrome.runtime.sendMessage({ type: 'userReply', reply });
+});
+
+components.btnAskCancel.addEventListener('click', () => {
+  components.askModal.classList.add('hidden');
+  components.askReply.value = '';
+  chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
+});
+
 // ─── Slash Commands ─────────────────────────────────────────────
 const SLASH_COMMANDS = {
   '/clear': () => {
@@ -270,6 +301,7 @@ components.btnExecute.addEventListener('click', () => {
 components.btnStop.addEventListener('click', () => {
   chrome.runtime.sendMessage({ type: 'stopAgent' });
   addMessage('Stopping...', 'status');
+  setRunning(false);
 });
 
 components.commandInput.addEventListener('keydown', (e) => {
@@ -317,6 +349,12 @@ chrome.runtime.onMessage.addListener((message: any) => {
       }
       break;
     }
+    case 'askUser': {
+      components.askQuestion.textContent = message.question || 'Agent needs more information.';
+      components.askModal.classList.remove('hidden');
+      components.askReply.focus();
+      break;
+    }
     case 'confirmActions': {
       components.confirmSummary.textContent = message.summary;
       components.confirmModal.classList.remove('hidden');
@@ -330,6 +368,18 @@ chrome.runtime.onMessage.addListener((message: any) => {
       setRunning(false);
       break;
     }
+    case 'contextMenuCommand': {
+      if (typeof message.command === 'string') {
+        components.commandInput.value = message.command;
+        switchTab('chat');
+        addMessage('Command received from context menu. Press Enter to run.', 'status');
+        components.commandInput.focus();
+        components.commandInput.dispatchEvent(new Event('input'));
+      }
+      break;
+    }
+    default:
+      break;
   }
 });
 

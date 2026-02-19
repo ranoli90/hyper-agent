@@ -542,6 +542,9 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getAgentStatus':
     case 'clearHistory':
     case 'getMetrics':
+    case 'contextMenuCommand':
+      return typeof (message as any).command === 'string';
+    case 'captureScreenshot':
       return true;
     default:
       return false;
@@ -690,6 +693,16 @@ export default defineBackground(() => {
     agentState.setAborted(false);
 
     const settings = await loadSettings();
+    if (!settings.apiKey) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'API key not set. Open settings (gear icon) and add your API key.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
     const tabId = await getActiveTabId();
     const tab = await chrome.tabs.get(tabId);
 
@@ -878,6 +891,11 @@ export default defineBackground(() => {
             }
           }
         };
+      }
+
+      case 'captureScreenshot': {
+        const dataUrl = await captureScreenshot();
+        return { ok: true, dataUrl };
       }
 
       default:
@@ -1240,10 +1258,21 @@ export default defineBackground(() => {
 
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string) {
+    logger.log('info', 'Starting agent loop', { command: redact(command) });
     agentState.setRunning(true);
     agentState.setAborted(false);
 
     const settings = await loadSettings();
+    if (!settings.apiKey) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'API key not set. Open settings (gear icon) and add your API key.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
     const maxSteps = settings.maxSteps;
     const tabId = await getActiveTabId();
 
@@ -1290,7 +1319,25 @@ export default defineBackground(() => {
 
         // ── Step 2: Plan ──
         sendToSidePanel({ type: 'agentProgress', status: 'Planning...', step: 'plan' });
-        const llmResponse = await llmClient.callLLM({ command, history, context });
+        logger.log('info', 'Calling LLM with command', { command: redact(command), historyCount: history.length });
+        let llmResponse: any;
+        const llmCallPromise = llmClient.callLLM({ command, history, context });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('LLM call timed out after 45 seconds')), 45000)
+        );
+        try {
+          llmResponse = await Promise.race([llmCallPromise, timeoutPromise]);
+          logger.log('info', 'LLM response received', { summary: llmResponse?.summary, actionsCount: llmResponse?.actions?.length, done: llmResponse?.done, askUser: llmResponse?.askUser });
+        } catch (err: any) {
+          logger.log('error', 'LLM call failed or timed out', { error: err?.message || String(err) });
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `LLM call failed: ${err?.message || String(err)}`,
+            success: false,
+            stepsUsed: history.length
+          });
+          return;
+        }
 
         if (llmResponse.askUser) {
           sendToSidePanel({ type: 'askUser', question: llmResponse.askUser });
@@ -1342,6 +1389,13 @@ export default defineBackground(() => {
         await delay(350);
       }
       sendToSidePanel({ type: 'agentDone', finalSummary: 'Max steps reached.', success: false, stepsUsed: maxSteps });
+    } catch (err: any) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: `Agent error: ${err?.message || String(err)}`,
+        success: false,
+        stepsUsed: history.length
+      });
     } finally {
       agentState.setRunning(false);
     }

@@ -1084,7 +1084,13 @@ export default defineContentScript({
             return true;
           }
           case 'captureScreenshot': {
-            sendResponse({ type: 'captureScreenshotResponse', dataUrl: '' });
+            try {
+              const resp = await chrome.runtime.sendMessage({ type: 'captureScreenshot' } as any);
+              const dataUrl = resp?.dataUrl || '';
+              sendResponse({ type: 'captureScreenshotResponse', dataUrl });
+            } catch (err: any) {
+              sendResponse({ type: 'captureScreenshotResponse', dataUrl: '' });
+            }
             return true;
           }
           case 'getSiteConfig': {

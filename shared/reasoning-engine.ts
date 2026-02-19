@@ -108,13 +108,14 @@ Format: SCORE|CRITIQUE`;
     }
 
     private async callReasoningLLM(prompt: string): Promise<string> {
-        const response = await this.llmClient.callLLM({
+        // Use callCompletion API which accepts messages directly
+        const response = await this.llmClient.callCompletion({
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.5,
             maxTokens: 1000
         });
 
-        return response.summary || '';
+        return response || '';
     }
 
     private async analyzeDomain(task: string): Promise<string> {

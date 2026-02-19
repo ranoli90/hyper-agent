@@ -54,13 +54,12 @@ STEP|DESCRIPTION|ACTION|SUCCESS_CRITERIA|TIMEOUT_SECONDS`;
     }
 
     private async callPlanningLLM(prompt: string): Promise<string> {
-        const response = await this.llmClient.callLLM({
+        // Use completion API to avoid recursive callLLM -> planning loop
+        const response = await this.llmClient.callCompletion({
             messages: [{ role: 'user', content: prompt }],
-            // @ts-ignore
             temperature: 0.3,
             maxTokens: 1000
         });
-        // @ts-ignore
-        return (response as any).choices?.[0]?.message?.content || response.summary;
+        return response;
     }
 }
