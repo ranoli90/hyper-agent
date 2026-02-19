@@ -803,19 +803,13 @@ body {
 }
 
 .input-wrapper {
+  flex: 1;
+  position: relative;
   background: #ffffff;
   border: 1px solid #d1d5db;
   border-radius: 12px;
   padding: 16px;
   transition: all var(--transition-base);
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  position: relative;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  z-index: 1;
-  width: 100%;
-  box-sizing: border-box;
 }
 
 .input-wrapper::before {
@@ -848,12 +842,13 @@ body {
   resize: none;
   font-size: 0.875rem;
   line-height: 1.5;
-  max-height: 100px;
+  max-height: 200px;
   min-height: 44px;
   overflow-y: auto;
   font-family: var(--font-primary);
   font-weight: 400;
   box-sizing: border-box;
+  padding-right: 80px;
 }
 
 #command-input::placeholder {
@@ -864,6 +859,19 @@ body {
 
 #command-input:focus {
   outline: none;
+}
+
+#char-counter {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+#char-counter.warn {
+  color: var(--warning);
 }
 
 .input-actions {

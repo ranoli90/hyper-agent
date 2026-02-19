@@ -26,6 +26,7 @@ const components = {
   statusBar: safeGetElement<HTMLElement>('status-bar')!,
   statusText: safeGetElement<HTMLElement>('status-text')!,
   suggestions: safeGetElement<HTMLElement>('suggestions-container')!,
+  charCounter: safeGetElement<HTMLElement>('char-counter')!,
   btnMic: safeGetElement<HTMLButtonElement>('btn-mic')!,
 
   // Tabs
@@ -55,7 +56,17 @@ const components = {
 
 // Validate critical components
 try {
-  if (!components.chatHistory || !components.commandInput || !components.btnExecute) {
+  const required = [
+    components.chatHistory,
+    components.commandInput,
+    components.btnExecute,
+    components.btnStop,
+    components.statusBar,
+    components.statusText,
+    components.suggestions,
+    components.charCounter,
+  ];
+  if (required.some(el => !el)) {
     throw new Error('Critical UI components missing from DOM');
   }
 } catch (err: any) {
@@ -63,7 +74,7 @@ try {
   document.body.innerHTML = `<div style="padding:20px;color:red;">
     <h3>Fatal Error</h3>
     <p>Failed to initialize UI components.</p>
-    <pre>${err.message}</pre>
+    <pre>${err?.message || 'Unknown error'}</pre>
   </div>`;
   throw err;
 }
@@ -74,7 +85,18 @@ const state = {
   confirmResolve: null as ((confirmed: boolean) => void) | null,
   askResolve: null as ((reply: string) => void) | null,
   activeTab: 'chat',
+  lastCommandTime: 0,
 };
+
+const MAX_COMMAND_LENGTH = 2000;
+const COMMAND_RATE_LIMIT_MS = 1000; // 1 second between commands
+
+function updateCharCounter(value: string) {
+  if (!components.charCounter) return;
+  const length = value.length;
+  components.charCounter.textContent = `${length} / ${MAX_COMMAND_LENGTH}`;
+  components.charCounter.classList.toggle('warn', length > MAX_COMMAND_LENGTH * 0.9);
+}
 
 // ─── Tab Logic ──────────────────────────────────────────────────
 function switchTab(tabId: string) {
@@ -108,6 +130,25 @@ components.btnCancel.addEventListener('click', () => {
   if (state.confirmResolve) {
     state.confirmResolve(false);
     state.confirmResolve = null;
+  }
+});
+
+// Modal backdrop close
+components.confirmModal.addEventListener('click', (e) => {
+  if (e.target === components.confirmModal) {
+    components.confirmModal.classList.add('hidden');
+    if (state.confirmResolve) {
+      state.confirmResolve(false);
+      state.confirmResolve = null;
+    }
+  }
+});
+
+components.askModal.addEventListener('click', (e) => {
+  if (e.target === components.askModal) {
+    components.askModal.classList.add('hidden');
+    components.askReply.value = '';
+    chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
   }
 });
 
@@ -181,44 +222,67 @@ const SUGGESTIONS = [
   { command: '/help', description: 'Help & documentation' },
 ];
 
+function sanitizeInput(text: string): string {
+  // Basic sanitization - remove null bytes, control characters except newlines
+  return text.replace(/\x00/g, '').replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
 function showSuggestions(query: string) {
-  const container = components.suggestions;
-  if (!container) return;
+  try {
+    const container = components.suggestions;
+    if (!container) return;
 
-  const matches = SUGGESTIONS.filter(s =>
-    s.command.toLowerCase().startsWith(query.toLowerCase()) ||
-    s.description.toLowerCase().includes(query.toLowerCase())
-  );
-
-  if (matches.length === 0) {
-    container.classList.add('hidden');
-    return;
-  }
-
-  container.innerHTML = '';
-  matches.forEach(s => {
-    const div = document.createElement('div');
-    div.className = 'suggestion-item';
-    div.innerHTML = `
-      <span class="command">${s.command}</span>
-      <span class="desc">${s.description}</span>
-    `;
-    div.addEventListener('click', () => {
-      components.commandInput.value = s.command + ' ';
-      components.commandInput.focus();
+    const sanitizedQuery = sanitizeInput(query).toLowerCase();
+    if (sanitizedQuery.length === 0) {
       container.classList.add('hidden');
+      return;
+    }
 
-      // Auto-resize after selection
-      components.commandInput.dispatchEvent(new Event('input'));
+    const matches = SUGGESTIONS.filter(s =>
+      s.command.toLowerCase().startsWith(sanitizedQuery) ||
+      s.description.toLowerCase().includes(sanitizedQuery)
+    );
+
+    if (matches.length === 0) {
+      container.classList.add('hidden');
+      return;
+    }
+
+    container.innerHTML = '';
+    matches.slice(0, 5).forEach(s => { // Limit to 5 suggestions for performance
+      try {
+        const div = document.createElement('div');
+        div.className = 'suggestion-item';
+        div.innerHTML = `
+          <span class="command">${escapeHtml(s.command)}</span>
+          <span class="desc">${escapeHtml(s.description)}</span>
+        `;
+        div.addEventListener('click', () => {
+          components.commandInput.value = s.command + ' ';
+          components.commandInput.focus();
+          container.classList.add('hidden');
+
+          // Auto-resize after selection
+          components.commandInput.dispatchEvent(new Event('input'));
+        });
+        container.appendChild(div);
+      } catch (err) {
+        console.warn('[HyperAgent] Failed to create suggestion item:', err);
+      }
     });
-    container.appendChild(div);
-  });
 
-  container.classList.remove('hidden');
+    container.classList.remove('hidden');
+  } catch (err) {
+    console.warn('[HyperAgent] showSuggestions failed:', err);
+    if (components.suggestions) {
+      components.suggestions.classList.add('hidden');
+    }
+  }
 }
 
 // ─── Chat Interface ─────────────────────────────────────────────
 function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status' | 'thinking') {
+  if (!components.chatHistory) return null;
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
@@ -235,17 +299,22 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 }
 
 function renderMarkdown(text: string): string {
-  let html = text.replace(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
-    return `<pre><code class="language-${lang}">${escapeHtml(code.trim())}</code></pre>`;
-  });
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  try {
+    let html = text.replace(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
+      return `<pre><code class="language-${lang}">${escapeHtml(code.trim())}</code></pre>`;
+    });
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 
-  // Wrap lines in paragraphs if they aren't already block elements
-  html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
-  return html;
+    // Wrap lines in paragraphs if they aren't already block elements
+    html = html.split('\n\n').map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+    return html;
+  } catch (err) {
+    console.warn('[HyperAgent] renderMarkdown failed', err);
+    return escapeHtml(text);
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -269,15 +338,23 @@ function updateStepper(stepId: string) {
 }
 
 function handleCommand(text: string) {
-  const cmd = text.trim();
+  const cmd = sanitizeInput(text).trim();
   if (cmd.startsWith('/') && SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]) {
     SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]();
     components.commandInput.value = '';
     return;
   }
 
+  // Rate limiting check
+  const now = Date.now();
+  if (now - state.lastCommandTime < COMMAND_RATE_LIMIT_MS) {
+    addMessage('Please wait before sending another command.', 'status');
+    return;
+  }
+
   if (state.isRunning) return;
 
+  state.lastCommandTime = now;
   addMessage(cmd, 'user');
   components.commandInput.value = '';
   components.commandInput.style.height = '';
@@ -364,11 +441,18 @@ components.commandInput.addEventListener('keydown', (e) => {
 const handleInput = debounce((e: Event) => {
   const target = e.target as HTMLTextAreaElement;
 
+  // Enforce max length
+  if (target.value.length > MAX_COMMAND_LENGTH) {
+    target.value = target.value.slice(0, MAX_COMMAND_LENGTH);
+  }
+
   // Auto-resize with max-height
   target.style.height = 'auto';
   const newHeight = Math.min(target.scrollHeight, 200); // Cap at 200px
   target.style.height = newHeight + 'px';
   target.style.overflowY = target.scrollHeight > 200 ? 'auto' : 'hidden';
+
+  updateCharCounter(target.value);
 
   const val = target.value;
   if (val.startsWith('/')) showSuggestions(val);
@@ -378,10 +462,16 @@ const handleInput = debounce((e: Event) => {
 components.commandInput.addEventListener('input', (e) => {
   // Immediate resize for better feel, logic in debounce handles suggestions
   const target = e.target as HTMLTextAreaElement;
+  if (target.value.length > MAX_COMMAND_LENGTH) {
+    target.value = target.value.slice(0, MAX_COMMAND_LENGTH);
+  }
+
   target.style.height = 'auto';
   const newHeight = Math.min(target.scrollHeight, 200);
   target.style.height = newHeight + 'px';
   target.style.overflowY = target.scrollHeight > 200 ? 'auto' : 'hidden';
+
+  updateCharCounter(target.value);
 
   handleInput(e);
 });
@@ -527,3 +617,4 @@ components.btnMic.addEventListener('click', () => {
 // Init
 addMessage('**HyperAgent Dashboard Initialized.** Ready for commands.', 'agent');
 switchTab('chat');
+updateCharCounter(components.commandInput.value || '');
