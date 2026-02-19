@@ -1,197 +1,213 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>HyperAgent</title>
-  <link rel="stylesheet" href="./style.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-</head>
-<body>
-  <div id="app">
-    <!-- Header -->
-    <header id="header">
-      <div id="tabs-nav">
-        <button class="tab-btn active" data-tab="chat">Chat</button>
-        <button class="tab-btn" data-tab="vision">Vision</button>
-        <button class="tab-btn" data-tab="tasks">Tasks</button>
-        <button class="tab-btn" data-tab="memory">Memory</button>
-        <button class="tab-btn" data-tab="marketplace">Marketplace</button>
-        <button class="tab-btn" data-tab="subscription">Subscription</button>
-      </div>
-      <button id="btn-settings" title="Settings">⚙️</button>
-    </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HyperAgent</title>
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Header -->
+      <header id="header">
+        <div id="tabs-nav">
+          <button class="tab-btn active" data-tab="chat">Chat</button>
+          <button class="tab-btn" data-tab="vision">Vision</button>
+          <button class="tab-btn" data-tab="tasks">Tasks</button>
+          <button class="tab-btn" data-tab="memory">Memory</button>
+          <button class="tab-btn" data-tab="marketplace">Marketplace</button>
+          <button class="tab-btn" data-tab="subscription">Subscription</button>
+        </div>
+        <button id="btn-settings" title="Settings">⚙️</button>
+        <span id="subscription-badge" class="subscription-badge free">Free</span>
+      </header>
 
-    <main id="main-content">
-      <!-- Chat Tab -->
-      <section id="tab-chat" class="tab-pane active">
-        <div id="chat-history"></div>
-      </section>
+      <main id="main-content">
+        <!-- Chat Tab -->
+        <section id="tab-chat" class="tab-pane active">
+          <div id="chat-history"></div>
+        </section>
 
-      <!-- Vision Tab -->
-      <section id="tab-vision" class="tab-pane">
-        <div id="vision-container">
-          <div id="vision-feed">
-             <img id="vision-snapshot" class="hidden" alt="Snapshot" />
-             <div id="vision-placeholder">No active vision feed.</div>
+        <!-- Vision Tab -->
+        <section id="tab-vision" class="tab-pane">
+          <div id="vision-container">
+            <div id="vision-feed">
+              <img id="vision-snapshot" class="hidden" alt="Snapshot" />
+              <div id="vision-placeholder">No active vision feed.</div>
+            </div>
+            <div id="vision-overlays"></div>
           </div>
-          <div id="vision-overlays"></div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Tasks Tab -->
-      <section id="tab-tasks" class="tab-pane">
-        <div class="panel-inner">
-           <div class="tasks-header">
-             <h3>Active Tasks</h3>
-             <button id="btn-add-task-ui">New</button>
-           </div>
-           
-           <div class="guide-card">
-              <div class="guide-step"><div class="step-num">1</div><p>Enter a command</p></div>
-              <div class="guide-step"><div class="step-num">2</div><p>Agent analyzes</p></div>
-              <div class="guide-step"><div class="step-num">3</div><p>Agent executes</p></div>
-           </div>
+        <!-- Tasks Tab -->
+        <section id="tab-tasks" class="tab-pane">
+          <div class="panel-inner">
+            <div class="tasks-header">
+              <h3>Active Tasks</h3>
+              <button id="btn-add-task-ui">New</button>
+            </div>
 
-           <div id="tasks-list" class="empty-state">No tasks running.</div>
-        </div>
-      </section>
-
-      <!-- Memory Tab -->
-      <section id="tab-memory" class="tab-pane">
-         <div class="panel-inner">
-           <h3>Memory</h3>
-           <div id="memory-stats">0 sessions</div>
-           <div id="memory-list"></div>
-         </div>
-      </section>
-
-      <!-- Marketplace Tab -->
-      <section id="tab-marketplace" class="tab-pane">
-        <div class="panel-inner">
-          <h3>Workflow Marketplace</h3>
-          <p>Discover and install powerful automation workflows</p>
-          <div id="marketplace-list" class="workflow-grid">
-            <!-- Workflows loaded dynamically -->
-          </div>
-        </div>
-      </section>
-
-      <!-- Subscription Tab -->
-      <section id="tab-subscription" class="tab-pane">
-        <div class="panel-inner">
-          <h3>Subscription</h3>
-          <div id="usage-display" class="usage-card">
-            <h4>Current Usage</h4>
-            <div class="usage-stats">
-              <div class="stat">
-                <span class="label">Actions:</span>
-                <span id="usage-actions">0 / 100</span>
+            <div class="guide-card">
+              <div class="guide-step">
+                <div class="step-num">1</div>
+                <p>Enter a command</p>
               </div>
-              <div class="stat">
-                <span class="label">Sessions:</span>
-                <span id="usage-sessions">0 / 3</span>
+              <div class="guide-step">
+                <div class="step-num">2</div>
+                <p>Agent analyzes</p>
               </div>
-              <div class="stat">
-                <span class="label">Tier:</span>
-                <span id="usage-tier">Free</span>
+              <div class="guide-step">
+                <div class="step-num">3</div>
+                <p>Agent executes</p>
               </div>
             </div>
+
+            <div id="tasks-list" class="empty-state">No tasks running.</div>
           </div>
-          <div class="subscription-options">
-            <div class="plan-card free">
-              <h4>Free</h4>
-              <p>Basic features</p>
-              <ul>
-                <li>100 actions/month</li>
-                <li>3 autonomous sessions</li>
-                <li>Basic workflows</li>
-              </ul>
-              <span class="current">Current</span>
-            </div>
-            <div class="plan-card premium">
-              <h4>Premium</h4>
-              <p>$9.99/month</p>
-              <ul>
-                <li>1000 actions/month</li>
-                <li>50 autonomous sessions</li>
-                <li>Advanced workflows</li>
-                <li>Priority support</li>
-              </ul>
-              <button id="btn-upgrade-premium">Upgrade</button>
-            </div>
-            <div class="plan-card unlimited">
-              <h4>Unlimited</h4>
-              <p>$29.99/month</p>
-              <ul>
-                <li>Unlimited actions</li>
-                <li>Unlimited sessions</li>
-                <li>All premium features</li>
-                <li>Custom workflows</li>
-                <li>API access</li>
-              </ul>
-              <button id="btn-upgrade-unlimited">Upgrade</button>
+        </section>
+
+        <!-- Memory Tab -->
+        <section id="tab-memory" class="tab-pane">
+          <div class="panel-inner">
+            <h3>Memory</h3>
+            <div id="memory-stats">0 sessions</div>
+            <div id="memory-list"></div>
+          </div>
+        </section>
+
+        <!-- Marketplace Tab -->
+        <section id="tab-marketplace" class="tab-pane">
+          <div class="panel-inner">
+            <h3>Workflow Marketplace</h3>
+            <p>Discover and install powerful automation workflows</p>
+            <div id="marketplace-list" class="workflow-grid">
+              <!-- Workflows loaded dynamically -->
             </div>
           </div>
+        </section>
+
+        <!-- Subscription Tab -->
+        <section id="tab-subscription" class="tab-pane">
+          <div class="panel-inner">
+            <h3>Subscription</h3>
+            <div id="usage-display" class="usage-card">
+              <h4>Current Usage</h4>
+              <div class="usage-stats">
+                <div class="stat">
+                  <span class="label">Actions:</span>
+                  <span id="usage-actions">0 / 100</span>
+                </div>
+                <div class="stat">
+                  <span class="label">Sessions:</span>
+                  <span id="usage-sessions">0 / 3</span>
+                </div>
+                <div class="stat">
+                  <span class="label">Tier:</span>
+                  <span id="usage-tier">Free</span>
+                </div>
+              </div>
+            </div>
+            <div class="subscription-options">
+              <div class="plan-card free">
+                <h4>Free</h4>
+                <p>Basic features</p>
+                <ul>
+                  <li>100 actions/month</li>
+                  <li>3 autonomous sessions</li>
+                  <li>Basic workflows</li>
+                </ul>
+                <span class="current">Current</span>
+              </div>
+              <div class="plan-card premium">
+                <h4>Premium</h4>
+                <p>$19/month</p>
+                <ul>
+                  <li>1000 actions/month</li>
+                  <li>50 autonomous sessions</li>
+                  <li>Advanced workflows</li>
+                  <li>Priority support</li>
+                  <li>Custom macros</li>
+                </ul>
+                <button id="btn-upgrade-premium">Upgrade</button>
+              </div>
+              <div class="plan-card unlimited">
+                <h4>Unlimited</h4>
+                <p>$49/month</p>
+                <ul>
+                  <li>Unlimited actions</li>
+                  <li>Unlimited sessions</li>
+                  <li>All premium features</li>
+                  <li>API access</li>
+                  <li>Team collaboration</li>
+                </ul>
+                <button id="btn-upgrade-unlimited">Upgrade</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <!-- Status Bar -->
+      <div id="status-bar" class="hidden">
+        <div class="stepper">
+          <div class="step" data-step="observe">Obs</div>
+          <div class="step-line"></div>
+          <div class="step" data-step="plan">Plan</div>
+          <div class="step-line"></div>
+          <div class="step" data-step="act">Act</div>
+          <div class="step-line"></div>
+          <div class="step" data-step="verify">Ver</div>
         </div>
-      </section>
-    </main>
-
-    <!-- Status Bar -->
-    <div id="status-bar" class="hidden">
-      <div class="stepper">
-        <div class="step" data-step="observe">Obs</div>
-        <div class="step-line"></div>
-        <div class="step" data-step="plan">Plan</div>
-        <div class="step-line"></div>
-        <div class="step" data-step="act">Act</div>
-        <div class="step-line"></div>
-        <div class="step" data-step="verify">Ver</div>
+        <span id="status-text">Ready</span>
       </div>
-      <span id="status-text">Ready</span>
-    </div>
 
-    <!-- Input Area -->
-    <div id="input-area">
-      <div id="suggestions-container" class="hidden"></div>
-      <div class="input-wrapper">
-        <textarea id="command-input" rows="1" placeholder="Type a command..."></textarea>
-        <div id="char-counter" aria-live="polite">0 / 2000</div>
+      <!-- Input Area -->
+      <div id="input-area">
+        <div id="suggestions-container" class="hidden"></div>
+        <div class="input-wrapper">
+          <textarea id="command-input" rows="1" placeholder="Type a command..."></textarea>
+          <div id="char-counter" aria-live="polite">0 / 2000</div>
+        </div>
+        <div class="input-actions">
+          <button id="btn-mic" title="Voice Input">🎤</button>
+          <button id="btn-stop" class="hidden">Stop</button>
+          <button id="btn-execute">Run</button>
+        </div>
       </div>
-      <div class="input-actions">
-        <button id="btn-mic" title="Voice Input">🎤</button>
-        <button id="btn-stop" class="hidden">Stop</button>
-        <button id="btn-execute">Run</button>
-      </div>
-    </div>
 
-    <!-- Modals -->
-    <div id="confirm-modal" class="modal hidden">
-      <div class="modal-content">
-        <h3 id="confirm-title">Confirm</h3>
-        <p id="confirm-summary"></p>
-        <ul id="confirm-actions-list"></ul>
-        <div class="modal-actions">
-          <button id="btn-cancel">Cancel</button>
-          <button id="btn-confirm">Confirm</button>
+      <!-- Modals -->
+      <div id="confirm-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3 id="confirm-title">Confirm</h3>
+          <p id="confirm-summary"></p>
+          <ul id="confirm-actions-list"></ul>
+          <div class="modal-actions">
+            <button id="btn-cancel">Cancel</button>
+            <button id="btn-confirm">Confirm</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="ask-modal" class="modal hidden">
+        <div class="modal-content">
+          <h3 id="ask-title">Question</h3>
+          <p id="ask-question"></p>
+          <textarea id="ask-reply" placeholder="Reply..."></textarea>
+          <div class="modal-actions">
+            <button id="btn-ask-cancel">Cancel</button>
+            <button id="btn-ask-reply">Reply</button>
+          </div>
         </div>
       </div>
     </div>
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <div id="ask-modal" class="modal hidden">
-       <div class="modal-content">
-         <h3 id="ask-title">Question</h3>
-         <p id="ask-question"></p>
-         <textarea id="ask-reply" placeholder="Reply..."></textarea>
-         <div class="modal-actions">
-           <button id="btn-ask-cancel">Cancel</button>
-           <button id="btn-ask-reply">Reply</button>
-         </div>
-       </div>
-    </div>
-  </div>
-  <script type="module" src="./main.ts"></script>
-</body>
+    <script type="module" src="./main.ts"></script>
+  </body>
 </html>

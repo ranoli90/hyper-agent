@@ -49,6 +49,9 @@ const components = {
   btnUpgradePremium: safeGetElement<HTMLButtonElement>('btn-upgrade-premium')!,
   btnUpgradeUnlimited: safeGetElement<HTMLButtonElement>('btn-upgrade-unlimited')!,
 
+  subscriptionBadge: safeGetElement<HTMLElement>('subscription-badge')!,
+  toastContainer: safeGetElement<HTMLElement>('toast-container')!,
+
   // Vision
   visionSnapshot: safeGetElement<HTMLImageElement>('vision-snapshot', true)!, // Optional if vision disabled
   visionPlaceholder: safeGetElement<HTMLElement>('vision-placeholder')!,
@@ -914,3 +917,60 @@ components.btnUpgradeUnlimited.addEventListener('click', async () => {
 addMessage('**HyperAgent Dashboard Initialized.** Ready for commands.', 'agent');
 switchTab('chat');
 updateCharCounter(components.commandInput.value || '');
+updateSubscriptionBadge();
+
+// ─── Subscription Badge ───────────────────────────────────────────
+async function updateSubscriptionBadge() {
+  try {
+    const status = billingManager.getState();
+    if (status.tier !== 'free') {
+      components.subscriptionBadge.textContent =
+        status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
+      components.subscriptionBadge.classList.remove('hidden');
+    } else {
+      components.subscriptionBadge.classList.add('hidden');
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to update subscription badge:', err);
+  }
+}
+
+// ─── Toast Notifications ──────────────────────────────────────────
+function showToast(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') {
+  if (!components.toastContainer) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.innerHTML = `
+    <span class="toast-message">${escapeHtml(message)}</span>
+    <button class="toast-close">&times;</button>
+  `;
+
+  components.toastContainer.appendChild(toast);
+
+  const closeBtn = toast.querySelector('.toast-close');
+  closeBtn?.addEventListener('click', () => {
+    toast.remove();
+  });
+
+  setTimeout(() => {
+    toast.classList.add('toast-fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 5000);
+}
+
+// ─── Dark Mode ────────────────────────────────────────────────────
+async function toggleDarkMode() {
+  const isDark = document.body.classList.toggle('dark-mode');
+  await chrome.storage.local.set({ dark_mode: isDark });
+  showToast(`${isDark ? 'Dark' : 'Light'} mode enabled`, 'info');
+}
+
+async function initDarkMode() {
+  const data = await chrome.storage.local.get('dark_mode');
+  if (data.dark_mode) {
+    document.body.classList.add('dark-mode');
+  }
+}
+
+initDarkMode();

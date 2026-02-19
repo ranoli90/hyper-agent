@@ -1166,43 +1166,18 @@ export default defineBackground(() => {
             name: 'Email Automation',
             actions: [{ type: 'fill', description: 'Fill email form' }],
           },
+          'social-media-poster': {
+            id: 'social-media-poster',
+            name: 'Social Media Poster',
+            actions: [{ type: 'click', description: 'Post to social media' }],
+          },
+          'invoice-processor': {
+            id: 'invoice-processor',
+            name: 'Invoice Processor',
+            actions: [{ type: 'extract', description: 'Extract invoice data' }],
+          },
         };
         const workflow = workflows[msg.workflowId];
-        if (workflow) {
-          return { ok: true, workflow };
-        }
-        return { ok: false, error: 'Workflow not found' };
-      }
-
-      case 'getScheduledTasks': {
-        const tasks = schedulerEngine.getAllTasks();
-        return { ok: true, tasks };
-      }
-
-      case 'toggleScheduledTask': {
-        const task = schedulerEngine.enableTask(message.taskId, message.enabled ?? true);
-        return { ok: !!task, task };
-      }
-
-      case 'deleteScheduledTask': {
-        const deleted = schedulerEngine.deleteTask(message.taskId);
-        return { ok: deleted };
-      }
-
-      case 'installWorkflow': {
-        const workflows: Record<string, any> = {
-          'web-scraper': {
-            id: 'web-scraper',
-            name: 'Web Scraper',
-            actions: [{ type: 'extract', description: 'Extract data from page' }],
-          },
-          'email-automation': {
-            id: 'email-automation',
-            name: 'Email Automation',
-            actions: [{ type: 'fill', description: 'Fill email form' }],
-          },
-        };
-        const workflow = workflows[message.workflowId];
         if (workflow) {
           return { ok: true, workflow };
         }
