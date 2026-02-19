@@ -50,6 +50,9 @@ export class StealthEngine {
     /**
      * Simulates human-like mouse movement using Bezier curves.
      */
+    /**
+     * Simulates human-like mouse movement using Bezier curves.
+     */
     static async moveMouseStealthily(targetX: number, targetY: number): Promise<void> {
         const startX = window.scrollX + (window.innerWidth / 2);
         const startY = window.scrollY + (window.innerHeight / 2);
@@ -65,7 +68,7 @@ export class StealthEngine {
             const x = Math.pow(1 - t, 2) * startX + 2 * (1 - t) * t * controlX + Math.pow(t, 2) * targetX;
             const y = Math.pow(1 - t, 2) * startY + 2 * (1 - t) * t * controlY + Math.pow(t, 2) * targetY;
 
-            this.dispatchMouseEvent('mousemove', x, y);
+            this.dispatchMouseEvent('mousemove', x, y, document);
 
             // Random delay to simulate variable human speed
             await new Promise(r => setTimeout(r, Math.random() * 5 + 2));
@@ -129,24 +132,42 @@ export class StealthEngine {
     static applyPropertyMasks(): void {
         try {
             // Mask navigator.webdriver (the most common check)
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined,
+                configurable: true
+            });
 
             // Overwrite Chrome-specific attributes that bots look for to identify automation
-            // @ts-ignore
-            window.chrome = { runtime: {} };
+            // Use defineProperty to handle read-only issues safely
+            if ((window as any).chrome) {
+                // Keep existing runtime but mask other signatures if possible
+            } else {
+                Object.defineProperty(window, 'chrome', {
+                    value: { runtime: {} },
+                    writable: true,
+                    configurable: true
+                });
+            }
 
             // Mask permissions API to prevent automated query detection
-            const originalQuery = window.navigator.permissions.query;
-            // @ts-ignore
-            window.navigator.permissions.query = (parameters) => (
-                parameters.name === 'notifications' ?
-                    Promise.resolve({ state: Notification.permission }) :
-                    originalQuery(parameters)
-            );
+            if (navigator.permissions && navigator.permissions.query) {
+                const originalQuery = navigator.permissions.query.bind(navigator.permissions);
+                Object.defineProperty(navigator.permissions, 'query', {
+                    value: (parameters: PermissionDescriptor) => (
+                        parameters.name === 'notifications' ?
+                            Promise.resolve({ state: 'granted' } as PermissionStatus) :
+                            originalQuery(parameters)
+                    ),
+                    configurable: true,
+                    writable: true
+                });
+            }
 
             console.log('[Stealth] Anti-bot environment masks applied.');
         } catch (e) {
             // Silently fail if blocked by CSP; masking is best-effort
+            console.debug('[Stealth] Masking partial failure:', e);
         }
     }
 }
+
