@@ -129,6 +129,12 @@ function switchTab(tabId: string) {
     loadMarketplace();
   } else if (tabId === 'subscription') {
     updateUsageDisplay();
+  } else if (tabId === 'memory') {
+    loadMemoryTab();
+  } else if (tabId === 'tasks') {
+    loadTasksTab();
+  } else if (tabId === 'vision') {
+    loadVisionTab();
   }
 }
 
@@ -526,12 +532,174 @@ function loadMarketplace() {
 }
 
 function installWorkflow(workflowId: string) {
-  // Placeholder for workflow installation
-  addMessage(`Installing workflow: ${workflowId}`, 'status');
-  // In real implementation, this would download and install the workflow
-  setTimeout(() => {
-    addMessage(`Workflow ${workflowId} installed successfully!`, 'agent');
-  }, 2000);
+  addMessage(`Installing workflow: ${workflowId}...`, 'status');
+
+  chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId }, response => {
+    if (response?.success) {
+      addMessage(`Workflow "${workflowId}" installed successfully!`, 'agent');
+    } else {
+      addMessage(`Failed to install workflow: ${response?.error || 'Unknown error'}`, 'error');
+    }
+  });
+}
+
+// ─── Memory Tab ────────────────────────────────────────────────
+async function loadMemoryTab() {
+  const memoryList = document.getElementById('memory-list');
+  const memoryStats = document.getElementById('memory-stats');
+
+  if (!memoryList || !memoryStats) return;
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'getMemoryStats' });
+
+    if (response) {
+      memoryStats.textContent = `${response.domainsCount || 0} domains tracked, ${response.totalActions || 0} actions logged`;
+
+      if (response.strategies && Object.keys(response.strategies).length > 0) {
+        memoryList.innerHTML = '';
+
+        for (const [domain, strategy] of Object.entries(response.strategies)) {
+          const card = document.createElement('div');
+          card.className = 'memory-card';
+          const s = strategy as any;
+          card.innerHTML = `
+            <div class="memory-domain">${domain}</div>
+            <div class="memory-stats-row">
+              <span>Success: ${s.successfulLocators?.length || 0}</span>
+              <span>Failed: ${s.failedLocators?.length || 0}</span>
+            </div>
+            <div class="memory-last-used">Last used: ${s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never'}</div>
+          `;
+          memoryList.appendChild(card);
+        }
+      } else {
+        memoryList.innerHTML =
+          '<p class="empty-state">No memory data yet. The agent learns from your interactions.</p>';
+      }
+    }
+  } catch (err) {
+    memoryList.innerHTML = '<p class="error-state">Failed to load memory data</p>';
+  }
+}
+
+// ─── Tasks Tab ────────────────────────────────────────────────
+async function loadTasksTab() {
+  const tasksList = document.getElementById('tasks-list');
+  if (!tasksList) return;
+
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'getScheduledTasks' });
+
+    if (response?.tasks && response.tasks.length > 0) {
+      tasksList.innerHTML = '';
+
+      response.tasks.forEach((task: any) => {
+        const item = document.createElement('div');
+        item.className = 'task-item';
+        item.innerHTML = `
+          <div class="task-header">
+            <span class="task-name">${task.name}</span>
+            <span class="task-status ${task.enabled ? 'enabled' : 'disabled'}">${task.enabled ? 'Active' : 'Paused'}</span>
+          </div>
+          <div class="task-command">${task.command}</div>
+          <div class="task-schedule">${formatSchedule(task.schedule)}</div>
+          <div class="task-next-run">Next: ${task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not scheduled'}</div>
+          <div class="task-actions">
+            <button class="btn-small" data-task-id="${task.id}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
+            <button class="btn-small btn-danger" data-task-id="${task.id}" data-action="delete">Delete</button>
+          </div>
+        `;
+        tasksList.appendChild(item);
+      });
+
+      tasksList.querySelectorAll('.btn-small').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const target = e.target as HTMLButtonElement;
+          const taskId = target.dataset.taskId;
+          const action = target.dataset.action;
+          handleTaskAction(taskId, action);
+        });
+      });
+    } else {
+      tasksList.innerHTML = `
+        <p class="empty-state">No scheduled tasks.</p>
+        <p class="hint">Use commands like "schedule daily search for news" to create tasks.</p>
+      `;
+    }
+  } catch (err) {
+    tasksList.innerHTML = '<p class="error-state">Failed to load tasks</p>';
+  }
+}
+
+function formatSchedule(schedule: any): string {
+  if (!schedule) return 'Unknown';
+
+  switch (schedule.type) {
+    case 'once':
+      return `Once at ${new Date(schedule.time).toLocaleString()}`;
+    case 'interval':
+      return `Every ${schedule.intervalMinutes} minutes`;
+    case 'daily':
+      return 'Daily';
+    case 'weekly':
+      return `Weekly on ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][schedule.dayOfWeek || 0]}`;
+    default:
+      return 'Custom schedule';
+  }
+}
+
+async function handleTaskAction(taskId: string | undefined, action: string | undefined) {
+  if (!taskId || !action) return;
+
+  if (action === 'toggle') {
+    await chrome.runtime.sendMessage({ type: 'toggleScheduledTask', taskId });
+    loadTasksTab();
+  } else if (action === 'delete') {
+    await chrome.runtime.sendMessage({ type: 'deleteScheduledTask', taskId });
+    loadTasksTab();
+  }
+}
+
+// ─── Vision Tab ────────────────────────────────────────────────
+function loadVisionTab() {
+  const visionContainer = document.getElementById('vision-container');
+  const visionOverlays = document.getElementById('vision-overlays');
+
+  if (!visionContainer || !visionOverlays) return;
+
+  if (components.visionSnapshot.src && components.visionSnapshot.src !== '') {
+    components.visionSnapshot.classList.remove('hidden');
+    components.visionPlaceholder.classList.add('hidden');
+  }
+
+  visionOverlays.innerHTML = `
+    <div class="vision-controls">
+      <button id="btn-capture-vision" class="btn-secondary">Capture Screenshot</button>
+      <button id="btn-analyze-vision" class="btn-secondary">Analyze Page</button>
+    </div>
+    <div class="vision-info">
+      <p>Vision mode captures screenshots for AI analysis when DOM extraction fails.</p>
+      <p>Enable in settings for automatic fallback on sparse pages.</p>
+    </div>
+  `;
+
+  const captureBtn = document.getElementById('btn-capture-vision');
+  if (captureBtn) {
+    captureBtn.addEventListener('click', async () => {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'captureScreenshot' });
+        if (response?.dataUrl) {
+          components.visionSnapshot.src = `data:image/jpeg;base64,${response.dataUrl}`;
+          components.visionSnapshot.classList.remove('hidden');
+          components.visionPlaceholder.classList.add('hidden');
+          addMessage('Screenshot captured for analysis.', 'status');
+        }
+      } catch (err) {
+        addMessage('Failed to capture screenshot.', 'error');
+      }
+    });
+  }
 }
 
 // ─── Event Listeners ────────────────────────────────────────────

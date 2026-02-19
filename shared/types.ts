@@ -662,7 +662,15 @@ export type ExtensionMessage =
   | MsgModeratorStats
   // Usage & Billing
   | MsgGetUsage
-  | MsgGetUsageResponse;
+  | MsgGetUsageResponse
+  // Memory & Tasks
+  | MsgGetMemoryStats
+  | MsgGetMemoryStatsResponse
+  | MsgGetScheduledTasks
+  | MsgGetScheduledTasksResponse
+  | MsgToggleScheduledTask
+  | MsgDeleteScheduledTask
+  | MsgInstallWorkflow;
 
 export interface MsgStartModerator {
   type: 'startModerator';
@@ -712,4 +720,41 @@ export interface MsgGetUsageResponse {
     sessions: number;
     tier: string;
   };
+}
+
+export interface MsgGetMemoryStats {
+  type: 'getMemoryStats';
+}
+
+export interface MsgGetMemoryStatsResponse {
+  type: 'getMemoryStatsResponse';
+  domainsCount: number;
+  totalActions: number;
+  oldestEntry: number | null;
+  strategies: Record<string, any>;
+}
+
+export interface MsgGetScheduledTasks {
+  type: 'getScheduledTasks';
+}
+
+export interface MsgGetScheduledTasksResponse {
+  type: 'getScheduledTasksResponse';
+  tasks: any[];
+}
+
+export interface MsgToggleScheduledTask {
+  type: 'toggleScheduledTask';
+  taskId: string;
+  enabled?: boolean;
+}
+
+export interface MsgDeleteScheduledTask {
+  type: 'deleteScheduledTask';
+  taskId: string;
+}
+
+export interface MsgInstallWorkflow {
+  type: 'installWorkflow';
+  workflowId: string;
 }

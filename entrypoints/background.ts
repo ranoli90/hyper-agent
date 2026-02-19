@@ -71,6 +71,8 @@ import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
 import { billingManager } from '../shared/billing';
+import { schedulerEngine } from '../shared/scheduler-engine';
+import { getMemoryStats as getMemoryStatsUtil, getStrategiesForDomain } from '../shared/memory';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -1124,6 +1126,89 @@ export default defineBackground(() => {
         };
       }
 
+      case 'getMemoryStats': {
+        const stats = await getMemoryStatsUtil();
+        const strategiesData = await chrome.storage.local.get('hyperagent_site_strategies');
+        return {
+          ok: true,
+          ...stats,
+          strategies: strategiesData.hyperagent_site_strategies || {},
+        };
+      }
+
+      case 'getScheduledTasks': {
+        const tasks = schedulerEngine.getAllTasks();
+        return { ok: true, tasks };
+      }
+
+      case 'toggleScheduledTask': {
+        const msg = message as any;
+        const task = schedulerEngine.enableTask(msg.taskId, msg.enabled ?? true);
+        return { ok: !!task, task };
+      }
+
+      case 'deleteScheduledTask': {
+        const msg = message as any;
+        const deleted = schedulerEngine.deleteTask(msg.taskId);
+        return { ok: deleted };
+      }
+
+      case 'installWorkflow': {
+        const msg = message as any;
+        const workflows: Record<string, any> = {
+          'web-scraper': {
+            id: 'web-scraper',
+            name: 'Web Scraper',
+            actions: [{ type: 'extract', description: 'Extract data from page' }],
+          },
+          'email-automation': {
+            id: 'email-automation',
+            name: 'Email Automation',
+            actions: [{ type: 'fill', description: 'Fill email form' }],
+          },
+        };
+        const workflow = workflows[msg.workflowId];
+        if (workflow) {
+          return { ok: true, workflow };
+        }
+        return { ok: false, error: 'Workflow not found' };
+      }
+
+      case 'getScheduledTasks': {
+        const tasks = schedulerEngine.getAllTasks();
+        return { ok: true, tasks };
+      }
+
+      case 'toggleScheduledTask': {
+        const task = schedulerEngine.enableTask(message.taskId, message.enabled ?? true);
+        return { ok: !!task, task };
+      }
+
+      case 'deleteScheduledTask': {
+        const deleted = schedulerEngine.deleteTask(message.taskId);
+        return { ok: deleted };
+      }
+
+      case 'installWorkflow': {
+        const workflows: Record<string, any> = {
+          'web-scraper': {
+            id: 'web-scraper',
+            name: 'Web Scraper',
+            actions: [{ type: 'extract', description: 'Extract data from page' }],
+          },
+          'email-automation': {
+            id: 'email-automation',
+            name: 'Email Automation',
+            actions: [{ type: 'fill', description: 'Fill email form' }],
+          },
+        };
+        const workflow = workflows[message.workflowId];
+        if (workflow) {
+          return { ok: true, workflow };
+        }
+        return { ok: false, error: 'Workflow not found' };
+      }
+
       default:
         return { ok: false, error: 'Unknown message type' };
     }
@@ -1965,10 +2050,13 @@ Return JSON:
   }
 
   // ─── Scheduler Integration ─────────────────────────────────────
-  // TODO: Implement proper scheduler initialization
-  // chrome.alarms.onAlarm.addListener((alarm) => {
-  //   schedulerEngine.handleAlarm(alarm).catch((err: any) => {
-  //     console.error('[Background] Scheduler alarm handle failed:', err);
-  //   });
-  // });
+  schedulerEngine.initialize().catch((err: any) => {
+    console.error('[Background] Scheduler initialization failed:', err);
+  });
+
+  chrome.alarms.onAlarm.addListener(alarm => {
+    schedulerEngine.handleAlarm(alarm).catch((err: any) => {
+      console.error('[Background] Scheduler alarm handle failed:', err);
+    });
+  });
 });
