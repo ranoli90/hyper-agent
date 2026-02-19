@@ -16,7 +16,7 @@
  * decisions about task execution while maintaining safety and reliability.
  */
 
-import { loadSettings, isSiteBlacklisted, DEFAULTS } from '../shared/config';
+import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS } from '../shared/config';
 import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
@@ -849,7 +849,9 @@ export default defineBackground(() => {
       }
 
       case 'confirmResponse': {
-        const resolved = agentState.resolveConfirm(message.confirmed);
+        // Ensure confirmed is a boolean
+        const confirmed = Boolean(message.confirmed);
+        const resolved = agentState.resolveConfirm(confirmed);
         return { ok: resolved };
       }
 
@@ -1181,23 +1183,41 @@ export default defineBackground(() => {
     // Higher-order function for the content script action to allow retries
     const attempt = async (): Promise<ActionResult> => {
       try {
-        const response = await chrome.tabs.sendMessage(tabId, { type: 'executeActionOnPage', action }) as ActionResult;
-        return response;
+        const response = await chrome.tabs.sendMessage(tabId, { type: 'executeActionOnPage', action });
+        // Validate response structure
+        if (!response || typeof response !== 'object') {
+          return { success: false, error: 'Invalid response from content script', errorType: 'ACTION_FAILED' as ErrorType };
+        }
+        if (typeof response.success !== 'boolean') {
+          return { success: false, error: 'Response missing success field', errorType: 'ACTION_FAILED' as ErrorType };
+        }
+        return response as ActionResult;
       } catch (err: any) {
         return { success: false, error: `Content script error: ${err.message}`, errorType: 'ACTION_FAILED' as ErrorType };
       }
     };
 
     let result: ActionResult = await attempt();
+    
+    // Ensure result is always valid
+    if (!result) {
+      result = { success: false, error: 'Unknown action error', errorType: 'ACTION_FAILED' as ErrorType };
+    }
 
     // Auto-retry with enhanced error classification and recovery tracking
     if (!result.success && autoRetry) {
-      const errorType = result.errorType;
+      // Validate and sanitize error type
+      const validErrorTypes: ErrorType[] = ['ELEMENT_NOT_FOUND', 'ELEMENT_NOT_VISIBLE', 'ELEMENT_DISABLED', 'ACTION_FAILED', 'TIMEOUT', 'NAVIGATION_ERROR', 'UNKNOWN'];
+      let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
+      if (!validErrorTypes.includes(errorType)) {
+        errorType = 'ACTION_FAILED' as ErrorType;
+      }
+      
       const currentAttempt = agentState.getRecoveryAttempt(action);
 
       // Check if we've exceeded max recovery attempts
       if (currentAttempt >= agentState.maxRecoveryAttempts) {
-        agentState.logRecoveryOutcome(action, errorType || 'UNKNOWN', 'max-attempts-exceeded', 'failed');
+        agentState.logRecoveryOutcome(action, errorType, 'max-attempts-exceeded', 'failed');
         agentState.clearRecoveryAttempt(action);
         trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
         return result;
@@ -1361,21 +1381,40 @@ export default defineBackground(() => {
         const actionResults = [];
         for (const action of llmResponse.actions) {
           if (agentState.isAborted) break;
+          
+          if (!action || typeof action !== 'object' || !action.type) {
+            logger.log('warn', 'Invalid action structure', { action });
+            continue;
+          }
+          
           const result = await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
 
-          if (result.success && settings.enableVision && (action.type === 'click' || action.type === 'fill')) {
+          if (result && result.success && settings.enableVision && (action.type === 'click' || action.type === 'fill')) {
             sendToSidePanel({ type: 'agentProgress', status: 'Verifying...', step: 'verify' });
-            const vScreenshot = await captureScreenshot();
-            if (vScreenshot) {
-              sendToSidePanel({ type: 'visionUpdate', screenshot: vScreenshot });
-              const isVerified = await verifyActionWithVision(action, vScreenshot);
-              if (!isVerified.success) {
-                result.success = false;
-                result.error = `Visual Failure: ${isVerified.reason}`;
+            try {
+              const vScreenshot = await captureScreenshot();
+              if (vScreenshot) {
+                sendToSidePanel({ type: 'visionUpdate', screenshot: vScreenshot });
+                try {
+                  const isVerified = await verifyActionWithVision(action, vScreenshot);
+                  if (isVerified && !isVerified.success) {
+                    result.success = false;
+                    result.error = `Visual Failure: ${isVerified.reason || 'Verification failed'}`;
+                  }
+                } catch (verifyErr: any) {
+                  logger.log('warn', 'Vision verification error', { error: verifyErr.message });
+                  // Continue without verification rather than fail
+                }
               }
+            } catch (screenErr: any) {
+              logger.log('warn', 'Screenshot capture failed', { error: screenErr.message });
+              // Continue without verification
             }
           }
-          actionResults.push({ action, ...result });
+          
+          if (result) {
+            actionResults.push({ action, ...result });
+          }
           await delay(DEFAULTS.ACTION_DELAY_MS);
         }
 

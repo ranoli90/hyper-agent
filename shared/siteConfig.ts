@@ -162,6 +162,12 @@ const DEFAULT_SITE_CONFIGS: SiteConfig[] = [
  * Get all site configs (including defaults and user configs)
  */
 export async function getAllSiteConfigs(): Promise<SiteConfig[]> {
+  // Check if chrome.storage is available
+  if (!chrome?.storage?.local) {
+    console.warn('[SiteConfig] Chrome storage not available, using defaults');
+    return DEFAULT_SITE_CONFIGS;
+  }
+
   const data = await chrome.storage.local.get([STORAGE_KEYS.SITE_CONFIGS]);
   const userConfigs: SiteConfig[] = data[STORAGE_KEYS.SITE_CONFIGS] || [];
   
@@ -208,6 +214,12 @@ export async function getSiteConfig(domain: string): Promise<SiteConfig | null> 
  * Set config for a domain (creates or updates)
  */
 export async function setSiteConfig(config: SiteConfig): Promise<void> {
+  // Check if chrome.storage is available
+  if (!chrome?.storage?.local) {
+    console.warn('[SiteConfig] Chrome storage not available, cannot save config');
+    return;
+  }
+
   const data = await chrome.storage.local.get([STORAGE_KEYS.SITE_CONFIGS]);
   const configs: SiteConfig[] = data[STORAGE_KEYS.SITE_CONFIGS] || [];
   
@@ -226,6 +238,12 @@ export async function setSiteConfig(config: SiteConfig): Promise<void> {
  * Delete config for a domain
  */
 export async function deleteSiteConfig(domain: string): Promise<void> {
+  // Check if chrome.storage is available
+  if (!chrome?.storage?.local) {
+    console.warn('[SiteConfig] Chrome storage not available, cannot delete config');
+    return;
+  }
+
   const data = await chrome.storage.local.get([STORAGE_KEYS.SITE_CONFIGS]);
   const configs: SiteConfig[] = data[STORAGE_KEYS.SITE_CONFIGS] || [];
   
@@ -241,6 +259,12 @@ export async function deleteSiteConfig(domain: string): Promise<void> {
  * Get only user-defined configs (excluding defaults)
  */
 export async function getUserSiteConfigs(): Promise<SiteConfig[]> {
+  // Check if chrome.storage is available
+  if (!chrome?.storage?.local) {
+    console.warn('[SiteConfig] Chrome storage not available, returning empty array');
+    return [];
+  }
+
   const data = await chrome.storage.local.get([STORAGE_KEYS.SITE_CONFIGS]);
   return data[STORAGE_KEYS.SITE_CONFIGS] || [];
 }

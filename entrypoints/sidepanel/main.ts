@@ -328,21 +328,27 @@ components.btnSettings.addEventListener('click', () => {
 
 // ─── Message Handler ────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message: any) => {
+  // Validate message structure
+  if (!message || typeof message !== 'object' || !message.type) return;
+  
   switch (message.type) {
     case 'agentProgress': {
-      updateStatus(message.status, 'active');
-      if (message.step) updateStepper(message.step);
-      if (message.summary) addMessage(message.summary, 'thinking');
+      if (typeof message.status === 'string') updateStatus(message.status, 'active');
+      if (typeof message.step === 'string') updateStepper(message.step);
+      if (typeof message.summary === 'string') addMessage(message.summary, 'thinking');
 
       // Live Trace: Display the physical actions the agent is taking
-      if (message.actionDescriptions && message.actionDescriptions.length > 0) {
-        const trace = message.actionDescriptions.map((d: string) => `• ${d}`).join('\n');
-        addMessage(`*Executing actions:* \n${trace}`, 'status');
+      if (Array.isArray(message.actionDescriptions) && message.actionDescriptions.length > 0) {
+        const validDescriptions = message.actionDescriptions.filter((d: any) => typeof d === 'string');
+        if (validDescriptions.length > 0) {
+          const trace = validDescriptions.map((d: string) => `• ${d}`).join('\n');
+          addMessage(`*Executing actions:* \n${trace}`, 'status');
+        }
       }
       break;
     }
     case 'visionUpdate': {
-      if (message.screenshot) {
+      if (typeof message.screenshot === 'string' && message.screenshot.length > 0) {
         components.visionSnapshot.src = message.screenshot;
         components.visionSnapshot.classList.remove('hidden');
         components.visionPlaceholder.classList.add('hidden');
@@ -350,21 +356,53 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'askUser': {
-      components.askQuestion.textContent = message.question || 'Agent needs more information.';
+      const question = typeof message.question === 'string' ? message.question : 'Agent needs more information.';
+      components.askQuestion.textContent = question;
       components.askModal.classList.remove('hidden');
       components.askReply.focus();
       break;
     }
     case 'confirmActions': {
+      if (typeof message.summary !== 'string' || !Array.isArray(message.actions)) {
+        console.warn('[HyperAgent] Invalid confirmActions message:', message);
+        break;
+      }
+      
       components.confirmSummary.textContent = message.summary;
+      
+      // Build actions list
+      if (message.actions.length > 0) {
+        components.confirmList.innerHTML = '';
+        message.actions.forEach((action: any) => {
+          if (action && typeof action === 'object') {
+            const li = document.createElement('li');
+            const desc = (action as any).description || `${action.type} action`;
+            li.textContent = typeof desc === 'string' ? desc : 'Unknown action';
+            components.confirmList.appendChild(li);
+          }
+        });
+      }
+      
       components.confirmModal.classList.remove('hidden');
-      new Promise<boolean>(resolve => state.confirmResolve = resolve).then(confirmed => {
+      
+      new Promise<boolean>(resolve => {
+        state.confirmResolve = resolve;
+        // Timeout after 30 seconds to prevent hanging
+        setTimeout(() => {
+          if (state.confirmResolve) {
+            state.confirmResolve(false);
+            state.confirmResolve = null;
+          }
+        }, 30000);
+      }).then(confirmed => {
         chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed });
       });
       break;
     }
     case 'agentDone': {
-      addMessage(message.finalSummary, message.success ? 'agent' : 'error');
+      const summary = typeof message.finalSummary === 'string' ? message.finalSummary : 'Task completed';
+      const success = Boolean(message.success);
+      addMessage(summary, success ? 'agent' : 'error');
       setRunning(false);
       break;
     }

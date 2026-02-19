@@ -37,31 +37,9 @@ export interface RequestAnalysis {
   confidence: number;
 }
 
-// ─── Reliable Cheap Model Database (OpenRouter) ───────────────────────────────────
-const FREE_MODELS: ModelCapabilities[] = [
-  {
-    id: 'openai/gpt-4o-mini',
-    name: 'GPT-4o Mini',
-    provider: 'openai',
-    contextWindow: 128000,
-    strengths: ['fast', 'reliable', 'instruction following', 'json'],
-    weaknesses: ['complex reasoning depth'],
-    bestFor: [TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING, TaskType.COMPLEX_AUTOMATION],
-    speed: 'fast',
-    cost: 'low',
-    supportsJson: true,
-    supportsVision: true,
-    performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 10,
-      [TaskType.COMPLEX_AUTOMATION]: 9,
-      [TaskType.TEXT_EXTRACTION]: 10,
-      [TaskType.FORM_FILLING]: 10,
-      [TaskType.VISUAL_ANALYSIS]: 9,
-      [TaskType.DECISION_MAKING]: 9,
-      [TaskType.ERROR_RECOVERY]: 9,
-      [TaskType.MULTI_STEP_WORKFLOW]: 9
-    }
-  },
+// ─── Reliable Paid Model Database (OpenRouter) ───────────────────────────────────
+// Only includes models from available providers (google-ai-studio, google-vertex)
+const PAID_MODELS: ModelCapabilities[] = [
   {
     id: 'google/gemini-2.0-flash-001',
     name: 'Gemini 2.0 Flash',
@@ -86,49 +64,49 @@ const FREE_MODELS: ModelCapabilities[] = [
     }
   },
   {
-    id: 'meta-llama/llama-3.3-70b-instruct',
-    name: 'Llama 3.3 70B',
-    provider: 'meta',
-    contextWindow: 131072,
-    strengths: ['balanced performance', 'reasoning', 'versatility'],
-    weaknesses: ['speed'],
+    id: 'google/gemini-2.5-pro-exp-03-25',
+    name: 'Gemini 2.5 Pro Experimental',
+    provider: 'google',
+    contextWindow: 2097152,
+    strengths: ['advanced reasoning', 'long context', 'multimodal', 'coding'],
+    weaknesses: ['cost'],
     bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.MULTI_STEP_WORKFLOW],
     speed: 'medium',
-    cost: 'low',
+    cost: 'medium',
     supportsJson: true,
-    supportsVision: false,
+    supportsVision: true,
     performance: {
       [TaskType.SIMPLE_NAVIGATION]: 9,
       [TaskType.COMPLEX_AUTOMATION]: 10,
       [TaskType.TEXT_EXTRACTION]: 10,
       [TaskType.FORM_FILLING]: 9,
-      [TaskType.VISUAL_ANALYSIS]: 0,
-      [TaskType.DECISION_MAKING]: 9,
-      [TaskType.ERROR_RECOVERY]: 9,
+      [TaskType.VISUAL_ANALYSIS]: 10,
+      [TaskType.DECISION_MAKING]: 10,
+      [TaskType.ERROR_RECOVERY]: 10,
       [TaskType.MULTI_STEP_WORKFLOW]: 10
     }
   },
   {
-    id: 'deepseek/deepseek-chat',
-    name: 'DeepSeek Chat',
-    provider: 'deepseek',
-    contextWindow: 64000,
-    strengths: ['reasoning', 'coding', 'instruction following'],
-    weaknesses: ['vision'],
-    bestFor: [TaskType.COMPLEX_AUTOMATION, TaskType.DECISION_MAKING, TaskType.ERROR_RECOVERY],
+    id: 'google/gemini-1.5-pro',
+    name: 'Gemini 1.5 Pro',
+    provider: 'google',
+    contextWindow: 1048576,
+    strengths: ['balanced performance', 'reasoning', 'multimodal'],
+    weaknesses: ['speed'],
+    bestFor: [TaskType.DECISION_MAKING, TaskType.ERROR_RECOVERY, TaskType.COMPLEX_AUTOMATION],
     speed: 'medium',
-    cost: 'low',
+    cost: 'medium',
     supportsJson: true,
-    supportsVision: false,
+    supportsVision: true,
     performance: {
-      [TaskType.SIMPLE_NAVIGATION]: 9,
-      [TaskType.COMPLEX_AUTOMATION]: 10,
+      [TaskType.SIMPLE_NAVIGATION]: 8,
+      [TaskType.COMPLEX_AUTOMATION]: 9,
       [TaskType.TEXT_EXTRACTION]: 9,
-      [TaskType.FORM_FILLING]: 9,
-      [TaskType.VISUAL_ANALYSIS]: 0,
+      [TaskType.FORM_FILLING]: 8,
+      [TaskType.VISUAL_ANALYSIS]: 9,
       [TaskType.DECISION_MAKING]: 10,
-      [TaskType.ERROR_RECOVERY]: 10,
-      [TaskType.MULTI_STEP_WORKFLOW]: 10
+      [TaskType.ERROR_RECOVERY]: 9,
+      [TaskType.MULTI_STEP_WORKFLOW]: 9
     }
   }
 ];
@@ -311,7 +289,7 @@ function estimateContextLength(context: any): number {
 
 // ─── Intelligent Model Selection ──────────────────────────────────────
 export function selectOptimalModel(analysis: RequestAnalysis): ModelCapabilities {
-  const candidates = FREE_MODELS.filter(model => {
+  const candidates = PAID_MODELS.filter(model => {
     // Filter by vision requirements
     if (analysis.requiresVision && !model.supportsVision) return false;
 
@@ -323,7 +301,7 @@ export function selectOptimalModel(analysis: RequestAnalysis): ModelCapabilities
 
   if (candidates.length === 0) {
     // Fallback to best general model
-    return FREE_MODELS.find(m => m.id === 'openai/gpt-4o-mini') || FREE_MODELS[0];
+    return PAID_MODELS.find(m => m.id === 'google/gemini-2.0-flash-001') || PAID_MODELS[0];
   }
 
   // Score each candidate
@@ -379,8 +357,8 @@ function calculateModelScore(model: ModelCapabilities, analysis: RequestAnalysis
 
 // ─── Fallback Model Selection ─────────────────────────────────────────
 export function selectFallbackModel(primaryModel: string, analysis: RequestAnalysis): ModelCapabilities {
-  const primary = FREE_MODELS.find(m => m.id === primaryModel);
-  const candidates = FREE_MODELS.filter(m => m.id !== primaryModel);
+  const primary = PAID_MODELS.find(m => m.id === primaryModel);
+  const candidates = PAID_MODELS.filter(m => m.id !== primaryModel);
 
   // Find best alternative with different strengths
   const scoredCandidates = candidates.map(model => ({
@@ -389,7 +367,7 @@ export function selectFallbackModel(primaryModel: string, analysis: RequestAnaly
   }));
 
   scoredCandidates.sort((a, b) => b.score - a.score);
-  return scoredCandidates[0]?.model || FREE_MODELS[0];
+  return scoredCandidates[0]?.model || PAID_MODELS[0];
 }
 
 function calculateFallbackScore(model: ModelCapabilities, primary?: ModelCapabilities, analysis?: RequestAnalysis): number {
@@ -414,7 +392,7 @@ function calculateFallbackScore(model: ModelCapabilities, primary?: ModelCapabil
 
 // ─── Model Switching Logic ───────────────────────────────────────────
 export function shouldSwitchModel(currentModel: string, analysis: RequestAnalysis): boolean {
-  const current = FREE_MODELS.find(m => m.id === currentModel);
+  const current = PAID_MODELS.find(m => m.id === currentModel);
   const optimal = selectOptimalModel(analysis);
 
   if (!current || !optimal) return false;
@@ -427,4 +405,4 @@ export function shouldSwitchModel(currentModel: string, analysis: RequestAnalysi
 }
 
 // ─── Export Functions ─────────────────────────────────────────────────
-export { FREE_MODELS };
+export { PAID_MODELS };

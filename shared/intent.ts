@@ -188,17 +188,32 @@ export function parseIntent(command: string): CommandIntent[] {
   const normalized = command.toLowerCase().trim();
   const intents: CommandIntent[] = [];
 
-  if (!normalized) {
+  if (!normalized || typeof normalized !== 'string') {
     return intents;
   }
 
+  // Valid action types that LLM can execute
+  const validActions = new Set(['navigate', 'search', 'click', 'fill', 'extract', 'scroll', 'wait', 'goBack', 'openTab', 'closeTab', 'switchTab', 'hover', 'focus', 'pressKey']);
+
   // Try to match each pattern
   for (const pattern of COMMAND_PATTERNS) {
-    // Check if any keyword matches
+    // Validate pattern action
+    if (!validActions.has(pattern.action)) {
+      console.warn(`[Intent] Invalid action in pattern: ${pattern.action}`);
+      continue;
+    }
+    
+    // Check if any keyword matches - with safe regex
     const keywordMatch = pattern.keywords.some((keyword) => {
-      // Match whole word or phrase at start or after common separators
-      const regex = new RegExp(`^${keyword}\\b|\\s${keyword}\\b|\\b${keyword}$`, 'i');
-      return regex.test(normalized);
+      try {
+        // Escape special regex characters in keyword
+        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`^${escaped}\\b|\\s${escaped}\\b|\\b${escaped}$`, 'i');
+        return regex.test(normalized);
+      } catch (err) {
+        console.warn(`[Intent] Regex error for keyword "${keyword}":`, err);
+        return keyword && normalized.includes(keyword);
+      }
     });
 
     if (keywordMatch) {
@@ -206,38 +221,46 @@ export function parseIntent(command: string): CommandIntent[] {
       let target: string | undefined;
       
       for (const keyword of pattern.keywords) {
-        const regex = new RegExp(`${keyword}\\s+(.+)`,'i');
-        const match = normalized.match(regex);
-        if (match && match[1]) {
-          target = match[1].trim();
-          break;
+        try {
+          const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const regex = new RegExp(`${escaped}\\s+(.+)`,'i');
+          const match = normalized.match(regex);
+          if (match && match[1]) {
+            target = match[1].trim();
+            break;
+          }
+        } catch (err) {
+          console.warn(`[Intent] Regex match error:`, err);
         }
       }
 
       // If no target extracted, try removing keyword from start
       if (!target) {
         for (const keyword of pattern.keywords) {
-          if (normalized.startsWith(keyword)) {
+          if (normalized.startsWith(keyword.toLowerCase())) {
             target = normalized.slice(keyword.length).trim();
-            break;
+            if (target) break;
           }
         }
       }
 
       // Only add intent if we found a keyword match
-      intents.push({
-        action: pattern.action,
-        target: target || undefined,
-        confidence: pattern.confidence,
-        originalText: command,
-      });
+      if (!intents.some(i => i.action === pattern.action)) { // Avoid duplicates
+        intents.push({
+          action: pattern.action,
+          target: target || undefined,
+          confidence: pattern.confidence,
+          originalText: command,
+        });
+      }
     }
   }
 
   // If no patterns matched, treat entire command as a target for navigate/search
   if (intents.length === 0) {
     // Check if it looks like a URL
-    if (normalized.match(/^https?:\/\//) || normalized.match(/\.(com|org|net|edu|gov|io|co)/)) {
+    const isUrl = normalized.match(/^https?:\/\//) || normalized.match(/\.(com|org|net|edu|gov|io|co)/);
+    if (isUrl) {
       intents.push({
         action: 'navigate',
         target: command,

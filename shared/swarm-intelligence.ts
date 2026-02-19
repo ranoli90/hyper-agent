@@ -296,11 +296,17 @@ Your Specialization: ${agent.specialization}
     const { llmClient } = await import('./llmClient');
 
     try {
+      // CRITICAL FIX: Swarm agents must NEVER use user settings directly
+      // They bypass all model filtering and can send Anthropic requests
+      // Force swarm agents to always use Google Gemini
+      const safeModel = 'google/gemini-2.0-flash-001';
+
       const response = await llmClient.callCompletion({
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         maxTokens: 2000,
-        responseFormat: 'json_object'
+        responseFormat: 'json_object',
+        model: safeModel  // Force safe model for swarm agents
       });
 
       return JSON.parse(response);

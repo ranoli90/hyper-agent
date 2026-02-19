@@ -38,8 +38,9 @@ export const VALIDATION = {
 // ─── Defaults ───────────────────────────────────────────────────────
 export const DEFAULTS = {
   BASE_URL: 'https://openrouter.ai/api/v1',
-  MODEL_NAME: 'openai/gpt-4o-mini', // Cheap, fast, reliable
-  BACKUP_MODEL: 'google/gemini-2.0-flash-001', // Fast, cheap backup
+  DEFAULT_API_KEY: '', // Empty default; user must provide their API key
+  MODEL_NAME: 'google/gemini-2.0-flash-001', // Fast, reliable, available
+  BACKUP_MODEL: 'google/gemini-2.5-pro-exp-03-25', // Powerful backup
   VISION_MODEL: 'google/gemini-2.0-flash-001', // Vision-capable
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
@@ -49,13 +50,6 @@ export const DEFAULTS = {
   ENABLE_SWARM_INTELLIGENCE: false, // Advanced feature - off by default
   ENABLE_AUTONOMOUS_MODE: false, // Advanced feature - off by default
   LEARNING_ENABLED: true,
-  BODY_TEXT_LIMIT: 10000,
-  MAX_SEMANTIC_ELEMENTS: 250,
-  ACTION_DELAY_MS: 400,
-  MAX_RETRIES_PER_ACTION: 2,
-  CONFIRM_TIMEOUT_MS: 90000,
-  LLM_TIMEOUT_MS: 45000,
-  // Self-healing configuration
   SCROLL_BEFORE_LOCATE: true,
   SCROLL_RETRIES: 3,
   SCROLL_AMOUNT: 400,
@@ -118,6 +112,26 @@ export function validateSettings(settings: Partial<Settings>): { valid: boolean;
 // ─── Storage helpers with error handling ────────────────────────────
 export async function loadSettings(): Promise<Settings> {
   try {
+    // Check if chrome.storage is available (content script context)
+    if (!chrome?.storage?.local) {
+      console.warn('[Config] Chrome storage not available, using defaults');
+      return {
+        apiKey: '',
+        baseUrl: DEFAULTS.BASE_URL,
+        modelName: DEFAULTS.MODEL_NAME,
+        backupModel: DEFAULTS.BACKUP_MODEL,
+        maxSteps: DEFAULTS.MAX_STEPS,
+        requireConfirm: DEFAULTS.REQUIRE_CONFIRM,
+        dryRun: DEFAULTS.DRY_RUN,
+        enableVision: DEFAULTS.ENABLE_VISION,
+        autoRetry: DEFAULTS.AUTO_RETRY,
+        siteBlacklist: '',
+        enableSwarmIntelligence: DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
+        enableAutonomousMode: DEFAULTS.ENABLE_AUTONOMOUS_MODE,
+        learningEnabled: DEFAULTS.LEARNING_ENABLED,
+      };
+    }
+
     const data = await chrome.storage.local.get([
       STORAGE_KEYS.API_KEY,
       STORAGE_KEYS.BASE_URL,
@@ -150,12 +164,18 @@ export async function loadSettings(): Promise<Settings> {
       learningEnabled: data[STORAGE_KEYS.LEARNING_ENABLED] ?? DEFAULTS.LEARNING_ENABLED,
     };
 
-    // Validate loaded settings
+     // Validate loaded settings
     const validation = validateSettings(settings);
     if (!validation.valid) {
       console.warn('[Config] Invalid settings loaded:', validation.errors);
-      // Don't fail, just log warnings - use defaults for invalid values
     }
+
+    // Note: Model names are not validated here. OpenRouter API supports all major providers:
+    // - Google models (google/)
+    // - Anthropic models (claude-)
+    // - OpenAI models (gpt-)
+    // - And many others. Let the API validate which models are available.
+    // This allows users to configure any provider/model they have access to.
 
     return settings;
   } catch (error) {
@@ -181,6 +201,12 @@ export async function loadSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<{ success: boolean; errors?: string[] }> {
   try {
+    // Check if chrome.storage is available
+    if (!chrome?.storage?.local) {
+      console.warn('[Config] Chrome storage not available, cannot save settings');
+      return { success: false, errors: ['Chrome storage not available'] };
+    }
+
     // Validate settings before saving
     const validation = validateSettings(settings);
     if (!validation.valid) {

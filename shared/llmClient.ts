@@ -1,5 +1,11 @@
 import type { LLMResponse, PageContext, Action, LLMRequest, LLMClientInterface, CompletionRequest } from './types';
-import { loadSettings, DEFAULTS } from './config';
+import { DEFAULTS, loadSettings } from './config';
+
+function isAnthropicModel(model: string | undefined | null): boolean {
+  if (!model) return false;
+  return /anthropic|claude/i.test(model);
+}
+
 import { analyzeRequest, selectOptimalModel, selectFallbackModel, shouldSwitchModel, type RequestAnalysis } from './intelligent-model-selection';
 import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
@@ -279,11 +285,28 @@ function buildMessages(
   }
 
   // Current turn — full context with all semantic elements
+  if (!context) {
+    // Create minimal fallback context if none provided
+    context = {
+      url: 'unknown',
+      title: 'Unknown page',
+      bodyText: '',
+      metaDescription: '',
+      formCount: 0,
+      semanticElements: [],
+      timestamp: Date.now(),
+      scrollPosition: { x: 0, y: 0 },
+      viewportSize: { width: 1280, height: 720 },
+      pageHeight: 0,
+    };
+  }
+  
   const currentContext = { ...context };
-  const screenshot = currentContext.screenshotBase64;
-  delete currentContext.screenshotBase64;
+  const screenshot = currentContext?.screenshotBase64;
+  if (screenshot) delete currentContext.screenshotBase64;
 
-  const textContent = `Command: ${command}\n\nCurrent page context (step ${history.filter(h => h.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
+  const safeHistory = history || [];
+  const textContent = `Command: ${command || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
 
   if (screenshot) {
     messages.push({
@@ -345,6 +368,7 @@ function extractJSON(text: string): unknown {
 interface FallbackSettings {
   baseUrl: string;
   apiKey: string;
+  backupModel?: string;
 }
 
 async function buildIntelligentFallback(
@@ -381,11 +405,23 @@ Respond with valid JSON:
 
     // Try with backup models for fallback reasoning
     const fallbackModels = [
-      'meta-llama/llama-3.1-70b-instruct', // Strong reasoning
-      'google/gemini-2.5-flash', // Fast backup
+      settings.backupModel || DEFAULTS.BACKUP_MODEL, // User's backup model preference
+      DEFAULTS.MODEL_NAME, // Fallback to default if backup unavailable
     ];
 
-    for (const model of fallbackModels) {
+    // AGGRESSIVE: Filter out any Anthropic models from fallback
+    const safeFallbackModels = fallbackModels.filter(model => {
+      if (isAnthropicModel(model)) {
+        console.warn(`[HyperAgent] Blocking Anthropic fallback model: ${model}`);
+        return false;
+      }
+      return true;
+    });
+
+    // If no safe models, use Google Gemini
+    const finalFallbackModels = safeFallbackModels.length > 0 ? safeFallbackModels : [DEFAULTS.MODEL_NAME];
+
+    for (const model of finalFallbackModels) {
       try {
         const resp = await fetch(`${settings.baseUrl}/chat/completions`, {
           method: 'POST',
@@ -475,12 +511,31 @@ function validateResponse(raw: unknown): LLMResponse {
       'wait', 'pressKey', 'hover', 'focus', 'extract',
       'openTab', 'closeTab', 'switchTab', 'getTabs', 'runMacro', 'runWorkflow',
     ] as const;
+    
+    const actionsRequiringLocator = new Set(['click', 'fill', 'select', 'hover', 'focus', 'extract']);
+    const actionsRequiringUrl = new Set(['navigate', 'openTab', 'switchTab']);
+    const actionsRequiringKey = new Set(['pressKey']);
 
     for (const a of raw.actions) {
       if (!a || typeof a !== 'object') continue;
       const action = a as Record<string, unknown>;
       if (!isString(action.type)) continue;
       if (!validTypes.includes(action.type as typeof validTypes[number])) continue;
+
+      // Validate required fields for action type
+      const actionType = action.type as string;
+      if (actionsRequiringLocator.has(actionType) && !action.locator) {
+        console.warn(`[LLM] Action ${actionType} missing required 'locator' field`);
+        continue;
+      }
+      if (actionsRequiringUrl.has(actionType) && !action.url) {
+        console.warn(`[LLM] Action ${actionType} missing required 'url' field`);
+        continue;
+      }
+      if (actionsRequiringKey.has(actionType) && !action.key) {
+        console.warn(`[LLM] Action ${actionType} missing required 'key' field`);
+        continue;
+      }
 
       // Ensure description exists
       if (!isString(action.description)) {
@@ -557,10 +612,25 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
-      // Use a reliable model for completions
-      const completionModel = 'google/gemini-2.0-flash-001';
-      console.log(`[HyperAgent] Using completion model: ${completionModel}`);
+      // Use user-selected model, handle auto-detect, fallback to default
+      let completionModel = settings.modelName || DEFAULTS.MODEL_NAME;
       
+      // Handle auto-detect model selection
+      if (completionModel === 'auto') {
+        // Force use of Google models for auto-detect (avoid Anthropic)
+        completionModel = 'google/gemini-2.0-flash-001';
+        console.log(`[HyperAgent] Auto-detect selected completion model: ${completionModel}`);
+      }
+      
+      // AGGRESSIVE: Block any Anthropic/Claude models
+      if (isAnthropicModel(completionModel)) {
+        console.warn(`[HyperAgent] Blocking Anthropic completion model: ${completionModel} - switching to Google Gemini`);
+        completionModel = 'google/gemini-2.0-flash-001';
+      }
+      
+      console.log(`[HyperAgent] Using completion model: ${completionModel}`);
+      console.log('[DEBUG] Sending payload to OpenRouter:', { model: completionModel, provider: completionModel?.split('/')[0] });
+
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -610,8 +680,22 @@ export class EnhancedLLMClient implements LLMClientInterface {
       const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
       const messages = sanitizeMessages(rawMessages);
 
-      // Use a reliable model directly
-      const model = 'google/gemini-2.0-flash-001';
+      // Use user-selected model, handle auto-detect, fallback to default
+      let model = settings.modelName || DEFAULTS.MODEL_NAME;
+      
+      // Handle auto-detect model selection
+      if (model === 'auto') {
+        // Force use of Google models for auto-detect (avoid Anthropic)
+        model = 'google/gemini-2.0-flash-001';
+        console.log(`[HyperAgent] Auto-detect selected: ${model}`);
+      }
+      
+      // AGGRESSIVE: Block any Anthropic/Claude models
+      if (isAnthropicModel(model)) {
+        console.warn(`[HyperAgent] Blocking Anthropic model: ${model} - switching to Google Gemini`);
+        model = 'google/gemini-2.0-flash-001';
+      }
+      
       console.log(`[HyperAgent] Using model: ${model}`);
 
       const response = await fetch(`${settings.baseUrl}/chat/completions`, {

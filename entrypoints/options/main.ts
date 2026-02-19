@@ -1,4 +1,5 @@
 import { loadSettings, saveSettings, DEFAULTS } from '../../shared/config';
+import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig, getUserSiteConfigs } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
 
@@ -16,11 +17,69 @@ const autoRetryInput = document.getElementById('auto-retry') as HTMLInputElement
 const siteBlacklistInput = document.getElementById('site-blacklist') as HTMLTextAreaElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
+const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
+const clearCache = document.getElementById('clear-cache') as HTMLButtonElement;
+const toastContainer = document.getElementById('toast-container') as HTMLDivElement | null;
 
 // Status indicators
 const apiStatusDot = document.getElementById('api-status')!;
 const apiStatusText = document.getElementById('api-status-text')!;
 const modelStatusText = document.getElementById('model-status-text')!;
+
+// ─── Toast helper ─────────────────────────────────────────────────
+function showNotification(message: string, variant: 'info' | 'success' | 'error' = 'info') {
+  if (!toastContainer) {
+    alert(message);
+    return;
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${variant}`;
+  toast.textContent = message;
+  toastContainer.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add('visible');
+  });
+
+  const removeToast = () => {
+    toast.classList.remove('visible');
+    toast.addEventListener(
+      'transitionend',
+      () => {
+        toast.remove();
+      },
+      { once: true }
+    );
+  };
+
+  setTimeout(removeToast, 3500);
+  toast.addEventListener('click', removeToast, { once: true });
+}
+
+const DEFAULT_SITE_MAX_RETRIES = 2;
+const DEFAULT_SITE_WAIT_MS = 400;
+let dangerZoneHandlersAttached = false;
+let cachedSettings: Settings | null = null;
+
+function storageGet(keys?: string[] | null): Promise<Record<string, any>> {
+  return new Promise(resolve => {
+    chrome.storage.local.get(keys ?? null, resolve);
+  });
+}
+
+function storageRemove(keys: string[]): Promise<void> {
+  if (!keys.length) return Promise.resolve();
+  return new Promise(resolve => {
+    chrome.storage.local.remove(keys, () => resolve());
+  });
+}
+
+function storageClear(): Promise<void> {
+  return new Promise(resolve => {
+    chrome.storage.local.clear(() => resolve());
+  });
+}
 
 // ─── API Provider URLs ───────────────────────────────────────────
 const PROVIDER_URLS = {
@@ -47,32 +106,21 @@ const siteConfigsList = document.getElementById('site-configs-list')!;
 // ─── Load current settings ──────────────────────────────────────
 async function loadCurrentSettings() {
   const settings = await loadSettings();
+  cachedSettings = settings;
 
   // Detect API provider from base URL
   const provider = detectProviderFromUrl(settings.baseUrl);
   apiProviderInput.value = provider;
 
   // Handle API key display
-  const hasApiKey = settings.apiKey && settings.apiKey !== DEFAULTS.DEFAULT_API_KEY;
-  apiKeyInput.value = hasApiKey ? settings.apiKey : '';
+  const usingDefaultKey = settings.apiKey === DEFAULTS.DEFAULT_API_KEY;
+  const hasCustomKey = Boolean(settings.apiKey && !usingDefaultKey);
+  apiKeyInput.value = hasCustomKey ? settings.apiKey : '';
+  apiKeyInput.placeholder = usingDefaultKey ? 'Using built-in OpenRouter key (auto-managed)' : 'sk-or-v1-...';
 
-  // Show indicator if using default key
-  if (settings.apiKey === DEFAULTS.DEFAULT_API_KEY) {
-    apiKeyInput.placeholder = "Using pre-configured OpenRouter key (secure)";
-    apiKeyInput.style.borderColor = "#10b981"; // Green border for default
-    apiStatusDot.className = 'status-dot connected';
-    apiStatusText.textContent = 'API: ✅ Connected';
-  } else if (hasApiKey) {
-    apiKeyInput.placeholder = "sk-or-v1-...";
-    apiKeyInput.style.borderColor = "#10b981"; // Green for custom key
-    apiStatusDot.className = 'status-dot connected';
-    apiStatusText.textContent = 'API: ✅ Connected';
-  } else {
-    apiKeyInput.placeholder = "sk-or-v1-...";
-    apiKeyInput.style.borderColor = ""; // Reset border
-    apiStatusDot.className = 'status-dot disconnected';
-    apiStatusText.textContent = 'API: ❌ Not configured';
-  }
+  updateApiUiState({
+    status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
+  });
 
   modelNameInput.value = settings.modelName;
   modelStatusText.textContent = settings.modelName === 'auto' ? 'Model: 🤖 Auto' : `Model: ${settings.modelName}`;
@@ -103,6 +151,7 @@ maxStepsInput.addEventListener('input', () => {
 // ─── Save settings ──────────────────────────────────────────────
 btnSave.addEventListener('click', async () => {
   const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
+  const current = cachedSettings;
 
   await saveSettings({
     apiKey: apiKeyValue,
@@ -115,21 +164,164 @@ btnSave.addEventListener('click', async () => {
     enableVision: enableVisionInput.checked,
     autoRetry: autoRetryInput.checked,
     siteBlacklist: siteBlacklistInput.value,
+    enableSwarmIntelligence: current?.enableSwarmIntelligence ?? DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
+    enableAutonomousMode: current?.enableAutonomousMode ?? DEFAULTS.ENABLE_AUTONOMOUS_MODE,
+    learningEnabled: current?.learningEnabled ?? DEFAULTS.LEARNING_ENABLED,
   });
 
   saveStatus.classList.remove('hidden');
   setTimeout(() => saveStatus.classList.add('hidden'), 2000);
+  showNotification('Settings saved successfully', 'success');
 });
 
-// ─── API Provider change handler ────────────────────────────────
-apiProviderInput.addEventListener('change', () => {
-  // Provider change doesn't need to update base URL since it's handled automatically
-  console.log('Provider changed to:', apiProviderInput.value);
+// ─── API Key Validation ─────────────────────────────────────────
+let validationTimeout: NodeJS.Timeout | null = null;
+
+async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: boolean; error?: string }> {
+  if (!key || key === DEFAULTS.DEFAULT_API_KEY) {
+    return { valid: false, error: 'No API key provided' };
+  }
+
+  try {
+    // For OpenRouter, we can test the completions endpoint
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`,
+        'HTTP-Referer': 'https://hyperagent.ai',
+        'X-Title': 'HyperAgent',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.0-flash-001',
+        messages: [{ role: 'user', content: 'Test' }],
+        temperature: 0,
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (response.ok) {
+      return { valid: true };
+    } else {
+      const errorText = await response.text();
+      return { valid: false, error: `API Error: ${response.status} ${errorText.slice(0, 100)}` };
+    }
+  } catch (error) {
+    return { valid: false, error: `Connection error: ${(error as Error).message}` };
+  }
+}
+
+type ApiStatusState = 'custom' | 'builtin' | 'missing' | 'error' | 'connecting';
+
+function updateApiUiState({ status, error }: { status: ApiStatusState; error?: string }) {
+  switch (status) {
+    case 'custom':
+      apiStatusDot.className = 'status-dot connected';
+      apiStatusText.textContent = 'API: ✅ Custom key detected';
+      apiKeyInput.style.borderColor = '#10b981';
+      break;
+    case 'builtin':
+      apiStatusDot.className = 'status-dot connected';
+      apiStatusText.textContent = 'API: ✅ Using built-in key';
+      apiKeyInput.style.borderColor = '#10b981';
+      break;
+    case 'connecting':
+      apiStatusDot.className = 'status-dot connecting';
+      apiStatusText.textContent = 'API: 🔄 Connecting...';
+      apiKeyInput.style.borderColor = '#f59e0b';
+      break;
+    case 'error':
+      apiStatusDot.className = 'status-dot disconnected';
+      apiStatusText.textContent = error ? `API: ❌ ${error}` : 'API: ❌ Connection failed';
+      apiKeyInput.style.borderColor = '#ef4444';
+      break;
+    case 'missing':
+    default:
+      apiStatusDot.className = 'status-dot disconnected';
+      apiStatusText.textContent = 'API: ❌ Not configured';
+      apiKeyInput.style.borderColor = '';
+      break;
+  }
+}
+
+function updateApiStatus(valid: boolean, error?: string) {
+  if (valid) {
+    updateApiUiState({ status: 'custom' });
+  } else {
+    updateApiUiState({ status: error ? 'error' : 'missing', error });
+  }
+}
+
+async function validateCurrentSettings() {
+  const settings = await loadSettings();
+  if (!settings.apiKey) {
+    updateApiUiState({ status: 'missing' });
+    return;
+  }
+
+  if (settings.apiKey === DEFAULTS.DEFAULT_API_KEY) {
+    updateApiUiState({ status: 'builtin' });
+    return;
+  }
+
+  // Show connecting state
+  updateApiUiState({ status: 'connecting' });
+
+  const result = await validateApiKey(settings.apiKey, settings.baseUrl);
+  updateApiStatus(result.valid, result.error);
+}
+
+// Debounced validation
+function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+// Real-time validation on input
+apiKeyInput.addEventListener('input', debounce(async () => {
+  const key = apiKeyInput.value.trim();
+  const baseUrl = PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL;
+
+  if (!key) {
+    updateApiStatus(false);
+    return;
+  }
+
+  apiStatusDot.className = 'status-dot connecting';
+  apiStatusText.textContent = 'API: 🔄 Validating...';
+  apiKeyInput.style.borderColor = '#f59e0b'; // Orange
+
+  const result = await validateApiKey(key, baseUrl);
+  updateApiStatus(result.valid, result.error);
+}, 1000));
+
+// Validate on provider change
+apiProviderInput.addEventListener('change', async () => {
+  const key = apiKeyInput.value.trim();
+  if (!key || key === DEFAULTS.DEFAULT_API_KEY) {
+    updateApiStatus(false);
+    return;
+  }
+
+  const baseUrl = PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL;
+  
+  apiStatusDot.className = 'status-dot connecting';
+  apiStatusText.textContent = 'API: 🔄 Reconnecting...';
+  apiKeyInput.style.borderColor = '#f59e0b'; // Orange
+
+  const result = await validateApiKey(key, baseUrl);
+  updateApiStatus(result.valid, result.error);
 });
 
 // ─── Initialize ─────────────────────────────────────────────────
 loadCurrentSettings();
+validateCurrentSettings();
 loadSiteConfigs();
+attachDangerZoneHandlers();
 
 // ─── Site Config Functions ────────────────────────────────────────
 
@@ -165,9 +357,9 @@ function renderSiteConfigs(configs: SiteConfig[]) {
       </div>
       <div class="site-config-details">
         ${config.description ? `<span>${config.description}</span>` : ''}
-        <span>Max retries: ${config.maxRetries ?? DEFAULTS.MAX_RETRIES_PER_ACTION}</span>
+        <span>Max retries: ${config.maxRetries ?? DEFAULT_SITE_MAX_RETRIES}</span>
         <span>Scroll: ${config.scrollBeforeLocate ? 'On' : 'Off'}</span>
-        <span>Wait: ${config.waitAfterAction ?? DEFAULTS.ACTION_DELAY_MS}ms</span>
+        <span>Wait: ${config.waitAfterAction ?? DEFAULT_SITE_WAIT_MS}ms</span>
         ${config.customSelectors ? `<span>Custom selectors: ${config.customSelectors.length}</span>` : ''}
       </div>
     </div>
@@ -182,6 +374,7 @@ function renderSiteConfigs(configs: SiteConfig[]) {
       }
     });
   });
+
 }
 
 function isDefaultConfig(domain: string): boolean {
@@ -201,10 +394,10 @@ async function loadConfigToForm(domain: string, configs: SiteConfig[]) {
 
   siteConfigDomainInput.value = config.domain;
   siteConfigDescInput.value = config.description || '';
-  siteConfigMaxRetriesInput.value = String(config.maxRetries ?? DEFAULTS.MAX_RETRIES_PER_ACTION);
+  siteConfigMaxRetriesInput.value = String(config.maxRetries ?? DEFAULT_SITE_MAX_RETRIES);
   siteConfigRetriesValue.textContent = siteConfigMaxRetriesInput.value;
   siteConfigScrollInput.checked = config.scrollBeforeLocate ?? true;
-  siteConfigWaitInput.value = String(config.waitAfterAction ?? DEFAULTS.ACTION_DELAY_MS);
+  siteConfigWaitInput.value = String(config.waitAfterAction ?? DEFAULT_SITE_WAIT_MS);
   siteConfigWaitValue.textContent = siteConfigWaitInput.value;
   siteConfigSelectorsInput.value = config.customSelectors?.join(', ') || '';
 }
@@ -259,6 +452,48 @@ function clearSiteConfigForm() {
   siteConfigWaitInput.value = '400';
   siteConfigWaitValue.textContent = '400';
   siteConfigSelectorsInput.value = '';
+}
+
+function attachDangerZoneHandlers() {
+  if (dangerZoneHandlersAttached) return;
+  dangerZoneHandlersAttached = true;
+
+  resetSettings?.addEventListener('click', async () => {
+    if (!confirm('Reset all settings to defaults? This will clear your API key and preferences.')) return;
+    await storageClear();
+    cachedSettings = null;
+    await loadCurrentSettings();
+    showNotification('Settings reset to defaults', 'success');
+  });
+
+  clearCache?.addEventListener('click', async () => {
+    const keysToRemove = [
+      'hyperagent_model_name',
+      'hyperagent_backup_model',
+      'hyperagent_vision_model',
+      'modelName',
+      'backupModel',
+      'visionModel'
+    ];
+
+    await storageRemove(keysToRemove);
+    const allItems = await storageGet(null);
+    const keysToDelete = Object.entries(allItems)
+      .filter(([, value]) => typeof value === 'string' && /anthropic|claude/i.test(value as string))
+      .map(([key]) => key);
+
+    if (keysToDelete.length) {
+      await storageRemove(keysToDelete);
+    }
+
+    await loadCurrentSettings();
+    showNotification(
+      keysToDelete.length
+        ? `Model cache cleared. Removed ${keysToDelete.length + keysToRemove.length} entries. Using Google Gemini.`
+        : 'Model cache cleared - using Google Gemini',
+      'success'
+    );
+  });
 }
 
 // ─── UI Event Listeners ──────────────────────────────────────────

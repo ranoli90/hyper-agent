@@ -108,79 +108,99 @@ export default defineContentScript({
       // Form count
       const formCount = document.querySelectorAll('form').length;
 
-      const selectors = [
-        'a[href]', 'button', 'input', 'textarea', 'select', 'label',
-        '[role="button"]', '[role="link"]', '[role="tab"]', '[role="menuitem"]',
-        '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="slider"]',
-        '[role="combobox"]', '[role="listbox"]', '[role="option"]', '[role="searchbox"]',
-        '[role="textbox"]', '[role="dialog"]', '[role="alert"]', '[role="navigation"]',
-        '[aria-label]', '[data-testid]', '[onclick]', '[contenteditable="true"]',
-        'summary', 'details', '[tabindex]:not([tabindex="-1"])',
-        'h1', 'h2', 'h3',
-        'img[alt]', 'video', 'audio',
-      ];
+      let semanticElements: SemanticElement[] = [];
+      
+      try {
+        const selectors = [
+          'a[href]', 'button', 'input', 'textarea', 'select', 'label',
+          '[role="button"]', '[role="link"]', '[role="tab"]', '[role="menuitem"]',
+          '[role="checkbox"]', '[role="radio"]', '[role="switch"]', '[role="slider"]',
+          '[role="combobox"]', '[role="listbox"]', '[role="option"]', '[role="searchbox"]',
+          '[role="textbox"]', '[role="dialog"]', '[role="alert"]', '[role="navigation"]',
+          '[aria-label]', '[data-testid]', '[onclick]', '[contenteditable="true"]',
+          'summary', 'details', '[tabindex]:not([tabindex="-1"])',
+          'h1', 'h2', 'h3',
+          'img[alt]', 'video', 'audio',
+        ];
 
-      // Add site-specific custom selectors if available
-      if (currentSiteConfig?.customSelectors && currentSiteConfig.customSelectors.length > 0) {
-        selectors.push(...currentSiteConfig.customSelectors);
-      }
-
-      const seen = new Set<HTMLElement>();
-      const allElements: HTMLElement[] = [];
-      document.querySelectorAll(selectors.join(',')).forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        if (!seen.has(htmlEl)) {
-          seen.add(htmlEl);
-          allElements.push(htmlEl);
+        // Add site-specific custom selectors if available
+        if (currentSiteConfig?.customSelectors && currentSiteConfig.customSelectors.length > 0) {
+          selectors.push(...currentSiteConfig.customSelectors);
         }
-      });
 
-      const semanticElements: SemanticElement[] = [];
-      const limit = DEFAULTS.MAX_SEMANTIC_ELEMENTS;
+        const seen = new Set<HTMLElement>();
+        const allElements: HTMLElement[] = [];
+        
+        try {
+          document.querySelectorAll(selectors.join(',')).forEach((el) => {
+            const htmlEl = el as HTMLElement;
+            if (!seen.has(htmlEl)) {
+              seen.add(htmlEl);
+              allElements.push(htmlEl);
+            }
+          });
+        } catch (selectorErr) {
+          console.warn('[HyperAgent] Selector error, falling back to basic selectors:', selectorErr);
+          // Fallback: just get buttons and inputs
+          document.querySelectorAll('button, input, a[href]').forEach((el) => {
+            const htmlEl = el as HTMLElement;
+            if (!seen.has(htmlEl)) {
+              seen.add(htmlEl);
+              allElements.push(htmlEl);
+            }
+          });
+        }
 
-      // Reset index registry for fresh context
-      indexedElements.clear();
-      nextIndex = 0;
+        const limit = DEFAULTS.MAX_SEMANTIC_ELEMENTS;
 
-      for (const htmlEl of allElements) {
-        if (nextIndex >= limit) break;
-        if (!isVisible(htmlEl)) continue;
+        // Reset index registry for fresh context
+        indexedElements.clear();
+        nextIndex = 0;
 
-        const idx = nextIndex++;
-        htmlEl.setAttribute('data-ha-index', String(idx));
-        indexedElements.set(idx, new WeakRef(htmlEl));
+        for (const htmlEl of allElements) {
+          if (nextIndex >= limit) break;
+          if (!isVisible(htmlEl)) continue;
 
-        const rect = htmlEl.getBoundingClientRect();
-        const visibleText = getDirectText(htmlEl).slice(0, 150);
-        const inputEl = htmlEl as HTMLInputElement;
+          const idx = nextIndex++;
+          htmlEl.setAttribute('data-ha-index', String(idx));
+          indexedElements.set(idx, new WeakRef(htmlEl));
 
-        semanticElements.push({
-          tag: htmlEl.tagName.toLowerCase(),
-          id: htmlEl.id || '',
-          classes: typeof htmlEl.className === 'string' ? htmlEl.className.slice(0, 120) : '',
-          role: htmlEl.getAttribute('role') || '',
-          ariaLabel: htmlEl.getAttribute('aria-label') || '',
-          ariaDescribedBy: htmlEl.getAttribute('aria-describedby') || '',
-          placeholder: htmlEl.getAttribute('placeholder') || '',
-          name: htmlEl.getAttribute('name') || '',
-          visibleText,
-          value: (inputEl.value ?? '').slice(0, 100),
-          type: inputEl.type || '',
-          href: (htmlEl as HTMLAnchorElement).href || '',
-          isDisabled: inputEl.disabled === true || htmlEl.getAttribute('aria-disabled') === 'true',
-          isChecked: inputEl.checked === true || htmlEl.getAttribute('aria-checked') === 'true',
-          isRequired: inputEl.required === true || htmlEl.getAttribute('aria-required') === 'true',
-          isEditable: htmlEl.isContentEditable || ['input', 'textarea', 'select'].includes(htmlEl.tagName.toLowerCase()),
-          boundingBox: {
-            x: Math.round(rect.x),
-            y: Math.round(rect.y),
-            width: Math.round(rect.width),
-            height: Math.round(rect.height),
-          },
-          index: idx,
-          parentTag: htmlEl.parentElement?.tagName.toLowerCase() || '',
-          childCount: htmlEl.children.length,
-        });
+          const rect = htmlEl.getBoundingClientRect();
+          const visibleText = getDirectText(htmlEl).slice(0, 150);
+          const inputEl = htmlEl as HTMLInputElement;
+
+          semanticElements.push({
+            tag: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || '',
+            classes: typeof htmlEl.className === 'string' ? htmlEl.className.slice(0, 120) : '',
+            role: htmlEl.getAttribute('role') || '',
+            ariaLabel: htmlEl.getAttribute('aria-label') || '',
+            ariaDescribedBy: htmlEl.getAttribute('aria-describedby') || '',
+            placeholder: htmlEl.getAttribute('placeholder') || '',
+            name: htmlEl.getAttribute('name') || '',
+            visibleText,
+            value: (inputEl.value ?? '').slice(0, 100),
+            type: inputEl.type || '',
+            href: (htmlEl as HTMLAnchorElement).href || '',
+            isDisabled: inputEl.disabled === true || htmlEl.getAttribute('aria-disabled') === 'true',
+            isChecked: inputEl.checked === true || htmlEl.getAttribute('aria-checked') === 'true',
+            isRequired: inputEl.required === true || htmlEl.getAttribute('aria-required') === 'true',
+            isEditable: htmlEl.isContentEditable || ['input', 'textarea', 'select'].includes(htmlEl.tagName.toLowerCase()),
+            boundingBox: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            index: idx,
+            parentTag: htmlEl.parentElement?.tagName.toLowerCase() || '',
+            childCount: htmlEl.children.length,
+          });
+        }
+      } catch (err) {
+        console.warn('[HyperAgent] Error extracting semantic elements:', err);
+        // Return empty semantic elements on error, will trigger vision fallback
+        semanticElements = [];
       }
 
       return {
