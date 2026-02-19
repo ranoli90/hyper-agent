@@ -400,8 +400,8 @@ Respond with valid JSON:
 
     // Use auto-selected model for fallback reasoning
     const fallbackModels = [
-      'x-ai/grok-4.1-fast',
-      'google/gemini-2.5-flash-lite',
+      'minimax/minimax-m2.5',
+      'moonshotai/kimi-k2.5',
     ];
 
     for (const model of fallbackModels) {

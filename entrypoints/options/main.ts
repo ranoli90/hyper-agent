@@ -154,7 +154,7 @@ btnSave.addEventListener('click', async () => {
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
     modelName: 'auto', // Always auto-select model
-    backupModel: 'x-ai/grok-4.1-fast',
+    backupModel: 'minimax/minimax-m2.5',
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
@@ -180,7 +180,7 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
   }
 
   try {
-    // For OpenRouter, we can test the completions endpoint
+    // Test with minimax model which should be available
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -190,21 +190,23 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
         'X-Title': 'HyperAgent',
       },
       body: JSON.stringify({
-        model: 'x-ai/grok-4.1-fast',
+        model: 'minimax/minimax-m2.5',
         messages: [{ role: 'user', content: 'Test' }],
         temperature: 0,
         max_tokens: 1,
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (response.ok) {
       return { valid: true };
     } else {
       const errorText = await response.text();
-      return { valid: false, error: `API Error: ${response.status} ${errorText.slice(0, 100)}` };
+      console.error('[API Validation Error]', errorText);
+      return { valid: false, error: `API Error: ${response.status}` };
     }
   } catch (error) {
+    console.error('[API Validation Error]', error);
     return { valid: false, error: `Connection error: ${(error as Error).message}` };
   }
 }

@@ -39,9 +39,9 @@ export const VALIDATION = {
 export const DEFAULTS = {
   BASE_URL: 'https://openrouter.ai/api/v1',
   DEFAULT_API_KEY: '', // Empty default; user must provide their API key
-  MODEL_NAME: 'auto', // Auto-select best model for task
-  BACKUP_MODEL: 'x-ai/grok-4.1-fast', // Fast fallback
-  VISION_MODEL: 'x-ai/grok-4.1-fast', // Vision-capable
+  MODEL_NAME: 'google/gemini-2.5-flash',
+  BACKUP_MODEL: 'google/gemini-2.5-flash',
+  VISION_MODEL: 'google/gemini-2.5-flash',
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
   DRY_RUN: false,

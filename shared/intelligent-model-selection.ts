@@ -38,12 +38,12 @@ export interface RequestAnalysis {
 }
 
 // ─── Available Models (Auto-Selected Based on Task) ───────────────────────────────────
-// Only two models are used - system automatically picks based on task requirements
+// Two models - system automatically picks based on task requirements
 const PAID_MODELS: ModelCapabilities[] = [
   {
-    id: 'x-ai/grok-4.1-fast',
-    name: 'Grok 4.1 Fast',
-    provider: 'x-ai',
+    id: 'minimax/minimax-m2.5',
+    name: 'MiniMax M2.5',
+    provider: 'minimax',
     contextWindow: 131072,
     strengths: ['reasoning', 'speed', 'coding', 'analysis', 'multimodal'],
     weaknesses: [],
@@ -64,10 +64,10 @@ const PAID_MODELS: ModelCapabilities[] = [
     }
   },
   {
-    id: 'google/gemini-2.5-flash-lite',
-    name: 'Gemini 2.5 Flash Lite',
-    provider: 'google',
-    contextWindow: 1048576,
+    id: 'moonshotai/kimi-k2.5',
+    name: 'Moonshot Kimi K2.5',
+    provider: 'moonshotai',
+    contextWindow: 131072,
     strengths: ['vision', 'speed', 'multimodal', 'long context'],
     weaknesses: [],
     bestFor: [TaskType.VISUAL_ANALYSIS, TaskType.SIMPLE_NAVIGATION, TaskType.TEXT_EXTRACTION, TaskType.FORM_FILLING],
@@ -277,8 +277,8 @@ export function selectOptimalModel(analysis: RequestAnalysis): ModelCapabilities
   });
 
   if (candidates.length === 0) {
-    // Fallback to grok-4.1-fast as default
-    return PAID_MODELS.find(m => m.id === 'x-ai/grok-4.1-fast') || PAID_MODELS[0];
+    // Fallback to minimax as default
+    return PAID_MODELS.find(m => m.id === 'minimax/minimax-m2.5') || PAID_MODELS[0];
   }
 
   // Score each candidate
