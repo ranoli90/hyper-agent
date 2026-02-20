@@ -17,6 +17,7 @@
  */
 
 import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS } from '../shared/config';
+import { checkStorageQuota } from '../shared/storage-monitor';
 import { initErrorReporter, captureError } from '../shared/error-reporter';
 import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
@@ -921,6 +922,11 @@ export default defineBackground(() => {
       ); // Every hour
 
       logger.log('info', 'HyperAgent background initialized');
+n      // Check storage quota on startup
+      const quotaCheck = await checkStorageQuota();
+      if (!quotaCheck.ok || quotaCheck.message) {
+        logger.log(quotaCheck.ok ? 'warn' : 'error', quotaCheck.message || 'Storage issue');
+      }
 
       if (chrome.sidePanel?.setPanelBehavior) {
         await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
