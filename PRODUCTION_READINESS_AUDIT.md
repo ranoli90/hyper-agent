@@ -532,14 +532,14 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 14 — Dependencies
 - [ ] 15.1 npm audit fix
-- [ ] 15.2 package-lock committed
-- [ ] 15.3 Dependabot
+- [x] 15.2 package-lock committed
+- [x] 15.3 Dependabot
 
 ### Phase 15 — LLM/API Resilience
-- [ ] 16.1 429 handling
+- [x] 16.1 429 handling
 - [ ] 16.2 retry for LLM
 - [ ] 16.3 Token/cost caps
-- [ ] 22.1 User-friendly errors
+- [x] 22.1 User-friendly errors
 
 ### Phase 16 — Legal & Compliance
 - [ ] 19.1 Privacy policy
