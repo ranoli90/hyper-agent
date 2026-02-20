@@ -1081,35 +1081,40 @@ export default defineBackground(() => {
 
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
     (async () => {
-      await withErrorBoundary('message_processing', async () => {
-        // Rate limiting
-        const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
-        if (!rateLimiter.canAcceptMessage(senderId)) {
-          logger.log('warn', 'Message rate limited', { senderId });
-          sendResponse({ ok: false, error: 'Rate limit exceeded' });
-          return;
-        }
+      try {
+        await withErrorBoundary('message_processing', async () => {
+          // Rate limiting
+          const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
+          if (!rateLimiter.canAcceptMessage(senderId)) {
+            logger.log('warn', 'Message rate limited', { senderId });
+            sendResponse({ ok: false, error: 'Rate limit exceeded' });
+            return;
+          }
 
-        // Input validation
-        if (!validateExtensionMessage(message)) {
-          logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
-          sendResponse({ ok: false, error: 'Invalid message format' });
-          return;
-        }
+          // Input validation
+          if (!validateExtensionMessage(message)) {
+            logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
+            sendResponse({ ok: false, error: 'Invalid message format' });
+            return;
+          }
 
-        logger.log('debug', 'Processing message', { type: message.type, senderId });
+          logger.log('debug', 'Processing message', { type: message.type, senderId });
 
-        // Try extended handlers first
-        const extendedResult = await handleExtendedMessage(message);
-        if (extendedResult !== null) {
-          sendResponse(extendedResult);
-          return;
-        }
+          // Try extended handlers first
+          const extendedResult = await handleExtendedMessage(message);
+          if (extendedResult !== null) {
+            sendResponse(extendedResult);
+            return;
+          }
 
-        // Route message
-        const result = await handleExtensionMessage(message, sender);
-        sendResponse(result);
-      });
+          // Route message
+          const result = await handleExtensionMessage(message, sender);
+          sendResponse(result);
+        });
+      } catch (err: any) {
+        logger.log('error', 'Message handler error', { error: err?.message });
+        sendResponse({ ok: false, error: err?.message || 'Unknown error' });
+      }
     })();
 
     // Keep channel open for async response

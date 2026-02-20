@@ -1086,9 +1086,11 @@ export default defineContentScript({
       (message: any, _sender: any, sendResponse: (response?: any) => void): boolean => {
         // Basic validation and simple rate limiting per type
         if (!validateInboundMessage(message)) {
+          sendResponse({ success: false, error: 'Invalid message format' });
           return false;
         }
         if (!canAccept(message.type)) {
+          sendResponse({ success: false, error: 'Rate limit exceeded' });
           return false;
         }
 
@@ -1152,15 +1154,13 @@ export default defineContentScript({
               }
             }
             default:
-              return null;
+              return { success: false, error: 'Unknown message type' };
           }
         };
 
         handleAsync()
           .then(result => {
-            if (result !== null) {
-              sendResponse(result);
-            }
+            sendResponse(result ?? { success: false, error: 'Unknown error' });
           })
           .catch(err => {
             console.error('[HyperAgent] Message handler error:', err);
