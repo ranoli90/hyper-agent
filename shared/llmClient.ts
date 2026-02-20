@@ -1,11 +1,19 @@
-import type { LLMResponse, PageContext, Action, LLMRequest, LLMClientInterface, CompletionRequest } from './types';
+import type {
+  LLMResponse,
+  PageContext,
+  Action,
+  LLMRequest,
+  LLMClientInterface,
+  CompletionRequest,
+} from './types';
 import { DEFAULTS, loadSettings } from './config';
 
 import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
 import { IntelligenceContext } from './ai-types';
-import { CacheEntry } from './advanced-caching';
+import { apiCache, generalCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
+import { inputSanitizer } from './input-sanitization';
 
 const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
 
@@ -86,7 +94,6 @@ Set "askUser" to ask the user a clarifying question instead of executing actions
 4. Never fill sensitive fields (passwords, SSNs) without user confirmation.
 5. For search tasks, navigate to a search engine first.`;
 
-
 // ─── History entry ──────────────────────────────────────────────────
 export interface HistoryEntry {
   role: 'user' | 'assistant';
@@ -137,11 +144,7 @@ interface APIResponse {
 }
 
 // ─── Build messages for the API ─────────────────────────────────────
-function buildMessages(
-  command: string,
-  history: HistoryEntry[],
-  context: PageContext
-): Message[] {
+function buildMessages(command: string, history: HistoryEntry[], context: PageContext): Message[] {
   const messages: Message[] = [{ role: 'system', content: DYNAMIC_SYSTEM_PROMPT }];
 
   // Get context manager for smart context window
@@ -165,11 +168,13 @@ function buildMessages(
         });
       } else if (entry.context) {
         const isOld = i < history.length - 4;
-        const ctx = isOld ? compactContext(entry.context) : (() => {
-          const c = { ...entry.context };
-          delete c.screenshotBase64;
-          return c;
-        })();
+        const ctx = isOld
+          ? compactContext(entry.context)
+          : (() => {
+              const c = { ...entry.context };
+              delete c.screenshotBase64;
+              return c;
+            })();
         const content = `Command: ${entry.command}\n\nPage context:\n${JSON.stringify(ctx, null, isOld ? 0 : 2)}`;
         messages.push({
           role: 'user',
@@ -200,7 +205,7 @@ function buildMessages(
         importance: 6,
       });
       if (entry.actionsExecuted) {
-        const results = entry.actionsExecuted.map((r) => ({
+        const results = entry.actionsExecuted.map(r => ({
           type: r.action.type,
           desc: (r.action as any).description || '',
           ok: r.success,
@@ -285,14 +290,18 @@ function extractJSON(text: string): unknown {
   // Try direct parse
   try {
     return JSON.parse(trimmed);
-  } catch { /* continue */ }
+  } catch {
+    /* continue */
+  }
 
   // Try stripping markdown code fences
   const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
   if (fenceMatch) {
     try {
       return JSON.parse(fenceMatch[1].trim());
-    } catch { /* continue */ }
+    } catch {
+      /* continue */
+    }
   }
 
   // Try extracting outermost { ... }
@@ -307,7 +316,9 @@ function extractJSON(text: string): unknown {
       if (depth === 0 && start >= 0) {
         try {
           return JSON.parse(trimmed.slice(start, i + 1));
-        } catch { /* continue scanning */ }
+        } catch {
+          /* continue scanning */
+        }
       }
     }
   }
@@ -363,7 +374,7 @@ Respond with valid JSON:
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${settings.apiKey}`,
+            Authorization: `Bearer ${settings.apiKey}`,
             'HTTP-Referer': 'https://hyperagent.ai',
             'X-Title': 'HyperAgent',
           },
@@ -372,7 +383,6 @@ Respond with valid JSON:
             messages: [{ role: 'user', content: reasoningPrompt }],
             temperature: 0.1,
             max_tokens: 1000,
-
           }),
           signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
         });
@@ -443,12 +453,33 @@ function validateResponse(raw: unknown): LLMResponse {
 
   if (isArray(raw.actions)) {
     const validTypes = [
-      'click', 'fill', 'select', 'scroll', 'navigate', 'goBack',
-      'wait', 'pressKey', 'hover', 'focus', 'extract',
-      'openTab', 'closeTab', 'switchTab', 'getTabs', 'runMacro', 'runWorkflow',
+      'click',
+      'fill',
+      'select',
+      'scroll',
+      'navigate',
+      'goBack',
+      'wait',
+      'pressKey',
+      'hover',
+      'focus',
+      'extract',
+      'openTab',
+      'closeTab',
+      'switchTab',
+      'getTabs',
+      'runMacro',
+      'runWorkflow',
     ] as const;
 
-    const actionsRequiringLocator = new Set(['click', 'fill', 'select', 'hover', 'focus', 'extract']);
+    const actionsRequiringLocator = new Set([
+      'click',
+      'fill',
+      'select',
+      'hover',
+      'focus',
+      'extract',
+    ]);
     const actionsRequiringUrl = new Set(['navigate', 'openTab', 'switchTab']);
     const actionsRequiringKey = new Set(['pressKey']);
 
@@ -456,7 +487,7 @@ function validateResponse(raw: unknown): LLMResponse {
       if (!a || typeof a !== 'object') continue;
       const action = a as Record<string, unknown>;
       if (!isString(action.type)) continue;
-      if (!validTypes.includes(action.type as typeof validTypes[number])) continue;
+      if (!validTypes.includes(action.type as (typeof validTypes)[number])) continue;
 
       // Validate required fields for action type
       const actionType = action.type as string;
@@ -510,14 +541,21 @@ export class EnhancedLLMClient implements LLMClientInterface {
     try {
       // Use autonomous intelligence to understand and plan
       // We pass the signal if supported by autonomousIntelligence (assumed partially supported or ignored for now, but client methods will respect it)
-      const autonomousPlan = await autonomousIntelligence.understandAndPlan(request.command || '', intelligenceContext);
+      const autonomousPlan = await autonomousIntelligence.understandAndPlan(
+        request.command || '',
+        intelligenceContext
+      );
 
       if (signal?.aborted) {
         throw new DOMException('Aborted', 'AbortError');
       }
 
       // If the autonomous plan has no executable actions, fall back to traditional LLM to avoid no-op plans
-      if (!autonomousPlan || !Array.isArray((autonomousPlan as any).actions) || ((autonomousPlan as any).actions?.length ?? 0) === 0) {
+      if (
+        !autonomousPlan ||
+        !Array.isArray((autonomousPlan as any).actions) ||
+        ((autonomousPlan as any).actions?.length ?? 0) === 0
+      ) {
         return await this.makeTraditionalCall(request, signal);
       }
 
@@ -544,7 +582,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
   async callCompletion(request: CompletionRequest, signal?: AbortSignal): Promise<string> {
     const settings = await loadSettings();
-    if (!settings.apiKey) throw new Error("API Key not set");
+    if (!settings.apiKey) throw new Error('API Key not set');
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
@@ -557,7 +595,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`,
+          Authorization: `Bearer ${settings.apiKey}`,
           'HTTP-Referer': 'https://hyperagent.ai',
           'X-Title': 'HyperAgent',
         },
@@ -566,7 +604,6 @@ export class EnhancedLLMClient implements LLMClientInterface {
           messages: safeMessages,
           temperature: request.temperature ?? 0.7,
           max_tokens: request.maxTokens ?? 1000,
-
         }),
         signal: signal || AbortSignal.timeout(60000),
       });
@@ -585,7 +622,10 @@ export class EnhancedLLMClient implements LLMClientInterface {
     }
   }
 
-  private async makeTraditionalCall(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
+  private async makeTraditionalCall(
+    request: LLMRequest,
+    signal?: AbortSignal
+  ): Promise<LLMResponse> {
     const settings = await loadSettings();
     return await this.makeAPICall(request, settings, signal);
   }
@@ -596,10 +636,32 @@ export class EnhancedLLMClient implements LLMClientInterface {
     signal?: AbortSignal
   ): Promise<LLMResponse> {
     try {
-      const rawMessages = buildMessages(request.command || '', request.history || [], request.context || this.createEmptyContext());
+      // Sanitize the command input
+      const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
+        maxLength: 10000,
+        preserveWhitespace: true,
+      });
+
+      if (!sanitizedCommand.isValid) {
+        console.warn('[HyperAgent] Input sanitization warnings:', sanitizedCommand.warnings);
+      }
+
+      const rawMessages = buildMessages(
+        sanitizedCommand.sanitizedValue,
+        request.history || [],
+        request.context || this.createEmptyContext()
+      );
       const messages = sanitizeMessages(rawMessages);
 
       const model = SINGLE_MODEL;
+
+      // Check cache for similar requests
+      const cacheKey = `llm_${model}_${this.hashMessages(messages)}`;
+      const cachedResponse = await apiCache.get(cacheKey);
+      if (cachedResponse) {
+        console.log('[HyperAgent] Using cached LLM response');
+        return cachedResponse;
+      }
 
       console.log(`[HyperAgent] Using model: ${model}`);
 
@@ -609,7 +671,6 @@ export class EnhancedLLMClient implements LLMClientInterface {
         messages,
         temperature: 0.7,
         max_tokens: 4096,
-
       };
       // Debug: uncomment to inspect request body
       // console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
@@ -618,7 +679,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`,
+          Authorization: `Bearer ${settings.apiKey}`,
           'HTTP-Referer': 'https://hyperagent.ai',
           'X-Title': 'HyperAgent',
         },
@@ -642,24 +703,46 @@ export class EnhancedLLMClient implements LLMClientInterface {
       const parsed = extractJSON(content);
       if (!parsed) {
         console.warn('[HyperAgent] Failed to parse JSON from response:', content.slice(0, 500));
-        const fallback = await buildIntelligentFallback(request.command || '', request.context || this.createEmptyContext(), {
-          baseUrl: settings.baseUrl,
-          apiKey: settings.apiKey,
-        });
-        return fallback || {
-          thinking: 'Failed to parse response.',
-          summary: 'I encountered an error parsing the AI response.',
-          actions: [],
-          done: true
-        };
+        const fallback = await buildIntelligentFallback(
+          request.command || '',
+          request.context || this.createEmptyContext(),
+          {
+            baseUrl: settings.baseUrl,
+            apiKey: settings.apiKey,
+          }
+        );
+        return (
+          fallback || {
+            thinking: 'Failed to parse response.',
+            summary: 'I encountered an error parsing the AI response.',
+            actions: [],
+            done: true,
+          }
+        );
       }
 
-      return validateResponse(parsed);
+      const validatedResponse = validateResponse(parsed);
+
+      // Cache successful responses for 15 minutes
+      await apiCache.set(cacheKey, validatedResponse, { ttl: 15 * 60 * 1000 });
+
+      return validatedResponse;
     } catch (error: any) {
       if (error.name === 'AbortError') throw error;
       console.error('[HyperAgent] API call failed:', error);
       throw error;
     }
+  }
+
+  private hashMessages(messages: any[]): string {
+    const content = JSON.stringify(messages.map(m => m.content));
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return `hash_${Math.abs(hash).toString(36)}`;
   }
 
   private createEmptyContext(): PageContext {
@@ -679,7 +762,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
   async getEmbedding(text: string): Promise<number[]> {
     const settings = await loadSettings();
-    if (!settings.apiKey) throw new Error("API Key not set");
+    if (!settings.apiKey) throw new Error('API Key not set');
 
     try {
       // Use OpenRouter's text-embedding adapter (works with the API key)

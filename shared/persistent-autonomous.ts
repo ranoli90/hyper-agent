@@ -94,11 +94,11 @@ export class PersistentAutonomousEngine {
   private activeSessions: Map<string, AutonomousSession> = new Map();
   private globalSuggestionQueue: ProactiveSuggestion[] = [];
   private backgroundTaskPool: BackgroundTask[] = [];
-  private continuousOperationInterval: NodeJS.Timeout | null = null;
+  private continuousOperationInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.startContinuousOperation();
-    this.loadPersistedSessions();
+    this.loadPersistedSessions().catch(() => {});
   }
 
   private startContinuousOperation(): void {
@@ -141,8 +141,7 @@ export class PersistentAutonomousEngine {
       this.queueOptimizationTasks(session);
 
       session.lastActivity = Date.now();
-      this.persistSession(sessionId, session);
-
+      await this.persistSession(sessionId, session);
     } catch (error) {
       console.error(`[Autonomous] Error processing session ${sessionId}:`, error);
     }
@@ -159,7 +158,10 @@ export class PersistentAutonomousEngine {
     }
   }
 
-  private async generateFollowUpSuggestions(task: CompletedTask, session: AutonomousSession): Promise<ProactiveSuggestion[]> {
+  private async generateFollowUpSuggestions(
+    task: CompletedTask,
+    session: AutonomousSession
+  ): Promise<ProactiveSuggestion[]> {
     const suggestions: ProactiveSuggestion[] = [];
 
     switch (task.type) {
@@ -174,7 +176,7 @@ export class PersistentAutonomousEngine {
             confidence: 0.9,
             autoExecute: true,
             context: { originalTaskId: task.id },
-            generatedAt: Date.now()
+            generatedAt: Date.now(),
           },
           {
             id: `followup_${task.id}_optimize`,
@@ -185,7 +187,7 @@ export class PersistentAutonomousEngine {
             confidence: 0.7,
             autoExecute: false,
             context: { originalTaskId: task.id },
-            generatedAt: Date.now()
+            generatedAt: Date.now(),
           },
           {
             id: `followup_${task.id}_expand`,
@@ -196,25 +198,23 @@ export class PersistentAutonomousEngine {
             confidence: 0.8,
             autoExecute: true,
             context: { originalTaskId: task.id },
-            generatedAt: Date.now()
+            generatedAt: Date.now(),
           }
         );
         break;
 
       case 'job_application':
-        suggestions.push(
-          {
-            id: `followup_${task.id}_status`,
-            type: 'follow_up',
-            title: 'Check Application Status',
-            description: 'Monitor application progress and follow up if needed',
-            potentialValue: 50,
-            confidence: 0.6,
-            autoExecute: true,
-            context: { originalTaskId: task.id },
-            generatedAt: Date.now()
-          }
-        );
+        suggestions.push({
+          id: `followup_${task.id}_status`,
+          type: 'follow_up',
+          title: 'Check Application Status',
+          description: 'Monitor application progress and follow up if needed',
+          potentialValue: 50,
+          confidence: 0.6,
+          autoExecute: true,
+          context: { originalTaskId: task.id },
+          generatedAt: Date.now(),
+        });
         break;
     }
 
@@ -226,7 +226,8 @@ export class PersistentAutonomousEngine {
 
     // 1. Time-based suggestions
     const hour = new Date().getHours();
-    if (hour >= 9 && hour <= 17) { // Business hours
+    if (hour >= 9 && hour <= 17) {
+      // Business hours
       session.pendingSuggestions.push({
         id: `time_business_${Date.now()}`,
         type: 'new_task',
@@ -236,7 +237,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.5,
         autoExecute: false,
         context: { timeContext: 'business_hours' },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
 
@@ -255,7 +256,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.7,
         autoExecute: false,
         context: { patternType: mostCommonType },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
 
@@ -277,13 +278,14 @@ export class PersistentAutonomousEngine {
         confidence: 0.6,
         autoExecute: true,
         context: { marketFocus: true },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
 
     // Example: Maintenance reminders
     const lastMaintenanceCheck = session.userProfile.preferences.get('last_maintenance_check') || 0;
-    if (Date.now() - lastMaintenanceCheck > 7 * 24 * 60 * 60 * 1000) { // 7 days
+    if (Date.now() - lastMaintenanceCheck > 7 * 24 * 60 * 60 * 1000) {
+      // 7 days
       session.pendingSuggestions.push({
         id: `maintenance_${Date.now()}`,
         type: 'maintenance',
@@ -293,7 +295,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.8,
         autoExecute: true,
         context: { maintenanceType: 'general' },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
   }
@@ -316,7 +318,10 @@ export class PersistentAutonomousEngine {
     }
   }
 
-  private async executeSuggestion(suggestion: ProactiveSuggestion, session: AutonomousSession): Promise<void> {
+  private async executeSuggestion(
+    suggestion: ProactiveSuggestion,
+    session: AutonomousSession
+  ): Promise<void> {
     console.log(`[Autonomous] Auto-executing suggestion: ${suggestion.title}`);
 
     switch (suggestion.type) {
@@ -335,7 +340,10 @@ export class PersistentAutonomousEngine {
     }
   }
 
-  private async executeFollowUp(suggestion: ProactiveSuggestion, session: AutonomousSession): Promise<void> {
+  private async executeFollowUp(
+    suggestion: ProactiveSuggestion,
+    session: AutonomousSession
+  ): Promise<void> {
     // Execute follow-up logic based on suggestion context
     if (suggestion.context?.originalTaskId) {
       // Check for responses on the original task
@@ -344,17 +352,26 @@ export class PersistentAutonomousEngine {
     }
   }
 
-  private async executeOptimization(suggestion: ProactiveSuggestion, session: AutonomousSession): Promise<void> {
+  private async executeOptimization(
+    suggestion: ProactiveSuggestion,
+    session: AutonomousSession
+  ): Promise<void> {
     // Execute optimization tasks
     console.log(`[Autonomous] Running optimization: ${suggestion.description}`);
   }
 
-  private async executeExpansion(suggestion: ProactiveSuggestion, session: AutonomousSession): Promise<void> {
+  private async executeExpansion(
+    suggestion: ProactiveSuggestion,
+    session: AutonomousSession
+  ): Promise<void> {
     // Execute expansion tasks (e.g., post to more platforms)
     console.log(`[Autonomous] Expanding reach: ${suggestion.description}`);
   }
 
-  private async executeMaintenance(suggestion: ProactiveSuggestion, session: AutonomousSession): Promise<void> {
+  private async executeMaintenance(
+    suggestion: ProactiveSuggestion,
+    session: AutonomousSession
+  ): Promise<void> {
     // Execute maintenance tasks
     console.log(`[Autonomous] Performing maintenance: ${suggestion.description}`);
     session.userProfile.preferences.set('last_maintenance_check', Date.now());
@@ -379,7 +396,7 @@ export class PersistentAutonomousEngine {
             confidence: 1.0,
             autoExecute: false,
             context: { workflowId, urgent: true },
-            generatedAt: Date.now()
+            generatedAt: Date.now(),
           });
         }
       }
@@ -400,7 +417,10 @@ export class PersistentAutonomousEngine {
       // Update behavior patterns
       const taskTypes = recentTasks.map(t => t.type);
       const preferences = this.analyzeTaskPreferences(taskTypes);
-      session.userProfile.preferences = new Map([...session.userProfile.preferences, ...preferences]);
+      session.userProfile.preferences = new Map([
+        ...session.userProfile.preferences,
+        ...preferences,
+      ]);
 
       // Update value priorities
       const highValueTasks = recentTasks.filter(t => t.valueGenerated > 100);
@@ -445,7 +465,7 @@ export class PersistentAutonomousEngine {
         priority: 5,
         estimatedDuration: 300000, // 5 minutes
         progress: 0,
-        canRunInBackground: true
+        canRunInBackground: true,
       },
       {
         id: `backup_${session.id}_${Date.now()}`,
@@ -453,8 +473,8 @@ export class PersistentAutonomousEngine {
         priority: 3,
         estimatedDuration: 60000, // 1 minute
         progress: 0,
-        canRunInBackground: true
-      }
+        canRunInBackground: true,
+      },
     ];
 
     this.backgroundTaskPool.push(...optimizationTasks);
@@ -462,9 +482,9 @@ export class PersistentAutonomousEngine {
 
   private executeBackgroundTasks(): void {
     // Execute background tasks that can run without user interaction
-    const availableTasks = this.backgroundTaskPool.filter(
-      task => task.canRunInBackground && !task.startedAt
-    ).sort((a, b) => b.priority - a.priority);
+    const availableTasks = this.backgroundTaskPool
+      .filter(task => task.canRunInBackground && !task.startedAt)
+      .sort((a, b) => b.priority - a.priority);
 
     const maxConcurrent = 3;
     const toExecute = availableTasks.slice(0, maxConcurrent);
@@ -492,7 +512,6 @@ export class PersistentAutonomousEngine {
 
       // Remove completed task
       this.backgroundTaskPool = this.backgroundTaskPool.filter(t => t.id !== task.id);
-
     } catch (error) {
       console.error(`[Background] Failed: ${task.description}`, error);
       task.progress = -1; // Mark as failed
@@ -504,7 +523,8 @@ export class PersistentAutonomousEngine {
     // This could include market trends, new platforms, etc.
 
     // Example: Generate market trend suggestions
-    if (Math.random() < 0.05) { // 5% chance every 30 seconds
+    if (Math.random() < 0.05) {
+      // 5% chance every 30 seconds
       this.globalSuggestionQueue.push({
         id: `global_market_${Date.now()}`,
         type: 'new_task',
@@ -514,7 +534,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.6,
         autoExecute: false,
         context: { marketCondition: 'favorable' },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
   }
@@ -528,7 +548,7 @@ export class PersistentAutonomousEngine {
 
   private cleanupOldData(): void {
     // Clean up old sessions, suggestions, and tasks
-    const cutoffTime = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 days
+    const cutoffTime = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
 
     for (const [sessionId, session] of this.activeSessions) {
       // Remove old completed tasks
@@ -544,7 +564,7 @@ export class PersistentAutonomousEngine {
 
     // Clean up old background tasks
     this.backgroundTaskPool = this.backgroundTaskPool.filter(
-      task => !task.startedAt || (Date.now() - task.startedAt) < (24 * 60 * 60 * 1000) // 24 hours
+      task => !task.startedAt || Date.now() - task.startedAt < 24 * 60 * 60 * 1000 // 24 hours
     );
   }
 
@@ -566,7 +586,9 @@ export class PersistentAutonomousEngine {
       totalTasks += session.metrics.tasksCompleted;
     }
 
-    console.log(`[Autonomous] System Status: ${this.activeSessions.size} active sessions, $${totalValue} value generated, ${totalTasks} tasks completed`);
+    console.log(
+      `[Autonomous] System Status: ${this.activeSessions.size} active sessions, $${totalValue} value generated, ${totalTasks} tasks completed`
+    );
   }
 
   // Public API methods
@@ -586,7 +608,7 @@ export class PersistentAutonomousEngine {
         valuePriorities: [],
         optimalWorkflows: [],
         responsePatterns: [],
-        lastUpdated: Date.now()
+        lastUpdated: Date.now(),
       },
       metrics: {
         totalValueGenerated: 0,
@@ -594,13 +616,13 @@ export class PersistentAutonomousEngine {
         userSatisfaction: 0.8,
         autonomousActions: 0,
         manualInterventions: 0,
-        uptime: 0
+        uptime: 0,
       },
-      continuousMode: true
+      continuousMode: true,
     };
 
     this.activeSessions.set(session.id, session);
-    this.persistSession(session.id, session);
+    this.persistSession(session.id, session).catch(() => {});
 
     return session;
   }
@@ -630,33 +652,36 @@ export class PersistentAutonomousEngine {
     return true;
   }
 
-  private persistSession(sessionId: string, session: AutonomousSession): void {
+  private async persistSession(sessionId: string, session: AutonomousSession): Promise<void> {
     try {
-      // In production, this would save to a database
-      // For now, we use localStorage as an example
       const sessionData = {
         ...session,
         activeWorkflows: Array.from(session.activeWorkflows.entries()),
         userProfile: {
           ...session.userProfile,
-          preferences: Array.from(session.userProfile.preferences.entries())
-        }
+          preferences: Array.from(session.userProfile.preferences.entries()),
+        },
       };
 
-      localStorage.setItem(`autonomous_session_${sessionId}`, JSON.stringify(sessionData));
+      // Use chrome.storage.local instead of localStorage for service worker compatibility
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({ [`autonomous_session_${sessionId}`]: sessionData });
+      }
     } catch (error) {
       console.error(`[Autonomous] Failed to persist session ${sessionId}:`, error);
     }
   }
 
-  private loadPersistedSessions(): void {
+  private async loadPersistedSessions(): Promise<void> {
     try {
-      // Load persisted sessions on startup
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key?.startsWith('autonomous_session_')) {
-          const sessionData = JSON.parse(localStorage.getItem(key)!);
-          this.activeSessions.set(sessionData.id, sessionData);
+      // Load persisted sessions on startup using chrome.storage
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const data = await chrome.storage.local.get(null);
+        for (const [key, value] of Object.entries(data)) {
+          if (key.startsWith('autonomous_session_')) {
+            const sessionData = value as AutonomousSession;
+            this.activeSessions.set(sessionData.id, sessionData);
+          }
         }
       }
     } catch (error) {
@@ -673,7 +698,8 @@ export class PersistentAutonomousEngine {
     // This could include market trends, system optimizations, etc.
 
     // Example: Generate market trend suggestions
-    if (Math.random() < 0.05) { // 5% chance every 30 seconds
+    if (Math.random() < 0.05) {
+      // 5% chance every 30 seconds
       this.globalSuggestionQueue.push({
         id: `global_market_${Date.now()}`,
         type: 'new_task',
@@ -683,7 +709,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.6,
         autoExecute: false,
         context: { marketCondition: 'favorable' },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
 
@@ -698,7 +724,7 @@ export class PersistentAutonomousEngine {
         confidence: 0.8,
         autoExecute: true,
         context: { optimizationType: 'performance' },
-        generatedAt: Date.now()
+        generatedAt: Date.now(),
       });
     }
   }

@@ -78,6 +78,14 @@ import { parseIntent, getSuggestions } from '../shared/intent';
 import { SwarmCoordinator, AgentRole, type SwarmAgent } from '../shared/swarm-intelligence';
 import { ReasoningEngine } from '../shared/reasoning-engine';
 import { failureRecovery, type FailureAnalysis, StrategyType } from '../shared/failure-recovery';
+import {
+  PersistentAutonomousEngine,
+  type AutonomousSession,
+  type ProactiveSuggestion,
+} from '../shared/persistent-autonomous';
+import { apiCache, generalCache, type CacheStats } from '../shared/advanced-caching';
+import { memoryManager } from '../shared/memory-management';
+import { inputSanitizer, sanitize, type ValidationResult } from '../shared/input-sanitization';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -686,6 +694,7 @@ const agentState = new AgentStateManager();
 // ─── Swarm & Advanced Intelligence ───────────────────────────────────────
 let swarmCoordinator: SwarmCoordinator | null = null;
 let reasoningEngine: ReasoningEngine | null = null;
+let persistentAutonomousEngine: PersistentAutonomousEngine | null = null;
 
 function initializeSwarm(): void {
   if (!swarmCoordinator) {
@@ -701,9 +710,17 @@ function initializeReasoning(): void {
   }
 }
 
+function initializePersistentAutonomous(): void {
+  if (!persistentAutonomousEngine) {
+    persistentAutonomousEngine = new PersistentAutonomousEngine();
+    console.log('[Background] Persistent autonomous engine initialized');
+  }
+}
+
 // Initialize on startup
 initializeSwarm();
 initializeReasoning();
+initializePersistentAutonomous();
 
 // ─── Input validation ───────────────────────────────────────────────────
 
@@ -1301,6 +1318,122 @@ export default defineBackground(() => {
 
       case 'getGlobalLearningStats': {
         return { ok: true, stats: globalLearning.getStats() };
+      }
+
+      case 'getAutonomousSession': {
+        if (!persistentAutonomousEngine) {
+          return { ok: false, error: 'Persistent autonomous engine not initialized' };
+        }
+        const sessionId = message.sessionId;
+        const session = sessionId ? persistentAutonomousEngine.getSession(sessionId) : null;
+        return { ok: true, session };
+      }
+
+      case 'createAutonomousSession': {
+        if (!persistentAutonomousEngine) {
+          return { ok: false, error: 'Persistent autonomous engine not initialized' };
+        }
+        const userId = message.userId || 'default_user';
+        const session = persistentAutonomousEngine.createSession(userId);
+        return { ok: true, session };
+      }
+
+      case 'getProactiveSuggestions': {
+        if (!persistentAutonomousEngine) {
+          return { ok: false, error: 'Persistent autonomous engine not initialized' };
+        }
+        const suggestions = message.sessionId
+          ? persistentAutonomousEngine.getPendingSuggestions(message.sessionId)
+          : [];
+        return { ok: true, suggestions };
+      }
+
+      case 'executeSuggestion': {
+        if (!persistentAutonomousEngine) {
+          return { ok: false, error: 'Persistent autonomous engine not initialized' };
+        }
+        const { sessionId, suggestionId } = message;
+        if (!sessionId || !suggestionId) {
+          return { ok: false, error: 'sessionId and suggestionId required' };
+        }
+        const success = persistentAutonomousEngine.executeSuggestionManually(
+          sessionId,
+          suggestionId
+        );
+        return { ok: success };
+      }
+
+      case 'getCacheStats': {
+        const stats = generalCache.getStats();
+        return { ok: true, stats };
+      }
+
+      case 'getAPICache': {
+        if (message.endpoint) {
+          const cached = await apiCache.getAPIResponse(message.endpoint, message.params);
+          return { ok: true, cached };
+        }
+        return { ok: false, error: 'No endpoint provided' };
+      }
+
+      case 'setAPICache': {
+        if (message.endpoint && message.response) {
+          await apiCache.setAPIResponse(
+            message.endpoint,
+            message.params,
+            message.response,
+            message.ttl
+          );
+          return { ok: true };
+        }
+        return { ok: false, error: 'endpoint and response required' };
+      }
+
+      case 'invalidateCacheTag': {
+        if (message.tag) {
+          const count = await generalCache.invalidateByTag(message.tag);
+          return { ok: true, invalidated: count };
+        }
+        return { ok: false, error: 'No tag provided' };
+      }
+
+      case 'getMemoryStats': {
+        const stats = memoryManager.getMemoryStats();
+        return { ok: true, stats };
+      }
+
+      case 'getMemoryLeaks': {
+        const leaks = memoryManager.getLeaks();
+        return { ok: true, leaks };
+      }
+
+      case 'forceMemoryCleanup': {
+        memoryManager.forceCleanup();
+        return { ok: true };
+      }
+
+      case 'sanitizeInput': {
+        if (message.input !== undefined) {
+          const result = inputSanitizer.sanitize(message.input, message.options);
+          return { ok: true, result };
+        }
+        return { ok: false, error: 'No input provided' };
+      }
+
+      case 'sanitizeUrl': {
+        if (message.url) {
+          const result = inputSanitizer.sanitizeUrl(message.url);
+          return { ok: true, result };
+        }
+        return { ok: false, error: 'No url provided' };
+      }
+
+      case 'sanitizeBatch': {
+        if (message.inputs) {
+          const results = inputSanitizer.sanitizeBatch(message.inputs, message.options);
+          return { ok: true, results };
+        }
+        return { ok: false, error: 'No inputs provided' };
       }
 
       default:

@@ -50,11 +50,11 @@ export class InputSanitizer {
         /on\w+\s*=/gi,
         /<iframe[^>]*>/gi,
         /<object[^>]*>/gi,
-        /<embed[^>]*>/gi
+        /<embed[^>]*>/gi,
       ],
       maxInputLength: 1000000, // 1MB
       enableLogging: true,
-      ...config
+      ...config,
     };
   }
 
@@ -66,7 +66,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: input.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     if (!input || typeof input !== 'string') {
@@ -78,7 +78,9 @@ export class InputSanitizer {
     // Length validation
     if (input.length > this.config.maxInputLength) {
       result.isValid = false;
-      result.errors.push(`Input length (${input.length}) exceeds maximum allowed (${this.config.maxInputLength})`);
+      result.errors.push(
+        `Input length (${input.length}) exceeds maximum allowed (${this.config.maxInputLength})`
+      );
       return result;
     }
 
@@ -129,7 +131,7 @@ export class InputSanitizer {
         sanitizedLength: result.sanitizedLength,
         errors: result.errors,
         warnings: result.warnings,
-        isValid: result.isValid
+        isValid: result.isValid,
       });
     }
 
@@ -201,7 +203,19 @@ export class InputSanitizer {
       return this.encodeHtmlEntities(input);
     }
 
-    const allowedTags = options.allowedTags || ['p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+    const allowedTags = options.allowedTags || [
+      'p',
+      'br',
+      'strong',
+      'em',
+      'u',
+      'h1',
+      'h2',
+      'h3',
+      'h4',
+      'h5',
+      'h6',
+    ];
     const allowedAttributes = options.allowedAttributes || ['href', 'title', 'alt'];
 
     // Simple HTML sanitizer (in production, use DOMPurify)
@@ -226,13 +240,18 @@ export class InputSanitizer {
         const [, attrName, attrValue] = attrMatch;
         if (allowedAttributes.includes(attrName.toLowerCase())) {
           // Encode dangerous characters in attribute values
-          const safeValue = attrValue.replace(/[<>"']/g, (char) => {
+          const safeValue = attrValue.replace(/[<>"']/g, (char: string) => {
             switch (char) {
-              case '<': return '&lt;';
-              case '>': return '&gt;';
-              case '"': return '&quot;';
-              case "'": return '&#x27;';
-              default: return char;
+              case '<':
+                return '&lt;';
+              case '>':
+                return '&gt;';
+              case '"':
+                return '&quot;';
+              case "'":
+                return '&#x27;';
+              default:
+                return char;
             }
           });
           cleanTag += ` ${attrName}="${safeValue}"`;
@@ -265,7 +284,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: url.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     try {
@@ -273,8 +292,8 @@ export class InputSanitizer {
 
       // Check against allowed domains
       if (this.config.allowedDomains.length > 0) {
-        const isAllowed = this.config.allowedDomains.some(domain =>
-          urlObj.hostname === domain || urlObj.hostname.endsWith(`.${domain}`)
+        const isAllowed = this.config.allowedDomains.some(
+          domain => urlObj.hostname === domain || urlObj.hostname.endsWith(`.${domain}`)
         );
         if (!isAllowed) {
           result.isValid = false;
@@ -292,7 +311,6 @@ export class InputSanitizer {
       // Encode URL components
       result.sanitizedValue = urlObj.toString();
       result.sanitizedLength = result.sanitizedValue.length;
-
     } catch (error) {
       result.isValid = false;
       result.errors.push('Invalid URL format');
@@ -308,11 +326,12 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: email.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     // Basic email validation
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    const emailRegex =
+      /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
     if (!emailRegex.test(result.sanitizedValue)) {
       result.isValid = false;
@@ -330,7 +349,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: phone.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     // Basic phone validation (digits, spaces, dashes, parentheses, plus)
@@ -351,7 +370,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: filename.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     // Check for dangerous extensions
@@ -369,7 +388,10 @@ export class InputSanitizer {
   }
 
   // ─── Batch Sanitization ───────────────────────────────────────────────
-  sanitizeBatch(inputs: Record<string, string>, options: SanitizationOptions = {}): Record<string, ValidationResult> {
+  sanitizeBatch(
+    inputs: Record<string, string>,
+    options: SanitizationOptions = {}
+  ): Record<string, ValidationResult> {
     const results: Record<string, ValidationResult> = {};
 
     for (const [key, value] of Object.entries(inputs)) {
@@ -390,7 +412,7 @@ export class InputSanitizer {
       'font-src': ["'self'", 'https:'],
       'object-src': ["'none'"],
       'base-uri': ["'self'"],
-      'form-action': ["'self'"]
+      'form-action': ["'self'"],
     };
 
     const finalDirectives = { ...defaultDirectives, ...directives };
@@ -407,7 +429,7 @@ export class InputSanitizer {
       'X-Frame-Options': 'DENY',
       'X-XSS-Protection': '1; mode=block',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'Content-Security-Policy': this.generateCSP()
+      'Content-Security-Policy': this.generateCSP(),
     };
   }
 
@@ -419,7 +441,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: input.length,
-      sanitizedLength: 0
+      sanitizedLength: 0,
     };
 
     try {
@@ -441,7 +463,7 @@ export class InputSanitizer {
       errors: [],
       warnings: [],
       originalLength: input.length,
-      sanitizedLength: input.length
+      sanitizedLength: input.length,
     };
 
     // Basic base64 validation
@@ -477,29 +499,22 @@ export const inputSanitizer = new InputSanitizer({
   strictMode: true,
   allowedDomains: ['*.craigslist.org', '*.facebook.com', '*.autotrader.com', '*.ebay.com'],
   maxInputLength: 1000000,
-  enableLogging: true
+  enableLogging: true,
 });
 
 // ─── Convenience Functions ────────────────────────────────────────────
 export const sanitize = {
-  text: (input: string, options?: SanitizationOptions) =>
-    inputSanitizer.sanitize(input, options),
-  url: (input: string) =>
-    inputSanitizer.sanitizeUrl(input),
-  email: (input: string) =>
-    inputSanitizer.sanitizeEmail(input),
-  phone: (input: string) =>
-    inputSanitizer.sanitizePhone(input),
-  filename: (input: string) =>
-    inputSanitizer.sanitizeFilename(input),
+  text: (input: string, options?: SanitizationOptions) => inputSanitizer.sanitize(input, options),
+  url: (input: string) => inputSanitizer.sanitizeUrl(input),
+  email: (input: string) => inputSanitizer.sanitizeEmail(input),
+  phone: (input: string) => inputSanitizer.sanitizePhone(input),
+  filename: (input: string) => inputSanitizer.sanitizeFilename(input),
   html: (input: string, options?: SanitizationOptions) =>
     inputSanitizer.sanitize(input, { ...options, allowHtml: true }),
-  json: (input: string) =>
-    inputSanitizer.validateJson(input),
-  base64: (input: string) =>
-    inputSanitizer.validateBase64(input),
+  json: (input: string) => inputSanitizer.validateJson(input),
+  base64: (input: string) => inputSanitizer.validateBase64(input),
   batch: (inputs: Record<string, string>, options?: SanitizationOptions) =>
-    inputSanitizer.sanitizeBatch(inputs, options)
+    inputSanitizer.sanitizeBatch(inputs, options),
 };
 
 // ─── DOM XSS Protection ────────────────────────────────────────────────

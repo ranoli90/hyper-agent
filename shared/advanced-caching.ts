@@ -39,7 +39,7 @@ export interface CacheStats {
 export class AdvancedCache<T = any> {
   private memoryCache = new Map<string, CacheEntry<T>>();
   private persistentCache = new Map<string, CacheEntry<T>>();
-  private config: CacheConfig;
+  protected config: CacheConfig;
   private stats = {
     hits: 0,
     misses: 0,
@@ -47,7 +47,7 @@ export class AdvancedCache<T = any> {
     sets: 0,
     deletes: 0,
     accessTimes: [] as number[],
-    compressionSavings: 0
+    compressionSavings: 0,
   };
   private cleanupInterval?: number;
   private syncChannel?: BroadcastChannel;
@@ -63,7 +63,7 @@ export class AdvancedCache<T = any> {
       evictionPolicy: 'lru',
       syncAcrossTabs: true,
       enablePrefetch: false,
-      ...config
+      ...config,
     };
 
     this.initializeCache();
@@ -111,16 +111,21 @@ export class AdvancedCache<T = any> {
     return this.decompressIfNeeded(entry.value);
   }
 
-  async set(key: string, value: T, options: {
-    ttl?: number;
-    tags?: string[];
-    metadata?: Record<string, any>;
-    skipCompression?: boolean;
-  } = {}): Promise<void> {
+  async set(
+    key: string,
+    value: T,
+    options: {
+      ttl?: number;
+      tags?: string[];
+      metadata?: Record<string, any>;
+      skipCompression?: boolean;
+    } = {}
+  ): Promise<void> {
     const ttl = options.ttl || this.config.defaultTTL;
-    const compressedValue = options.skipCompression || !this.config.compressionEnabled
-      ? value
-      : this.compressIfNeeded(value);
+    const compressedValue =
+      options.skipCompression || !this.config.compressionEnabled
+        ? value
+        : this.compressIfNeeded(value);
 
     const entry: CacheEntry<T> = {
       key,
@@ -131,7 +136,7 @@ export class AdvancedCache<T = any> {
       lastAccessed: Date.now(),
       size: this.calculateSize(compressedValue),
       tags: options.tags || [],
-      metadata: options.metadata
+      metadata: options.metadata,
     };
 
     // Update stats
@@ -200,7 +205,7 @@ export class AdvancedCache<T = any> {
     const results = new Map<string, T>();
 
     // Process in parallel for better performance
-    const promises = keys.map(async (key) => {
+    const promises = keys.map(async key => {
       const value = await this.get(key);
       if (value !== null) {
         results.set(key, value);
@@ -212,9 +217,7 @@ export class AdvancedCache<T = any> {
   }
 
   async setMultiple(entries: Array<{ key: string; value: T; options?: any }>): Promise<void> {
-    const promises = entries.map(({ key, value, options }) =>
-      this.set(key, value, options)
-    );
+    const promises = entries.map(({ key, value, options }) => this.set(key, value, options));
     await Promise.all(promises);
   }
 
@@ -268,7 +271,7 @@ export class AdvancedCache<T = any> {
     if (!this.config.enablePrefetch) return;
 
     // Prefetch entries that are likely to be accessed soon
-    const prefetchPromises = keys.map(async (key) => {
+    const prefetchPromises = keys.map(async key => {
       // Check if already in memory
       if (!this.memoryCache.has(key)) {
         const entry = this.persistentCache.get(key);
@@ -322,9 +325,7 @@ export class AdvancedCache<T = any> {
 
       case 'ttl':
         // Expired entries
-        entriesToEvict = entries
-          .filter(([, entry]) => this.isExpired(entry))
-          .map(([key]) => key);
+        entriesToEvict = entries.filter(([, entry]) => this.isExpired(entry)).map(([key]) => key);
         break;
 
       case 'size':
@@ -461,7 +462,7 @@ export class AdvancedCache<T = any> {
     try {
       this.syncChannel = new BroadcastChannel('hyperagent-cache-sync');
 
-      this.syncChannel.onmessage = (event) => {
+      this.syncChannel.onmessage = event => {
         const { type, entry, key } = event.data;
 
         switch (type) {
@@ -502,9 +503,12 @@ export class AdvancedCache<T = any> {
   // ─── Maintenance ─────────────────────────────────────────────────────
   private setupCleanup(): void {
     // Clean up expired entries every 5 minutes
-    this.cleanupInterval = window.setInterval(() => {
-      this.cleanup();
-    }, 5 * 60 * 1000);
+    this.cleanupInterval = window.setInterval(
+      () => {
+        this.cleanup();
+      },
+      5 * 60 * 1000
+    );
   }
 
   private async cleanup(): Promise<void> {
@@ -559,15 +563,16 @@ export class AdvancedCache<T = any> {
       sets: 0,
       deletes: 0,
       accessTimes: [],
-      compressionSavings: 0
+      compressionSavings: 0,
     };
   }
 
   getStats(): CacheStats {
     const totalRequests = this.stats.hits + this.stats.misses;
-    const avgAccessTime = this.stats.accessTimes.length > 0
-      ? this.stats.accessTimes.reduce((a, b) => a + b, 0) / this.stats.accessTimes.length
-      : 0;
+    const avgAccessTime =
+      this.stats.accessTimes.length > 0
+        ? this.stats.accessTimes.reduce((a, b) => a + b, 0) / this.stats.accessTimes.length
+        : 0;
 
     let totalMemorySize = 0;
     for (const entry of this.memoryCache.values()) {
@@ -580,9 +585,14 @@ export class AdvancedCache<T = any> {
       hitRate: totalRequests > 0 ? (this.stats.hits / totalRequests) * 100 : 0,
       missRate: totalRequests > 0 ? (this.stats.misses / totalRequests) * 100 : 0,
       evictionCount: this.stats.evictions,
-      compressionRatio: this.stats.compressionSavings > 0 ? (this.stats.compressionSavings / (this.stats.compressionSavings + totalMemorySize)) * 100 : 0,
+      compressionRatio:
+        this.stats.compressionSavings > 0
+          ? (this.stats.compressionSavings / (this.stats.compressionSavings + totalMemorySize)) *
+            100
+          : 0,
       averageAccessTime: avgAccessTime,
-      cacheEfficiency: totalRequests > 0 ? (this.stats.hits / (this.stats.hits + this.stats.evictions)) * 100 : 0
+      cacheEfficiency:
+        totalRequests > 0 ? (this.stats.hits / (this.stats.hits + this.stats.evictions)) * 100 : 0,
     };
   }
 
@@ -602,7 +612,8 @@ export class AdvancedCache<T = any> {
 
     // Export persistent cache
     for (const [key, entry] of this.persistentCache) {
-      if (!exportData[key]) { // Prefer memory cache version
+      if (!exportData[key]) {
+        // Prefer memory cache version
         exportData[key] = entry;
       }
     }
@@ -614,16 +625,18 @@ export class AdvancedCache<T = any> {
     console.log(`[Cache] Importing ${Object.keys(importData).length} cache entries...`);
 
     const entries = Object.values(importData);
-    await this.setMultiple(entries.map(entry => ({
-      key: entry.key,
-      value: entry.value,
-      options: {
-        ttl: entry.ttl,
-        tags: entry.tags,
-        metadata: entry.metadata,
-        skipCompression: true // Already compressed in export
-      }
-    })));
+    await this.setMultiple(
+      entries.map(entry => ({
+        key: entry.key,
+        value: entry.value,
+        options: {
+          ttl: entry.ttl,
+          tags: entry.tags,
+          metadata: entry.metadata,
+          skipCompression: true, // Already compressed in export
+        },
+      }))
+    );
   }
 
   // ─── Lifecycle Management ────────────────────────────────────────────
@@ -653,7 +666,7 @@ export class APICache extends AdvancedCache {
       defaultTTL: 15 * 60 * 1000, // 15 minutes for API responses
       evictionPolicy: 'ttl',
       enablePersistence: true,
-      enableAnalytics: true
+      enableAnalytics: true,
     });
   }
 
@@ -662,18 +675,25 @@ export class APICache extends AdvancedCache {
     return await this.get(cacheKey);
   }
 
-  async setAPIResponse(endpoint: string, params: Record<string, any> | undefined, response: any, ttl?: number): Promise<void> {
+  async setAPIResponse(
+    endpoint: string,
+    params: Record<string, any> | undefined,
+    response: any,
+    ttl?: number
+  ): Promise<void> {
     const cacheKey = this.generateAPIKey(endpoint, params);
     await this.set(cacheKey, response, {
       ttl: ttl || this.config.defaultTTL,
       tags: ['api', endpoint.split('/')[1] || 'unknown'],
-      metadata: { endpoint, params, responseType: typeof response }
+      metadata: { endpoint, params, responseType: typeof response },
     });
   }
 
   private generateAPIKey(endpoint: string, params?: Record<string, any>): string {
     const paramString = params ? JSON.stringify(params) : '';
-    return `api_${btoa(endpoint + paramString).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32)}`;
+    return `api_${btoa(endpoint + paramString)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .substring(0, 32)}`;
   }
 }
 
@@ -684,11 +704,11 @@ export class DOMCache extends AdvancedCache<Document | Element> {
       defaultTTL: 5 * 60 * 1000, // 5 minutes for DOM elements
       evictionPolicy: 'lru',
       enablePersistence: false, // DOM elements can't be persisted
-      enableAnalytics: true
+      enableAnalytics: true,
     });
   }
 
-  async getDOMElement(selector: string, context?: Element): Promise<Element | null> {
+  async getDOMElement(selector: string, context?: Element): Promise<Document | Element | null> {
     const cacheKey = `dom_${selector}_${context ? context.tagName : 'document'}`;
     return await this.get(cacheKey);
   }
@@ -698,7 +718,7 @@ export class DOMCache extends AdvancedCache<Document | Element> {
     await this.set(cacheKey, element, {
       ttl: this.config.defaultTTL,
       tags: ['dom', selector.split(' ')[0]],
-      metadata: { selector, contextTag: context?.tagName }
+      metadata: { selector, contextTag: context?.tagName },
     });
   }
 }
@@ -711,38 +731,47 @@ export class AssetCache extends AdvancedCache<string> {
       evictionPolicy: 'size',
       enablePersistence: true,
       enableAnalytics: true,
-      compressionEnabled: true
+      compressionEnabled: true,
     });
   }
 
   async getAsset(url: string): Promise<string | null> {
-    const cacheKey = `asset_${btoa(url).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32)}`;
+    const cacheKey = `asset_${btoa(url)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .substring(0, 32)}`;
     return await this.get(cacheKey);
   }
 
   async setAsset(url: string, content: string): Promise<void> {
-    const cacheKey = `asset_${btoa(url).replace(/[^a-zA-Z0-9]/g, '').substring(0, 32)}`;
+    const cacheKey = `asset_${btoa(url)
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .substring(0, 32)}`;
     await this.set(cacheKey, content, {
       ttl: this.config.defaultTTL,
       tags: ['asset', this.getAssetType(url)],
-      metadata: { url, size: content.length }
+      metadata: { url, size: content.length },
     });
   }
 
   private getAssetType(url: string): string {
     const extension = url.split('.').pop()?.toLowerCase();
     switch (extension) {
-      case 'js': return 'javascript';
-      case 'css': return 'stylesheet';
+      case 'js':
+        return 'javascript';
+      case 'css':
+        return 'stylesheet';
       case 'png':
       case 'jpg':
       case 'jpeg':
       case 'gif':
-      case 'webp': return 'image';
+      case 'webp':
+        return 'image';
       case 'woff':
       case 'woff2':
-      case 'ttf': return 'font';
-      default: return 'unknown';
+      case 'ttf':
+        return 'font';
+      default:
+        return 'unknown';
     }
   }
 }
@@ -759,7 +788,7 @@ export const generalCache = new AdvancedCache({
   evictionPolicy: 'lru',
   enablePersistence: true,
   enableAnalytics: true,
-  syncAcrossTabs: true
+  syncAcrossTabs: true,
 });
 
 // ─── Cache Manager for Orchestrating Multiple Caches ──────────────────
@@ -826,7 +855,7 @@ export const cache = {
   invalidateByTag: (tag: string) => generalCache.invalidateByTag(tag),
   invalidateByPattern: (pattern: RegExp) => generalCache.invalidateByPattern(pattern),
   getStats: () => generalCache.getStats(),
-  warm: (keys: string[]) => generalCache.warmCache(keys)
+  warm: (keys: string[]) => generalCache.warmCache(keys),
 };
 
 // ─── Export Default ────────────────────────────────────────────────────

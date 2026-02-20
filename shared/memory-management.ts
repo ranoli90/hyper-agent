@@ -63,7 +63,7 @@ export class MemoryManager {
       gcThreshold: 50 * 1024 * 1024, // 50MB increase triggers GC
       warningThreshold: 70,
       criticalThreshold: 85,
-      ...config
+      ...config,
     };
 
     if (this.config.monitoringEnabled) {
@@ -111,7 +111,7 @@ export class MemoryManager {
       usedPercentage: (memInfo.usedJSHeapSize / memInfo.jsHeapSizeLimit) * 100,
       trend: 'stable',
       gcEvents: 0, // Would need performance.memory API extension
-      allocations: 0
+      allocations: 0,
     };
 
     // Calculate trend
@@ -119,9 +119,11 @@ export class MemoryManager {
       const previous = this.snapshots[this.snapshots.length - 1];
       const diff = current.usedJSHeapSize - previous.usedJSHeapSize;
 
-      if (diff > 1024 * 1024) { // 1MB increase
+      if (diff > 1024 * 1024) {
+        // 1MB increase
         current.trend = 'increasing';
-      } else if (diff < -1024 * 1024) { // 1MB decrease
+      } else if (diff < -1024 * 1024) {
+        // 1MB decrease
         current.trend = 'decreasing';
       }
     }
@@ -144,12 +146,13 @@ export class MemoryManager {
     if (!latest) return;
 
     if (latest.usedPercentage >= this.config.criticalThreshold) {
-      console.error(`[MemoryManager] CRITICAL: Memory usage at ${latest.usedPercentage.toFixed(1)}%`);
+      console.error(
+        `[MemoryManager] CRITICAL: Memory usage at ${latest.usedPercentage.toFixed(1)}%`
+      );
       this.performEmergencyCleanup();
 
       // Notify user through extension
       this.notifyUserOfMemoryIssue('critical', latest.usedPercentage);
-
     } else if (latest.usedPercentage >= this.config.warningThreshold) {
       console.warn(`[MemoryManager] WARNING: Memory usage at ${latest.usedPercentage.toFixed(1)}%`);
       this.notifyUserOfMemoryIssue('warning', latest.usedPercentage);
@@ -162,7 +165,7 @@ export class MemoryManager {
       severity,
       message: `Memory usage is high (${percentage.toFixed(1)}%). Consider refreshing the extension.`,
       percentage,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     if (chrome.runtime?.sendMessage) {
@@ -239,7 +242,8 @@ export class MemoryManager {
       }
     }
 
-    if (persistentObjects.size > 10) { // Arbitrary threshold
+    if (persistentObjects.size > 10) {
+      // Arbitrary threshold
       this.recordLeak({
         id: 'persistent_global_objects',
         type: 'persistent_object',
@@ -248,7 +252,7 @@ export class MemoryManager {
         sizeEstimate: persistentObjects.size * 1000, // Rough estimate
         firstDetected: Date.now(),
         lastSeen: Date.now(),
-        occurrences: 1
+        occurrences: 1,
       });
     }
   }
@@ -280,7 +284,7 @@ export class MemoryManager {
         sizeEstimate: collection.size * 100, // Rough estimate
         firstDetected: Date.now(),
         lastSeen: Date.now(),
-        occurrences: 1
+        occurrences: 1,
       });
     });
   }
@@ -298,7 +302,8 @@ export class MemoryManager {
       }
     });
 
-    if (totalListeners > 1000) { // Arbitrary threshold
+    if (totalListeners > 1000) {
+      // Arbitrary threshold
       this.recordLeak({
         id: 'uncleaned_event_listeners',
         type: 'uncleaned_event_listener',
@@ -307,14 +312,15 @@ export class MemoryManager {
         sizeEstimate: totalListeners * 50, // Rough estimate per listener
         firstDetected: Date.now(),
         lastSeen: Date.now(),
-        occurrences: 1
+        occurrences: 1,
       });
     }
   }
 
   private detectOrphanedTimers(): void {
     // Check for orphaned timers
-    if (this.timers.size > 50) { // Arbitrary threshold
+    if (this.timers.size > 50) {
+      // Arbitrary threshold
       this.recordLeak({
         id: 'orphaned_timers',
         type: 'orphaned_timer',
@@ -322,7 +328,7 @@ export class MemoryManager {
         description: `High number of active timers: ${this.timers.size}`,
         firstDetected: Date.now(),
         lastSeen: Date.now(),
-        occurrences: 1
+        occurrences: 1,
       });
     }
   }
@@ -339,11 +345,13 @@ export class MemoryManager {
   }
 
   private reportDetectedLeaks(): void {
-    const criticalLeaks = Array.from(this.detectedLeaks.values())
-      .filter(leak => leak.severity === 'critical');
+    const criticalLeaks = Array.from(this.detectedLeaks.values()).filter(
+      leak => leak.severity === 'critical'
+    );
 
-    const highLeaks = Array.from(this.detectedLeaks.values())
-      .filter(leak => leak.severity === 'high');
+    const highLeaks = Array.from(this.detectedLeaks.values()).filter(
+      leak => leak.severity === 'high'
+    );
 
     if (criticalLeaks.length > 0) {
       console.error('[MemoryManager] CRITICAL LEAKS DETECTED:', criticalLeaks);
@@ -359,7 +367,7 @@ export class MemoryManager {
       criticalLeaks: criticalLeaks.length,
       highLeaks: highLeaks.length,
       totalLeaks: this.detectedLeaks.size,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
 
     if (chrome.runtime?.sendMessage) {
@@ -399,7 +407,7 @@ export class MemoryManager {
 
   private clearExpiredCaches(): void {
     // Clear any cached data older than 1 hour
-    const cutoff = Date.now() - (60 * 60 * 1000);
+    const cutoff = Date.now() - 60 * 60 * 1000;
 
     try {
       // Clear localStorage caches
@@ -422,19 +430,22 @@ export class MemoryManager {
       });
 
       // Clear chrome.storage caches
-      chrome.storage.local.get(null).then(data => {
-        const keysToRemove = Object.keys(data).filter(key => {
-          if (key.startsWith('cache_') || key.startsWith('temp_')) {
-            const item = data[key];
-            return item.timestamp && item.timestamp < cutoff;
-          }
-          return false;
-        });
+      chrome.storage.local
+        .get(null)
+        .then((data: Record<string, any>) => {
+          const keysToRemove = Object.keys(data).filter(key => {
+            if (key.startsWith('cache_') || key.startsWith('temp_')) {
+              const item = data[key];
+              return item.timestamp && item.timestamp < cutoff;
+            }
+            return false;
+          });
 
-        if (keysToRemove.length > 0) {
-          chrome.storage.local.remove(keysToRemove);
-        }
-      });
+          if (keysToRemove.length > 0) {
+            chrome.storage.local.remove(keysToRemove);
+          }
+        })
+        .catch(() => {});
     } catch (error) {
       console.warn('[MemoryManager] Error clearing expired caches:', error);
     }
@@ -445,10 +456,8 @@ export class MemoryManager {
     try {
       // Clear all cache-like localStorage entries
       const keys = Object.keys(localStorage);
-      const cacheKeys = keys.filter(key =>
-        key.startsWith('cache_') ||
-        key.startsWith('temp_') ||
-        key.includes('log')
+      const cacheKeys = keys.filter(
+        key => key.startsWith('cache_') || key.startsWith('temp_') || key.includes('log')
       );
       cacheKeys.forEach(key => localStorage.removeItem(key));
 
@@ -504,7 +513,7 @@ export class MemoryManager {
 
   private cleanupOldSnapshots(): void {
     // Keep only last 24 hours of snapshots
-    const cutoff = Date.now() - (24 * 60 * 60 * 1000);
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     const oldCount = this.snapshots.length;
     this.snapshots = this.snapshots.filter(snapshot => snapshot.timestamp > cutoff);
 
@@ -566,7 +575,7 @@ export class MemoryManager {
       peakUsage,
       trend,
       leakCount: this.detectedLeaks.size,
-      criticalLeaks
+      criticalLeaks,
     };
   }
 
@@ -616,7 +625,7 @@ export const memoryManager = new MemoryManager({
   leakCheckInterval: 300000, // 5 minutes
   gcThreshold: 50 * 1024 * 1024, // 50MB
   warningThreshold: 70,
-  criticalThreshold: 85
+  criticalThreshold: 85,
 });
 
 // ─── Convenience Functions ────────────────────────────────────────────
@@ -629,10 +638,9 @@ export const mem = {
     memoryManager.trackObserver(observer),
   untrackObserver: (observer: MutationObserver | IntersectionObserver | PerformanceObserver) =>
     memoryManager.untrackObserver(observer),
-  trackWeakRef: (ref: WeakRef<object>) =>
-    memoryManager.trackWeakRef(ref),
+  trackWeakRef: (ref: WeakRef<object>) => memoryManager.trackWeakRef(ref),
   getStats: () => memoryManager.getMemoryStats(),
-  forceCleanup: () => memoryManager.forceCleanup()
+  forceCleanup: () => memoryManager.forceCleanup(),
 };
 
 // ─── Enhanced Timer/Observer Wrappers ────────────────────────────────
@@ -668,7 +676,9 @@ export function safeClearInterval(intervalId: number): void {
 }
 
 // Safe observer creation with automatic tracking
-export function createTrackedObserver<T extends MutationObserver | IntersectionObserver | PerformanceObserver>(
+export function createTrackedObserver<
+  T extends MutationObserver | IntersectionObserver | PerformanceObserver,
+>(
   ObserverClass: new (callback: (entries: any[]) => void) => T,
   callback: (entries: any[]) => void
 ): T {
@@ -684,18 +694,20 @@ export class MemorySafeCache<K extends object, V> {
   private cache = new WeakMap<K, { value: V; timestamp: number; ttl: number }>();
   private cleanupInterval: number;
 
-  constructor(cleanupInterval = 300000) { // 5 minutes
+  constructor(cleanupInterval = 300000) {
+    // 5 minutes
     this.cleanupInterval = window.setInterval(() => {
       this.cleanup();
     }, cleanupInterval);
     memoryManager.trackTimer(this.cleanupInterval, true);
   }
 
-  set(key: K, value: V, ttl = 300000): void { // 5 minutes default TTL
+  set(key: K, value: V, ttl = 300000): void {
+    // 5 minutes default TTL
     this.cache.set(key, {
       value,
       timestamp: Date.now(),
-      ttl
+      ttl,
     });
   }
 
