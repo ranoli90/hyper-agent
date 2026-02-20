@@ -376,17 +376,19 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 function renderMarkdown(text: string): string {
   try {
     let html = text.replace(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre><code class="language-${lang}">${escapeHtml(code.trim())}</code></pre>`;
+      return `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(code.trim())}</code></pre>`;
     });
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
+    html = html.replace(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${escapeHtml(t)}</strong>`);
+    html = html.replace(/\*([^*]+)\*/g, (_, t) => `<em>${escapeHtml(t)}</em>`);
     html = html.replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+      (_, linkText, href) => {
+        const safeHref = /^https?:\/\//i.test(href) ? escapeHtml(href) : '#';
+        return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkText)}</a>`;
+      }
     );
 
-    // Wrap lines in paragraphs if they aren't already block elements
     html = html
       .split('\n\n')
       .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
@@ -502,12 +504,28 @@ const saveHistory = debounce(async () => {
 }, 500);
 
 async function loadHistory() {
-  const data = await chrome.storage.local.get('chat_history_backup');
-  if (data.chat_history_backup) {
-    components.chatHistory.innerHTML = data.chat_history_backup;
-    scrollToBottom();
+  try {
+    const data = await chrome.storage.local.get('chat_history_backup');
+    if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
+      const sanitized = data.chat_history_backup
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
+      components.chatHistory.innerHTML = sanitized;
+      scrollToBottom();
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to load chat history:', err);
   }
 }
+
+// Save on close to prevent data loss from debounce
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    try {
+      chrome.storage.local.set({ chat_history_backup: components.chatHistory.innerHTML });
+    } catch {}
+  }
+});
 
 // ─── Command History ──────────────────────────────────────────────
 async function loadCommandHistory() {
@@ -1165,7 +1183,17 @@ chrome.runtime.onMessage.addListener((message: any) => {
       }
       if (typeof message.step === 'string') updateStepper(message.step);
       if (typeof message.summary === 'string') addMessage(message.summary, 'thinking');
-      if (typeof message.progress === 'number') updateProgress(message.progress);
+
+      // Compute progress from status text "Step N/M" pattern, or use explicit progress
+      if (typeof message.progress === 'number') {
+        updateProgress(message.progress);
+      } else if (typeof message.status === 'string') {
+        const stepMatch = message.status.match(/Step\s+(\d+)\s*\/\s*(\d+)/i);
+        if (stepMatch) {
+          const pct = (parseInt(stepMatch[1], 10) / parseInt(stepMatch[2], 10)) * 100;
+          updateProgress(Math.min(95, pct));
+        }
+      }
 
       // Live Trace: Display the physical actions the agent is taking
       if (Array.isArray(message.actionDescriptions) && message.actionDescriptions.length > 0) {
@@ -1293,9 +1321,9 @@ let voiceInterface = new VoiceInterface({
 components.btnMic.addEventListener('click', () => {
   try {
     if (voiceInterface.isListening) {
-      voiceInterface.stop();
+      voiceInterface.stopListening();
     } else {
-      voiceInterface.start();
+      voiceInterface.startListening();
     }
   } catch (err) {
     console.warn('[HyperAgent] Voice interface error:', err);

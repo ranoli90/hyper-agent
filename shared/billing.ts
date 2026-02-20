@@ -298,7 +298,13 @@ export class BillingManager {
       },
     });
 
-    chrome.tabs.create({ url: `${url}?client_reference_id=${clientReferenceId}` });
+    try {
+      const checkoutUrl = new URL(url);
+      checkoutUrl.searchParams.set('client_reference_id', clientReferenceId);
+      chrome.tabs.create({ url: checkoutUrl.toString() });
+    } catch {
+      chrome.tabs.create({ url: `${url}?client_reference_id=${clientReferenceId}` });
+    }
   }
 
   isFeatureAllowed(feature: string): boolean {

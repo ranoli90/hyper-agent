@@ -613,12 +613,6 @@ export interface Workflow {
   startStep?: string;
 }
 
-export interface WorkflowAction {
-  type: 'runWorkflow';
-  workflowId: string;
-  destructive?: boolean;
-}
-
 export type ExtensionMessage =
   | MsgExecuteCommand
   | MsgStopAgent

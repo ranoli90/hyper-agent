@@ -1354,7 +1354,12 @@ export default defineBackground(() => {
           await SnapshotManager.clear(message.taskId);
           return { ok: true };
         }
-        return { ok: false, error: 'No taskId provided' };
+        // Clear ALL snapshots when no taskId provided
+        const allSnapshots = await SnapshotManager.listAll();
+        for (const snap of allSnapshots) {
+          await SnapshotManager.clear(snap.taskId);
+        }
+        return { ok: true };
       }
 
       case 'parseIntent': {
@@ -2307,8 +2312,10 @@ export default defineBackground(() => {
 
   async function switchToTab(tabId: number): Promise<{ success: boolean; error?: string }> {
     try {
-      await chrome.tabs.update(tabId, { active: true });
-      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => {});
+      const tab = await chrome.tabs.update(tabId, { active: true });
+      if (tab?.windowId) {
+        await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+      }
       await waitForTabLoad(tabId);
       return { success: true };
     } catch (err: any) {
@@ -2455,13 +2462,9 @@ Return JSON:
   }
 
   // ─── Scheduler Integration ─────────────────────────────────────
+  // Note: schedulerEngine.initialize() sets up its own alarm listener internally,
+  // so we do NOT add a duplicate chrome.alarms.onAlarm listener here.
   schedulerEngine.initialize().catch((err: any) => {
     console.error('[Background] Scheduler initialization failed:', err);
-  });
-
-  chrome.alarms.onAlarm.addListener(alarm => {
-    schedulerEngine.handleAlarm(alarm).catch((err: any) => {
-      console.error('[Background] Scheduler alarm handle failed:', err);
-    });
   });
 });

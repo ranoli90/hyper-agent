@@ -123,8 +123,7 @@ async function loadCurrentSettings() {
     status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
   });
 
-  // Model is fixed to google/gemini-2.5-flash
-  modelStatusText.textContent = 'Model: google/gemini-2.5-flash';
+  modelStatusText.textContent = `Model: ${DEFAULTS.MODEL_NAME}`;
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -159,8 +158,8 @@ btnSave.addEventListener('click', async () => {
   await saveSettings({
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: 'google/gemini-2.5-flash',
-    backupModel: 'google/gemini-2.5-flash',
+    modelName: DEFAULTS.MODEL_NAME,
+    backupModel: DEFAULTS.BACKUP_MODEL,
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
