@@ -17,15 +17,15 @@ export class StealthEngine {
 
             // 1. Variable speed: 50ms to 250ms per key
             const delay = Math.random() * 200 + 50;
-            await new Promise(r => setTimeout(r, delay));
+            await new Promise(r => globalThis.setTimeout(r, delay));
 
             // 2. Occasional "mistake" and backspace (1% chance)
             if (Math.random() < 0.01 && i > 1) {
                 const wrongChar = String.fromCharCode(Math.random() * 26 + 97);
                 element.value += wrongChar;
-                await new Promise(r => setTimeout(r, 100));
+                await new Promise(r => globalThis.setTimeout(r, 100));
                 element.value = element.value.slice(0, -1);
-                await new Promise(r => setTimeout(r, 200));
+                await new Promise(r => globalThis.setTimeout(r, 200));
             }
 
             // 3. Dispatch full event sequence
@@ -71,7 +71,7 @@ export class StealthEngine {
             this.dispatchMouseEvent('mousemove', x, y, document);
 
             // Random delay to simulate variable human speed
-            await new Promise(r => setTimeout(r, Math.random() * 5 + 2));
+            await new Promise(r => globalThis.setTimeout(r, Math.random() * 5 + 2));
         }
     }
 
@@ -93,11 +93,11 @@ export class StealthEngine {
         this.dispatchMouseEvent('mouseenter', x, y, element);
 
         // Human-like pause after hovering but before clicking
-        await new Promise(r => setTimeout(r, Math.random() * 100 + 50));
+        await new Promise(r => globalThis.setTimeout(r, Math.random() * 100 + 50));
 
         // 2. Mousedown with realistic pressure timing
         this.dispatchMouseEvent('mousedown', x, y, element);
-        await new Promise(r => setTimeout(r, Math.random() * 50 + 30));
+        await new Promise(r => globalThis.setTimeout(r, Math.random() * 50 + 30));
 
         // 3. Ensure focus is handled correctly (vital for SPAs)
         element.focus();

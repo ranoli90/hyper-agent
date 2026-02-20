@@ -73,16 +73,16 @@ export class IntelligentClarificationEngine {
   private operationLoopIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    this.cleanupIntervalId = setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000);
+    this.cleanupIntervalId = globalThis.setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000);
   }
 
   destroy(): void {
     if (this.cleanupIntervalId !== null) {
-      clearInterval(this.cleanupIntervalId);
+      globalThis.clearInterval(this.cleanupIntervalId);
       this.cleanupIntervalId = null;
     }
     if (this.operationLoopIntervalId !== null) {
-      clearInterval(this.operationLoopIntervalId);
+      globalThis.clearInterval(this.operationLoopIntervalId);
       this.operationLoopIntervalId = null;
     }
   }
@@ -802,7 +802,7 @@ export class PersistentOperationEngine {
   }
 
   private startPersistentOperationLoop(): void {
-    this.operationLoopIntervalId = setInterval(() => {
+    this.operationLoopIntervalId = globalThis.setInterval(() => {
       this.processAllSessions();
       this.generateGlobalSuggestions();
       this.processBackgroundTasks();
@@ -811,7 +811,7 @@ export class PersistentOperationEngine {
 
   destroy(): void {
     if (this.operationLoopIntervalId !== null) {
-      clearInterval(this.operationLoopIntervalId);
+      globalThis.clearInterval(this.operationLoopIntervalId);
       this.operationLoopIntervalId = null;
     }
   }

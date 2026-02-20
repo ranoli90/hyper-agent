@@ -111,7 +111,7 @@ export class PersistentAutonomousEngine {
 
   private startContinuousOperation(): void {
     // Run continuous operation loop every 30 seconds
-    this.continuousOperationInterval = setInterval(() => {
+    this.continuousOperationInterval = globalThis.setInterval(() => {
       this.processAllSessions();
       this.generateGlobalSuggestions();
       this.executeBackgroundTasks();
@@ -698,7 +698,7 @@ export class PersistentAutonomousEngine {
   }
 
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => globalThis.setTimeout(resolve, ms));
   }
 
   private generateGlobalSuggestions(): void {
@@ -755,7 +755,7 @@ export class PersistentAutonomousEngine {
   // Cleanup method
   destroy(): void {
     if (this.continuousOperationInterval) {
-      clearInterval(this.continuousOperationInterval);
+      globalThis.clearInterval(this.continuousOperationInterval);
     }
   }
 }

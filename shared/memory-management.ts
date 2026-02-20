@@ -80,21 +80,21 @@ export class MemoryManager {
     this.takeMemorySnapshot();
 
     // Start periodic monitoring (use global setInterval - service workers have no window)
-    this.monitoringInterval = setInterval(() => {
+    this.monitoringInterval = globalThis.setInterval(() => {
       this.takeMemorySnapshot();
       this.checkMemoryThresholds();
     }, this.config.snapshotInterval);
 
     // Start leak detection
     if (this.config.leakDetectionEnabled) {
-      this.leakCheckInterval = setInterval(() => {
+      this.leakCheckInterval = globalThis.setInterval(() => {
         this.detectMemoryLeaks();
       }, this.config.leakCheckInterval);
     }
 
     // Start automatic cleanup
     if (this.config.autoCleanupEnabled) {
-      this.cleanupInterval = setInterval(() => {
+      this.cleanupInterval = globalThis.setInterval(() => {
         this.performAutomaticCleanup();
       }, this.config.cleanupInterval);
     }
@@ -198,7 +198,7 @@ export class MemoryManager {
       const images = document.querySelectorAll('img[data-cache]');
       images.forEach(img => {
         if ((img as any)._cacheTimeout) {
-          clearTimeout((img as any)._cacheTimeout);
+          globalThis.clearTimeout((img as any)._cacheTimeout);
           (img as any)._cacheTimeout = null;
         }
       });
@@ -506,12 +506,12 @@ export class MemoryManager {
   private cleanupAllTimers(): void {
     // Clear all tracked timers
     this.timers.forEach(timerId => {
-      clearTimeout(timerId);
+      globalThis.clearTimeout(timerId);
     });
     this.timers.clear();
 
     this.intervals.forEach(intervalId => {
-      clearInterval(intervalId);
+      globalThis.clearInterval(intervalId);
     });
     this.intervals.clear();
 
@@ -611,13 +611,13 @@ export class MemoryManager {
   destroy(): void {
     // Clean up all resources
     if (this.monitoringInterval) {
-      clearInterval(this.monitoringInterval);
+      globalThis.clearInterval(this.monitoringInterval);
     }
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+      globalThis.clearInterval(this.cleanupInterval);
     }
     if (this.leakCheckInterval) {
-      clearInterval(this.leakCheckInterval);
+      globalThis.clearInterval(this.leakCheckInterval);
     }
 
     this.cleanupAllTimers();
@@ -664,7 +664,7 @@ export const mem = {
 
 // Safe setTimeout that tracks memory usage (use global - service workers have no window)
 export function safeSetTimeout(callback: () => void, delay: number): number {
-  const timerId = setTimeout(() => {
+  const timerId = globalThis.setTimeout(() => {
     memoryManager.untrackTimer(timerId);
     callback();
   }, delay);
@@ -675,7 +675,7 @@ export function safeSetTimeout(callback: () => void, delay: number): number {
 
 // Safe setInterval that tracks memory usage (use global - service workers have no window)
 export function safeSetInterval(callback: () => void, delay: number): number {
-  const intervalId = setInterval(callback, delay);
+  const intervalId = globalThis.setInterval(callback, delay);
   memoryManager.trackTimer(intervalId, true);
   return intervalId;
 }
@@ -683,13 +683,13 @@ export function safeSetInterval(callback: () => void, delay: number): number {
 // Safe clearTimeout that updates tracking
 export function safeClearTimeout(timerId: number): void {
   memoryManager.untrackTimer(timerId);
-  clearTimeout(timerId);
+  globalThis.clearTimeout(timerId);
 }
 
 // Safe clearInterval that updates tracking
 export function safeClearInterval(intervalId: number): void {
   memoryManager.untrackTimer(intervalId, true);
-  clearInterval(intervalId);
+  globalThis.clearInterval(intervalId);
 }
 
 // Safe observer creation with automatic tracking
@@ -713,7 +713,7 @@ export class MemorySafeCache<K extends object, V> {
 
   constructor(cleanupInterval = 300000) {
     // 5 minutes (use global - service workers have no window)
-    this.cleanupInterval = setInterval(() => {
+    this.cleanupInterval = globalThis.setInterval(() => {
       this.cleanup();
     }, cleanupInterval);
     memoryManager.trackTimer(this.cleanupInterval, true);
@@ -766,7 +766,7 @@ export class MemorySafeCache<K extends object, V> {
   }
 
   destroy(): void {
-    clearInterval(this.cleanupInterval);
+    globalThis.clearInterval(this.cleanupInterval);
     memoryManager.untrackTimer(this.cleanupInterval, true);
     this.clear();
   }

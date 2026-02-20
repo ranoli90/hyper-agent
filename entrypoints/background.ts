@@ -135,8 +135,8 @@ class UsageTracker {
   }
 
   private scheduleSave(): void {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => {
+    if (this.saveTimeout) globalThis.clearTimeout(this.saveTimeout);
+    this.saveTimeout = globalThis.setTimeout(() => {
       this.saveTimeout = null;
       this.saveMetrics();
     }, SAVE_DEBOUNCE_MS);
@@ -864,7 +864,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
  */
 export default defineBackground(() => {
   // ─── Cleanup intervals ───────────────────────────────────────────────
-  setInterval(
+  globalThis.setInterval(
     () => {
       rateLimiter.cleanup();
       agentState.cleanupExpiredRecoveryAttempts();
@@ -899,7 +899,7 @@ export default defineBackground(() => {
         .catch(e => logger.log('error', 'Global learning fetch failed', e));
 
       // Set up periodic sync
-      setInterval(
+      globalThis.setInterval(
         () => {
           globalLearning
             .publishPatterns()
@@ -992,7 +992,7 @@ export default defineBackground(() => {
       }
 
       if (command) {
-        setTimeout(() => {
+        globalThis.setTimeout(() => {
           sendToSidePanel({ type: 'contextMenuCommand', command });
         }, 600);
       }
@@ -1758,7 +1758,7 @@ export default defineBackground(() => {
         summary,
       } as MsgConfirmActions);
 
-      setTimeout(() => {
+      globalThis.setTimeout(() => {
         if (agentState.hasPendingConfirm) {
           agentState.resolveConfirm(false);
         }
@@ -1771,7 +1771,7 @@ export default defineBackground(() => {
       agentState.setReplyResolver(resolve);
       sendToSidePanel({ type: 'askUser', question });
 
-      setTimeout(() => {
+      globalThis.setTimeout(() => {
         if (agentState.hasPendingReply) {
           agentState.resolveReply('');
         }
@@ -2284,7 +2284,7 @@ export default defineBackground(() => {
         const llmCallPromise = llmClient.callLLM({ command, history, context });
         const llmTimeoutMs = DEFAULTS.LLM_TIMEOUT_MS ?? 45000;
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
+          globalThis.setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
         );
         try {
           llmResponse = await Promise.race([llmCallPromise, timeoutPromise]);
@@ -2550,7 +2550,7 @@ export default defineBackground(() => {
   async function waitForTabLoad(tabId: number): Promise<void> {
     return new Promise(resolve => {
       let resolved = false;
-      const timeout = setTimeout(() => {
+      const timeout = globalThis.setTimeout(() => {
         if (!resolved) {
           resolved = true;
           chrome.tabs.onUpdated.removeListener(listener);
@@ -2562,9 +2562,9 @@ export default defineBackground(() => {
         if (updatedTabId === tabId && changeInfo.status === 'complete') {
           if (!resolved) {
             resolved = true;
-            clearTimeout(timeout);
+            globalThis.clearTimeout(timeout);
             chrome.tabs.onUpdated.removeListener(listener);
-            setTimeout(resolve, 600);
+            globalThis.setTimeout(resolve, 600);
           }
         }
       }
@@ -2574,7 +2574,7 @@ export default defineBackground(() => {
   }
 
   function delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => globalThis.setTimeout(resolve, ms));
   }
 
   // ─── Reflex Verification Helper ──────────────────────────────────

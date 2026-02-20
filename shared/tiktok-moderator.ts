@@ -153,7 +153,7 @@ export class ModerationEngine {
     private async checkSemanticRule(comment: TikTokComment, rule: ModerationRule): Promise<boolean> {
         // Simple rate limiter: max 1 semantic check per 2 seconds per rule
         // (In a real app, this should be more sophisticated)
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => globalThis.setTimeout(resolve, 2000));
 
         const prompt = `
     Analyze this TikTok comment against the following rule.

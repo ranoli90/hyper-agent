@@ -248,17 +248,17 @@ export class RetryManager {
     }
 
     return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
+      const timeoutId = globalThis.setTimeout(() => {
         reject(new Error(`Operation timed out after ${timeout}ms`));
       }, timeout);
 
       operation()
         .then(result => {
-          clearTimeout(timeoutId);
+          globalThis.clearTimeout(timeoutId);
           resolve(result);
         })
         .catch(error => {
-          clearTimeout(timeoutId);
+          globalThis.clearTimeout(timeoutId);
           reject(error);
         });
     });
@@ -317,7 +317,7 @@ export class RetryManager {
   }
 
   private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise(resolve => globalThis.setTimeout(resolve, ms));
   }
 
   // Circuit breaker management

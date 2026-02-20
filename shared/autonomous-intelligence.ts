@@ -211,7 +211,7 @@ Current page context will be provided. Return 'SUCCESS' if the step appears comp
                     }
 
                     // Brief pause between steps
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(resolve => globalThis.setTimeout(resolve, 1000));
 
                 } catch (stepError: any) {
                     console.error(`[AutonomousIntelligence] Step ${step.id} error:`, stepError);

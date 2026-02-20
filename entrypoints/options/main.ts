@@ -3,6 +3,27 @@ import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
 
+type SubscriptionTier = 'free' | 'premium' | 'unlimited';
+
+async function handleStripePaymentReturn(): Promise<void> {
+  const hash = window.location.hash;
+  const params = new URLSearchParams(window.location.search);
+
+  if (hash.includes('payment_success') || params.has('payment_success')) {
+    const tier = (params.get('tier') || hash.match(/tier=([^&]+)/)?.[1]) as SubscriptionTier | null;
+    const customerId = params.get('customerId') || hash.match(/customerId=([^&]+)/)?.[1];
+    const subscriptionId = params.get('subscriptionId') || hash.match(/subscriptionId=([^&]+)/)?.[1];
+
+    if (tier && (tier === 'premium' || tier === 'unlimited')) {
+      await chrome.storage.local.set({
+        stripe_payment_success: { tier, customerId: customerId || undefined, subscriptionId: subscriptionId || undefined },
+      });
+      window.history.replaceState({}, '', window.location.pathname);
+      showNotification(`Payment successful! Your ${tier} subscription is now active.`, 'success');
+    }
+  }
+}
+
 // ─── DOM references ─────────────────────────────────────────────
 const apiProviderInput = document.getElementById('api-provider') as HTMLSelectElement;
 const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
@@ -323,6 +344,7 @@ loadCurrentSettings();
 validateCurrentSettings();
 loadSiteConfigs();
 attachDangerZoneHandlers();
+handleStripePaymentReturn();
 
 // ─── Site Config Functions ────────────────────────────────────────
 

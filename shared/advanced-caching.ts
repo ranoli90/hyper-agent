@@ -507,7 +507,7 @@ export class AdvancedCache<T = any> {
   // ─── Maintenance ─────────────────────────────────────────────────────
   private setupCleanup(): void {
     // Clean up expired entries every 5 minutes
-    this.cleanupInterval = setInterval(
+    this.cleanupInterval = globalThis.setInterval(
       () => {
         this.cleanup();
       },
@@ -646,7 +646,7 @@ export class AdvancedCache<T = any> {
   // ─── Lifecycle Management ────────────────────────────────────────────
   destroy(): void {
     if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+      globalThis.clearInterval(this.cleanupInterval);
     }
 
     if (this.syncChannel) {
