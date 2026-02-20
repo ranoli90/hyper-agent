@@ -777,8 +777,8 @@ function renderMarketplaceWorkflows() {
       btnLabel = '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
       btnClass = 'install-btn locked';
     } else {
-      btnLabel = 'Install';
-      btnClass = 'install-btn';
+      btnLabel = 'Coming Soon'; btnDisabled = 'disabled';
+      btnClass = 'install-btn coming-soon';
     }
 
     const card = document.createElement('div');
@@ -809,6 +809,10 @@ function renderMarketplaceWorkflows() {
       const workflowId = target.dataset.workflowId;
       if (!workflowId) return;
 
+      if (target.classList.contains('coming-soon')) {
+        showToast('Workflows coming soon!', 'info');
+        return;
+      }
       if (target.classList.contains('locked')) {
         switchTab('subscription');
         showToast('Upgrade required for this workflow', 'warning');
