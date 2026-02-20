@@ -79,22 +79,22 @@ export class MemoryManager {
     // Take initial snapshot
     this.takeMemorySnapshot();
 
-    // Start periodic monitoring
-    this.monitoringInterval = window.setInterval(() => {
+    // Start periodic monitoring (use global setInterval - service workers have no window)
+    this.monitoringInterval = setInterval(() => {
       this.takeMemorySnapshot();
       this.checkMemoryThresholds();
     }, this.config.snapshotInterval);
 
     // Start leak detection
     if (this.config.leakDetectionEnabled) {
-      this.leakCheckInterval = window.setInterval(() => {
+      this.leakCheckInterval = setInterval(() => {
         this.detectMemoryLeaks();
       }, this.config.leakCheckInterval);
     }
 
     // Start automatic cleanup
     if (this.config.autoCleanupEnabled) {
-      this.cleanupInterval = window.setInterval(() => {
+      this.cleanupInterval = setInterval(() => {
         this.performAutomaticCleanup();
       }, this.config.cleanupInterval);
     }
@@ -103,7 +103,8 @@ export class MemoryManager {
   }
 
   private takeMemorySnapshot(): void {
-    const memInfo = (performance as any).memory;
+    // performance.memory is Chrome-only and does NOT exist in service workers
+    const memInfo = typeof performance !== 'undefined' ? (performance as any).memory : undefined;
     if (!memInfo) return;
 
     const current: MemorySnapshot = {
@@ -178,9 +179,9 @@ export class MemoryManager {
 
   // ─── Garbage Collection ────────────────────────────────────────────────
   private attemptGarbageCollection(): void {
-    // Force garbage collection (Chrome DevTools only)
-    if ((window as any).gc) {
-      (window as any).gc();
+    // Force garbage collection (Chrome DevTools only; skip in service worker)
+    if (typeof (globalThis as any).window !== 'undefined' && (globalThis as any).window?.gc) {
+      ((globalThis as any).window as any).gc();
       console.log('[MemoryManager] Manual garbage collection triggered');
     }
 
@@ -189,6 +190,8 @@ export class MemoryManager {
   }
 
   private clearUnusedCaches(): void {
+    // Skip DOM-dependent cleanup in service worker (no document)
+    if (typeof document === 'undefined') return;
     // Clear any extension-specific caches
     try {
       // Clear image caches
@@ -201,11 +204,11 @@ export class MemoryManager {
       });
 
       // Clear fetch caches if available
-      if ('caches' in window) {
-        caches.keys().then(names => {
+      if (typeof globalThis !== 'undefined' && 'caches' in globalThis) {
+        (globalThis as any).caches.keys().then((names: string[]) => {
           names.forEach(name => {
             if (name.includes('temp') || name.includes('cache')) {
-              caches.delete(name);
+              (globalThis as any).caches.delete(name);
             }
           });
         });
@@ -234,12 +237,15 @@ export class MemoryManager {
   }
 
   private detectPersistentObjects(): void {
+    // Skip in service worker (no window)
+    if (typeof (globalThis as any).window === 'undefined') return;
     // Check for objects that persist longer than expected
     // This is a simplified implementation
     const persistentObjects = new Set();
+    const win = (globalThis as any).window;
 
     // Check global object for unexpected properties
-    for (const key in window) {
+    for (const key in win) {
       if (key.startsWith('temp_') || key.startsWith('cache_')) {
         persistentObjects.add(key);
       }
@@ -261,14 +267,17 @@ export class MemoryManager {
   }
 
   private detectGrowingCollections(): void {
+    // Skip in service worker (no window)
+    if (typeof (globalThis as any).window === 'undefined') return;
     // Monitor collections that keep growing
     // This would require tracking collection sizes over time
     // Simplified implementation
-    const largeCollections = [];
+    const largeCollections: { name: string; size: number }[] = [];
+    const win = (globalThis as any).window;
 
     // Check for large arrays/maps/sets in global scope
-    for (const key in window) {
-      const value = (window as any)[key];
+    for (const key in win) {
+      const value = (win as any)[key];
       if (Array.isArray(value) && value.length > 10000) {
         largeCollections.push({ name: key, size: value.length });
       } else if (value instanceof Map && value.size > 1000) {
@@ -293,6 +302,8 @@ export class MemoryManager {
   }
 
   private detectUncleanedEventListeners(): void {
+    // Skip in service worker (no document)
+    if (typeof document === 'undefined') return;
     // Check for potential uncleaned event listeners
     // This is difficult to detect directly, so we use heuristics
     const elements = document.querySelectorAll('*');
@@ -471,6 +482,8 @@ export class MemoryManager {
   }
 
   private cleanupUnusedDOM(): void {
+    // Skip in service worker (no document)
+    if (typeof document === 'undefined') return;
     // Remove unused DOM elements
     try {
       // Remove orphaned elements
@@ -648,9 +661,9 @@ export const mem = {
 
 // ─── Enhanced Timer/Observer Wrappers ────────────────────────────────
 
-// Safe setTimeout that tracks memory usage
+// Safe setTimeout that tracks memory usage (use global - service workers have no window)
 export function safeSetTimeout(callback: () => void, delay: number): number {
-  const timerId = window.setTimeout(() => {
+  const timerId = setTimeout(() => {
     memoryManager.untrackTimer(timerId);
     callback();
   }, delay);
@@ -659,9 +672,9 @@ export function safeSetTimeout(callback: () => void, delay: number): number {
   return timerId;
 }
 
-// Safe setInterval that tracks memory usage
+// Safe setInterval that tracks memory usage (use global - service workers have no window)
 export function safeSetInterval(callback: () => void, delay: number): number {
-  const intervalId = window.setInterval(callback, delay);
+  const intervalId = setInterval(callback, delay);
   memoryManager.trackTimer(intervalId, true);
   return intervalId;
 }
@@ -698,8 +711,8 @@ export class MemorySafeCache<K extends object, V> {
   private cleanupInterval: number;
 
   constructor(cleanupInterval = 300000) {
-    // 5 minutes
-    this.cleanupInterval = window.setInterval(() => {
+    // 5 minutes (use global - service workers have no window)
+    this.cleanupInterval = setInterval(() => {
       this.cleanup();
     }, cleanupInterval);
     memoryManager.trackTimer(this.cleanupInterval, true);

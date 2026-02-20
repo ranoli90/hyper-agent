@@ -436,7 +436,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 1 — Blocking
 - [x] 1.2 Add icon assets
-- [ ] 1.13 window.setInterval → globalThis in SW (advanced-caching, memory-management)
+- [x] 1.13 window.setInterval → globalThis in SW (advanced-caching, memory-management)
 - [ ] 1.1 Message handler sendResponse on error
 
 ### Phase 2 — Critical Crashes & Data Loss
