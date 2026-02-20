@@ -4,6 +4,14 @@
 
 import { TaskType } from './intelligent-clarification';
 
+export interface WorkflowMetrics {
+  totalWorkflows: number;
+  successfulWorkflows: number;
+  failedWorkflows: number;
+  averageCompletionTime: number;
+  platformSuccessRates: Map<string, number>;
+}
+
 export interface WorkflowExecution {
   id: string;
   taskType: TaskType;
@@ -132,7 +140,8 @@ export class ComprehensiveWorkflowExecutor {
   private validateCarListingInfo(carInfo: CarListingInfo): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    if (!carInfo.year || carInfo.year < 1900 || carInfo.year > new Date().getFullYear() + 1) {
+    const yearNum = parseInt(String(carInfo.year), 10);
+    if (!carInfo.year || isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
       errors.push('Invalid year');
     }
     if (!carInfo.make || carInfo.make.trim().length === 0) {
@@ -270,17 +279,16 @@ export class ComprehensiveWorkflowExecutor {
 
       console.log(`[Workflow] Car sales workflow ${workflowId} completed successfully`);
 
-    } catch (error: any) {
-      return { success: false, error: error.message || String(error) };
-    } finally {
+    } catch (err: any) {
+      workflow.status = ExecutionStatus.FAILED;
       workflow.errors.push({
         step: workflow.currentStep,
-        error: error.message,
+        error: err.message || String(err),
         retryCount: 0,
         recoverable: false,
         timestamp: Date.now()
       });
-      console.error(`[Workflow] Car sales workflow ${workflowId} failed:`, error);
+      console.error(`[Workflow] Car sales workflow ${workflowId} failed:`, err);
     }
   }
 
@@ -376,6 +384,18 @@ Don't miss this opportunity!`;
         'Any issues or repairs needed?': 'Vehicle is in excellent condition, no known issues.'
       }
     };
+  }
+
+  private cleanupCompletedWorkflows(): void {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [id, workflow] of this.activeWorkflows) {
+      if (
+        (workflow.status === ExecutionStatus.COMPLETED || workflow.status === ExecutionStatus.FAILED) &&
+        workflow.metadata.startTime < cutoff
+      ) {
+        this.activeWorkflows.delete(id);
+      }
+    }
   }
 
   private initializePlatformIntegrations(): void {

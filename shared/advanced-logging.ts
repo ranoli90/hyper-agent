@@ -116,7 +116,7 @@ export class StructuredLogger {
   }
 
   // ─── Private Methods ───────────────────────────────────────────────────
-  private log(level: LogEntry['level'], category: string, message: string, data?: Record<string, any>): void {
+  protected log(level: LogEntry['level'], category: string, message: string, data?: Record<string, any>): void {
     // Check if this log level should be processed
     if (!this.shouldLog(level)) {
       return;
@@ -189,8 +189,8 @@ export class StructuredLogger {
 
   private getMemoryUsage(): number | undefined {
     // Chrome extension memory monitoring
-    if (performance.memory) {
-      return performance.memory.usedJSHeapSize;
+    if ((performance as any).memory) {
+      return (performance as any).memory.usedJSHeapSize;
     }
     return undefined;
   }

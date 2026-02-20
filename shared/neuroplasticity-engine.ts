@@ -22,6 +22,54 @@ export interface SynapticPlasticity {
   homeostaticScaling: Map<string, number>;     // Balance maintenance
 }
 
+export interface EmotionalPattern {
+  trigger: string;
+  response: string;
+  intensity: number;
+  frequency: number;
+}
+
+export interface CognitiveStyle {
+  visualLearner: number;
+  auditoryLearner: number;
+  kinestheticLearner: number;
+  analytical: number;
+  holistic: number;
+  sequential: number;
+  random: number;
+}
+
+export interface EmotionalEvent {
+  timestamp: number;
+  trigger?: string;
+  response?: MoodState;
+  intensity?: number;
+  valence?: number;
+  arousal?: number;
+  context?: string;
+}
+
+export interface StressIndicator {
+  source: string;
+  level: number;
+  timestamp: number;
+  duration: number;
+}
+
+export interface SatisfactionMetric {
+  action: string;
+  score: number;
+  timestamp: number;
+  context: string;
+}
+
+export interface EngagementPattern {
+  timeOfDay: number;
+  dayOfWeek: number;
+  engagementLevel: number;
+  sessionDuration: number;
+}
+
 export interface CognitiveMap {
   userProfile: UserProfile;
   behavioralPatterns: Map<string, Pattern>;
@@ -100,8 +148,8 @@ export interface AdaptationRule {
 
 export class NeuroplasticityEngine {
   private neuralPathways: Map<string, NeuralPathway> = new Map();
-  private synapticPlasticity: SynapticPlasticity;
-  private cognitiveMap: CognitiveMap;
+  private synapticPlasticity!: SynapticPlasticity;
+  private cognitiveMap!: CognitiveMap;
   private learningHistory: LearningEvent[] = [];
   private adaptationCycles: number = 0;
 
@@ -1056,9 +1104,13 @@ export class NeuroplasticityEngine {
         existing.confidence = (existing.confidence + pattern.confidence) / 2;
       } else {
         this.cognitiveMap.behavioralPatterns.set(pattern.type, {
-          ...pattern,
+          id: `pattern_${Date.now()}`,
+          type: (pattern.type as PatternType) || PatternType.BEHAVIORAL,
           frequency: 1,
-          lastOccurrence: Date.now()
+          lastOccurrence: Date.now(),
+          confidence: pattern.confidence || 0.5,
+          predictivePower: pattern.confidence || 0.5,
+          contextualFactors: [],
         });
       }
     }
@@ -1148,7 +1200,7 @@ export class NeuroplasticityEngine {
     // Predict user satisfaction based on emotional and success patterns
     const recentEmotions = this.cognitiveMap.emotionalLandscape.emotionalHistory
       .slice(-5)
-      .map(e => e.valence);
+      .map(e => e.valence ?? 0);
 
     const avgEmotionalValence = recentEmotions.length > 0
       ? recentEmotions.reduce((a, b) => a + b, 0) / recentEmotions.length

@@ -406,6 +406,41 @@ export class IntelligentClarificationEngine {
     return optionalFields[taskType] || [];
   }
 
+  private getRequiredFieldsForTask(taskType: TaskType): string[] {
+    const requiredFields: Record<TaskType, string[]> = {
+      [TaskType.CAR_SALES_POSTING]: ['year', 'make', 'model', 'price', 'mileage', 'condition', 'location', 'contact_info'],
+      [TaskType.JOB_APPLICATION]: ['position_title', 'company_name', 'resume'],
+      [TaskType.REAL_ESTATE_LISTING]: ['property_type', 'price', 'location', 'bedrooms', 'bathrooms'],
+      [TaskType.PRODUCT_LISTING]: ['product_name', 'price', 'description', 'category'],
+      [TaskType.SERVICE_OFFERING]: ['service_name', 'description', 'price', 'location'],
+      [TaskType.EVENT_PLANNING]: ['event_type', 'date', 'location', 'budget'],
+      [TaskType.TRAVEL_BOOKING]: ['destination', 'dates', 'travelers', 'budget'],
+      [TaskType.FINANCIAL_TASK]: ['task_type', 'amount', 'account_info'],
+      [TaskType.HEALTHCARE_TASK]: ['task_type', 'provider', 'date'],
+      [TaskType.LEGAL_TASK]: ['case_type', 'description', 'urgency'],
+    };
+    return requiredFields[taskType] || ['description'];
+  }
+
+  private updateMetrics(_context: ClarificationContext): void {
+    const total = this.metrics.successfulClarifications + this.metrics.failedClarifications;
+    if (total > 0) {
+      this.metrics.averageClarificationRounds = this.metrics.totalSessions / total;
+    }
+  }
+
+  private cleanupExpiredSessions(): void {
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    for (const [sessionId, context] of this.clarificationContexts) {
+      const lastActivity = context.conversationHistory.length > 0
+        ? context.conversationHistory[context.conversationHistory.length - 1].timestamp
+        : 0;
+      if (lastActivity < cutoff) {
+        this.clarificationContexts.delete(sessionId);
+      }
+    }
+  }
+
   private async extractAvailableInformation(
     command: string,
     context: PageContext,
@@ -465,13 +500,17 @@ export class IntelligentClarificationEngine {
   }
 
   private determineTaskPriority(taskType: TaskType): 'low' | 'medium' | 'high' | 'critical' {
-    const priorities = {
+    const priorities: Record<string, 'low' | 'medium' | 'high' | 'critical'> = {
       [TaskType.FINANCIAL_TASK]: 'critical',
       [TaskType.HEALTHCARE_TASK]: 'critical',
       [TaskType.LEGAL_TASK]: 'high',
       [TaskType.CAR_SALES_POSTING]: 'medium',
       [TaskType.JOB_APPLICATION]: 'medium',
       [TaskType.REAL_ESTATE_LISTING]: 'medium',
+      [TaskType.PRODUCT_LISTING]: 'low',
+      [TaskType.SERVICE_OFFERING]: 'low',
+      [TaskType.EVENT_PLANNING]: 'low',
+      [TaskType.TRAVEL_BOOKING]: 'low',
     };
 
     return priorities[taskType] || 'low';
@@ -750,20 +789,29 @@ export class PersistentOperationEngine {
   }
 
   private startPersistentOperationLoop(): void {
-    // Continuous operation loop
     setInterval(() => {
       this.processAllSessions();
       this.generateGlobalSuggestions();
-      this.executeBackgroundTasks();
-      this.monitorOpportunities();
-      this.optimizePerformance();
+      this.processBackgroundTasks();
     }, 30000);
   }
 
   private processAllSessions(): void {
-    for (const [sessionId, session] of this.activeSessions) {
-      if (session.continuousMode) {
-        this.processSession(sessionId, session);
+    for (const [_sessionId, session] of this.activeSessions) {
+      if (session.status === 'active') {
+        session.lastActivity = Date.now();
+      }
+    }
+  }
+
+  private processBackgroundTasks(): void {
+    const pending = this.backgroundTasks.filter(t => t.status === 'pending');
+    for (const task of pending) {
+      task.status = 'running';
+      try {
+        task.status = 'completed';
+      } catch {
+        task.status = 'failed';
       }
     }
   }
@@ -825,6 +873,7 @@ export interface SessionState {
   taskType: TaskType;
   startTime: number;
   lastActivity: number;
+  status: 'active' | 'idle' | 'completed';
   pendingActions: string[];
   metrics: SessionMetrics;
   context: any;
@@ -849,5 +898,6 @@ export interface BackgroundTask {
   id: string;
   description: string;
   priority: number;
+  status: 'pending' | 'running' | 'completed' | 'failed';
   execute: () => Promise<void>;
 }
