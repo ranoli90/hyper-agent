@@ -762,6 +762,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getAgentStatus':
     case 'clearHistory':
     case 'getMetrics':
+      return true;
     case 'contextMenuCommand':
       return typeof (message as any).command === 'string';
     case 'captureScreenshot':
@@ -773,6 +774,12 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'clearSnapshot':
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
+    case 'getUsage':
+    case 'getMemoryStats':
+    case 'getScheduledTasks':
+    case 'getSubscriptionState':
+    case 'verifySubscription':
+    case 'cancelSubscription':
       return true;
     case 'executeTool':
       return typeof (message as any).toolId === 'string';
