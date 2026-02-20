@@ -140,6 +140,8 @@ function switchTab(tabId: string) {
     loadTasksTab();
   } else if (tabId === 'vision') {
     loadVisionTab();
+  } else if (tabId === 'swarm') {
+    loadSwarmTab();
   }
 }
 
@@ -771,6 +773,87 @@ function loadVisionTab() {
         }
       } catch (err) {
         addMessage('Failed to capture screenshot.', 'error');
+      }
+    });
+  }
+}
+
+// ─── Swarm Tab ───────────────────────────────────────────────────
+async function loadSwarmTab() {
+  const swarmState = document.getElementById('swarm-state');
+  const missionsCompleted = document.getElementById('missions-completed');
+  const swarmSuccessRate = document.getElementById('swarm-success-rate');
+  const activeMissions = document.getElementById('active-missions');
+  const recoveredTasks = document.getElementById('recovered-tasks');
+  const snapshotsList = document.getElementById('snapshots-list');
+
+  try {
+    // Get swarm status
+    const swarmResponse = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
+    if (swarmResponse?.ok && swarmState) {
+      swarmState.textContent = swarmResponse.status?.initialized ? 'Active' : 'Initializing...';
+    }
+
+    // Get global learning stats
+    const statsResponse = await chrome.runtime.sendMessage({ type: 'getGlobalLearningStats' });
+    if (statsResponse?.ok && statsResponse.stats) {
+      const stats = statsResponse.stats;
+      if (missionsCompleted) missionsCompleted.textContent = stats.totalPatterns || '0';
+      if (swarmSuccessRate)
+        swarmSuccessRate.textContent = `${Math.round((stats.avgSuccessRate || 0) * 100)}%`;
+    }
+
+    // Get snapshots
+    const snapshotsResponse = await chrome.runtime.sendMessage({ type: 'listSnapshots' });
+    if (snapshotsResponse?.ok && snapshotsResponse.snapshots && snapshotsList) {
+      if (snapshotsResponse.snapshots.length > 0) {
+        snapshotsList.innerHTML = '';
+        snapshotsResponse.snapshots.slice(0, 5).forEach((snapshot: any) => {
+          const item = document.createElement('div');
+          item.className = 'snapshot-item';
+          item.innerHTML = `
+            <div class="snapshot-command">${snapshot.command?.substring(0, 50) || 'Unknown mission'}...</div>
+            <div class="snapshot-meta">
+              <span>Step ${snapshot.currentStep || 0}/${snapshot.totalSteps || 0}</span>
+              <span>${new Date(snapshot.timestamp).toLocaleString()}</span>
+            </div>
+            <div class="snapshot-actions">
+              <button class="btn-small" data-task-id="${snapshot.taskId}">Resume</button>
+              <button class="btn-small btn-danger" data-task-id="${snapshot.taskId}" data-action="delete">Delete</button>
+            </div>
+          `;
+          snapshotsList.appendChild(item);
+        });
+
+        // Count recovered tasks
+        if (recoveredTasks) {
+          recoveredTasks.textContent = snapshotsResponse.snapshots.length;
+        }
+      } else {
+        snapshotsList.innerHTML = '<p class="empty-state">No saved missions.</p>';
+      }
+    }
+
+    // Active missions (from agent status)
+    const agentResponse = await chrome.runtime.sendMessage({ type: 'getAgentStatus' });
+    if (agentResponse?.ok && activeMissions) {
+      activeMissions.textContent = agentResponse.status?.isRunning ? '1' : '0';
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to load swarm tab:', err);
+  }
+
+  // Clear snapshots button
+  const clearBtn = document.getElementById('btn-clear-snapshots');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', async () => {
+      const confirmed = confirm('Clear all saved missions?');
+      if (confirmed) {
+        const response = await chrome.runtime.sendMessage({ type: 'clearSnapshot' });
+        if (response?.ok) {
+          showToast('All missions cleared', 'success');
+          loadSwarmTab();
+        }
       }
     });
   }

@@ -18,6 +18,7 @@
       <header id="header">
         <div id="tabs-nav">
           <button class="tab-btn active" data-tab="chat">Chat</button>
+          <button class="tab-btn" data-tab="swarm">Swarm</button>
           <button class="tab-btn" data-tab="vision">Vision</button>
           <button class="tab-btn" data-tab="tasks">Tasks</button>
           <button class="tab-btn" data-tab="memory">Memory</button>
@@ -32,6 +33,87 @@
         <!-- Chat Tab -->
         <section id="tab-chat" class="tab-pane active">
           <div id="chat-history"></div>
+        </section>
+
+        <!-- Swarm Tab -->
+        <section id="tab-swarm" class="tab-pane">
+          <div class="panel-inner">
+            <h3>Swarm Intelligence</h3>
+            <div id="swarm-status">
+              <div class="swarm-indicator">
+                <span class="swarm-dot"></span>
+                <span id="swarm-state">Initializing...</span>
+              </div>
+            </div>
+            <div id="swarm-agents">
+              <div class="agent-list-header">
+                <span>Active Agents</span>
+                <span id="agent-count">8</span>
+              </div>
+              <div id="agent-list">
+                <div class="agent-item">
+                  <span class="agent-role">Intent Analyzer</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Information Gatherer</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Action Executor</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Validator</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Strategist</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Predictor</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Memory Manager</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+                <div class="agent-item">
+                  <span class="agent-role">Ethics Guardian</span>
+                  <span class="agent-status active">Ready</span>
+                </div>
+              </div>
+            </div>
+            <div id="swarm-metrics">
+              <h4>Mission Stats</h4>
+              <div class="metrics-grid">
+                <div class="metric-item">
+                  <span class="metric-label">Missions Completed</span>
+                  <span id="missions-completed" class="metric-value">0</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Success Rate</span>
+                  <span id="swarm-success-rate" class="metric-value">--</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Active Missions</span>
+                  <span id="active-missions" class="metric-value">0</span>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Recovered Tasks</span>
+                  <span id="recovered-tasks" class="metric-value">0</span>
+                </div>
+              </div>
+            </div>
+            <div id="mission-snapshots">
+              <div class="snapshots-header">
+                <h4>Saved Missions</h4>
+                <button id="btn-clear-snapshots" class="btn-small">Clear All</button>
+              </div>
+              <div id="snapshots-list" class="empty-state">No saved missions.</div>
+            </div>
+          </div>
         </section>
 
         <!-- Vision Tab -->
