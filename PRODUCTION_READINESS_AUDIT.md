@@ -449,15 +449,15 @@ Fix in this exact order to minimize rework and address blocking issues first:
 ### Phase 3 — Security
 - [ ] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
 - [ ] 2.1 API key storage (document or encrypt)
-- [ ] 1.6 ReDoS in findTabByUrl + workflow urlMatches
-- [ ] 2.5 validateExtensionMessage — reject unknown types
+- [x] 1.6 ReDoS in findTabByUrl + workflow urlMatches
+- [x] 2.5 validateExtensionMessage — reject unknown types
 
 ### Phase 4 — Broken Features
 - [ ] 1.11 LLM locator strategy mismatch
 - [ ] 1.4 verifyActionWithVision fail-open
 - [ ] 1.5 Screenshot format consistency
 - [ ] 4.12 visionUpdate screenshot format
-- [ ] 1.12 Empty command validation
+- [x] 1.12 Empty command validation
 - [ ] 4.3 Tasks "New" button handler
 - [ ] 4.5 Vision "Analyze Page" handler
 - [ ] 4.2 Stripe checkout return flow

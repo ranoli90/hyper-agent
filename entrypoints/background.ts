@@ -762,6 +762,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'executeCommand':
       return (
         typeof (message as any).command === 'string' &&
+        (message as any).command.trim().length > 0 &&
         ((message as any).useAutonomous === undefined ||
           typeof (message as any).useAutonomous === 'boolean')
       );
@@ -784,6 +785,9 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getSnapshot':
     case 'listSnapshots':
     case 'clearSnapshot':
+      return true;
+    case 'resumeSnapshot':
+      return typeof (message as any).taskId === 'string';
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
     case 'getUsage':
@@ -797,9 +801,27 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
       return typeof (message as any).toolId === 'string';
     case 'parseIntent':
       return typeof (message as any).command === 'string';
-    default:
-      // Allow extended message types
+    case 'getAPICache':
+    case 'setAPICache':
+    case 'invalidateCacheTag':
+    case 'getMemoryLeaks':
+    case 'forceMemoryCleanup':
+    case 'getAutonomousSession':
+    case 'createAutonomousSession':
+    case 'getProactiveSuggestions':
+    case 'executeSuggestion':
+    case 'getCacheStats':
+    case 'sanitizeInput':
+    case 'sanitizeUrl':
+    case 'sanitizeBatch':
+    case 'toggleScheduledTask':
+    case 'deleteScheduledTask':
+    case 'installWorkflow':
+    case 'activateLicenseKey':
+    case 'openCheckout':
       return true;
+    default:
+      return false;
   }
 }
 
