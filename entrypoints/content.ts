@@ -85,8 +85,6 @@ export default defineContentScript({
       }
     }
 
-    // Load config immediately
-    loadSiteConfig();
 
     // ─── Visibility check ─────────────────────────────────────────
     function isVisible(el: HTMLElement): boolean {
