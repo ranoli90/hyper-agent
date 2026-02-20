@@ -624,64 +624,120 @@ function updateUsageDisplay() {
   });
 }
 
+interface MarketplaceWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  category: string;
+  tier: 'free' | 'premium' | 'unlimited';
+  rating: number;
+  installs: string;
+  icon: string;
+}
+
+const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
+  { id: 'web-scraper', name: 'Web Scraper Pro', description: 'Extract structured data from any webpage with CSS selectors and pagination support', price: 'Free', category: 'data', tier: 'free', rating: 4.8, installs: '12.3k', icon: '🔍' },
+  { id: 'form-filler', name: 'Smart Form Filler', description: 'Auto-fill forms using stored profiles with intelligent field matching', price: 'Free', category: 'productivity', tier: 'free', rating: 4.6, installs: '8.7k', icon: '📝' },
+  { id: 'price-tracker', name: 'Price Tracker', description: 'Monitor product prices across e-commerce sites and alert on drops', price: 'Free', category: 'data', tier: 'free', rating: 4.7, installs: '15.1k', icon: '💰' },
+  { id: 'email-automation', name: 'Email Outreach', description: 'Send personalized emails in bulk with templates and tracking', price: 'Premium', category: 'communication', tier: 'premium', rating: 4.5, installs: '5.2k', icon: '✉️' },
+  { id: 'social-media-poster', name: 'Social Publisher', description: 'Schedule and post content to Twitter, LinkedIn, and Facebook', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.4, installs: '3.8k', icon: '📱' },
+  { id: 'invoice-processor', name: 'Invoice Extractor', description: 'Extract line items, totals, and dates from invoice PDFs', price: 'Premium', category: 'business', tier: 'premium', rating: 4.9, installs: '6.4k', icon: '🧾' },
+  { id: 'seo-auditor', name: 'SEO Auditor', description: 'Comprehensive on-page SEO analysis with actionable recommendations', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.3, installs: '4.1k', icon: '📊' },
+  { id: 'lead-generator', name: 'Lead Generator', description: 'Extract business contacts from directories and social profiles', price: 'Premium', category: 'business', tier: 'premium', rating: 4.6, installs: '7.9k', icon: '🎯' },
+  { id: 'competitor-monitor', name: 'Competitor Monitor', description: 'Track competitor pricing, content changes, and new features', price: 'Unlimited', category: 'business', tier: 'unlimited', rating: 4.7, installs: '2.1k', icon: '👁️' },
+  { id: 'data-pipeline', name: 'Data Pipeline', description: 'ETL workflows: extract, transform, and load data across platforms', price: 'Unlimited', category: 'data', tier: 'unlimited', rating: 4.8, installs: '1.5k', icon: '🔄' },
+  { id: 'report-generator', name: 'Report Generator', description: 'Auto-generate weekly reports from multiple data sources', price: 'Premium', category: 'productivity', tier: 'premium', rating: 4.5, installs: '3.3k', icon: '📈' },
+  { id: 'tab-organizer', name: 'Tab Organizer', description: 'Automatically group, sort, and manage browser tabs by project', price: 'Free', category: 'productivity', tier: 'free', rating: 4.2, installs: '9.4k', icon: '🗂️' },
+];
+
+let activeCategory = 'all';
+let searchQuery = '';
+
 function loadMarketplace() {
-  // Sample workflows for the marketplace
-  const workflows = [
-    {
-      id: 'web-scraper',
-      name: 'Web Scraper',
-      description: 'Automatically extract data from web pages',
-      price: 'Free',
-      category: 'Data',
-    },
-    {
-      id: 'email-automation',
-      name: 'Email Automation',
-      description: 'Send personalized emails based on triggers',
-      price: '$4.99',
-      category: 'Communication',
-    },
-    {
-      id: 'social-media-poster',
-      name: 'Social Media Poster',
-      description: 'Schedule and post to multiple social platforms',
-      price: '$9.99',
-      category: 'Marketing',
-    },
-    {
-      id: 'invoice-processor',
-      name: 'Invoice Processor',
-      description: 'Extract and process invoice data automatically',
-      price: '$14.99',
-      category: 'Business',
-    },
-  ];
+  renderMarketplaceWorkflows();
+
+  // Search handler
+  const searchInput = document.getElementById('marketplace-search-input') as HTMLInputElement;
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(() => {
+      searchQuery = searchInput.value.toLowerCase().trim();
+      renderMarketplaceWorkflows();
+    }, 200));
+  }
+
+  // Category handlers
+  document.querySelectorAll('.category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeCategory = (btn as HTMLElement).dataset.category || 'all';
+      renderMarketplaceWorkflows();
+    });
+  });
+}
+
+function renderMarketplaceWorkflows() {
+  let filtered = MARKETPLACE_WORKFLOWS;
+
+  if (activeCategory !== 'all') {
+    filtered = filtered.filter(w => w.category === activeCategory);
+  }
+  if (searchQuery) {
+    filtered = filtered.filter(w =>
+      w.name.toLowerCase().includes(searchQuery) ||
+      w.description.toLowerCase().includes(searchQuery)
+    );
+  }
 
   components.marketplaceList.innerHTML = '';
-  workflows.forEach(workflow => {
+
+  if (filtered.length === 0) {
+    components.marketplaceList.innerHTML = '<p class="empty-state">No workflows found matching your criteria.</p>';
+    return;
+  }
+
+  filtered.forEach(workflow => {
+    const currentTier = billingManager.getTier();
+    const tierOrder = { free: 0, premium: 1, unlimited: 2 };
+    const canInstall = tierOrder[currentTier] >= tierOrder[workflow.tier];
+    const stars = '★'.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
+
     const card = document.createElement('div');
-    card.className = 'workflow-card';
+    card.className = `workflow-card${!canInstall ? ' locked' : ''}`;
     card.innerHTML = `
-      <h4>${workflow.name}</h4>
-      <p>${workflow.description}</p>
-      <div class="workflow-meta">
-        <span class="category">${workflow.category}</span>
-        <span class="price">${workflow.price}</span>
+      <div class="workflow-card-header">
+        <span class="workflow-icon">${workflow.icon}</span>
+        <div class="workflow-title-group">
+          <h4>${escapeHtml(workflow.name)}</h4>
+          <span class="workflow-tier-badge ${workflow.tier}">${workflow.price}</span>
+        </div>
       </div>
-      <button class="install-btn" data-workflow-id="${workflow.id}">
-        ${workflow.price === 'Free' ? 'Install' : 'Purchase'}
+      <p class="workflow-desc">${escapeHtml(workflow.description)}</p>
+      <div class="workflow-meta">
+        <span class="workflow-rating" title="${workflow.rating}/5">${stars} ${workflow.rating}</span>
+        <span class="workflow-installs">${workflow.installs} installs</span>
+      </div>
+      <button class="install-btn${!canInstall ? ' locked' : ''}" data-workflow-id="${workflow.id}" ${!canInstall ? 'title="Requires ' + workflow.tier + ' plan"' : ''}>
+        ${!canInstall ? '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1) : 'Install'}
       </button>
     `;
     components.marketplaceList.appendChild(card);
   });
 
-  // Add event listeners for install buttons
   components.marketplaceList.querySelectorAll('.install-btn').forEach(btn => {
     btn.addEventListener('click', e => {
-      const workflowId = (e.target as HTMLElement).dataset.workflowId;
-      if (workflowId) {
-        installWorkflow(workflowId);
+      const target = e.target as HTMLElement;
+      const workflowId = target.dataset.workflowId;
+      if (!workflowId) return;
+
+      if (target.classList.contains('locked')) {
+        switchTab('subscription');
+        showToast('Upgrade required for this workflow', 'warning');
+        return;
       }
+
+      installWorkflow(workflowId);
     });
   });
 }

@@ -2140,3 +2140,82 @@ body {
   text-decoration: underline;
 }
 .btn-link:hover { color: #dc2626; }
+
+/* ─── Marketplace ──────────────────────────────────────────────── */
+.marketplace-subtitle { font-size: 0.8rem; color: var(--text-tertiary); margin: 0 0 12px 0; }
+.marketplace-search { margin-bottom: 12px; }
+.marketplace-search input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+.marketplace-search input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); }
+.marketplace-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.category-btn {
+  padding: 5px 12px;
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.category-btn:hover { border-color: var(--accent); color: var(--accent); }
+.category-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+.workflow-grid { display: flex; flex-direction: column; gap: 10px; }
+.workflow-card {
+  background: var(--surface);
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  transition: all 0.2s;
+}
+.workflow-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.workflow-card.locked { opacity: 0.7; }
+.workflow-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.workflow-icon { font-size: 1.5rem; }
+.workflow-title-group { flex: 1; }
+.workflow-title-group h4 { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--text-primary); }
+.workflow-tier-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.workflow-tier-badge.free { background: #10b98120; color: #059669; }
+.workflow-tier-badge.premium { background: #2563eb20; color: #2563eb; }
+.workflow-tier-badge.unlimited { background: #f59e0b20; color: #d97706; }
+.workflow-desc { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 10px 0; line-height: 1.4; }
+.workflow-meta { display: flex; gap: 12px; font-size: 0.7rem; color: var(--text-tertiary); margin-bottom: 10px; }
+.workflow-rating { color: #f59e0b; }
+.install-btn {
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.install-btn:hover { background: var(--accent-light); }
+.install-btn.locked { background: var(--surface-tertiary); color: var(--text-tertiary); }
+.install-btn.locked:hover { background: var(--surface-tertiary); color: var(--text-secondary); }

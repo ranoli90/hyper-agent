@@ -167,7 +167,18 @@
         <section id="tab-marketplace" class="tab-pane">
           <div class="panel-inner">
             <h3>Workflow Marketplace</h3>
-            <p>Discover and install powerful automation workflows</p>
+            <p class="marketplace-subtitle">Discover and install powerful automation workflows</p>
+            <div class="marketplace-search">
+              <input id="marketplace-search-input" type="text" placeholder="Search workflows..." />
+            </div>
+            <div class="marketplace-categories" id="marketplace-categories">
+              <button class="category-btn active" data-category="all">All</button>
+              <button class="category-btn" data-category="data">Data</button>
+              <button class="category-btn" data-category="communication">Communication</button>
+              <button class="category-btn" data-category="marketing">Marketing</button>
+              <button class="category-btn" data-category="business">Business</button>
+              <button class="category-btn" data-category="productivity">Productivity</button>
+            </div>
             <div id="marketplace-list" class="workflow-grid">
               <!-- Workflows loaded dynamically -->
             </div>
