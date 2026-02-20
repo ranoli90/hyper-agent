@@ -49,6 +49,8 @@ export type ErrorType =
   | 'ACTION_FAILED'
   | 'TIMEOUT'
   | 'NAVIGATION_ERROR'
+  | 'RATE_LIMIT'
+  | 'SECURITY_POLICY'
   | 'UNKNOWN';
 
 // Supported languages for multi-language support

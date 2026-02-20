@@ -447,7 +447,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 4.10 Snapshot Resume — add backend support
 
 ### Phase 3 — Security
-- [ ] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
+- [x] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
 - [ ] 2.1 API key storage (document or encrypt)
 - [x] 1.6 ReDoS in findTabByUrl + workflow urlMatches
 - [x] 2.5 validateExtensionMessage — reject unknown types

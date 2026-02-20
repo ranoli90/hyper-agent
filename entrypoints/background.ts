@@ -1759,6 +1759,25 @@ export default defineBackground(() => {
       return { success: true };
     }
 
+    const url = pageUrl || '';
+    const rateCheck = await checkRateLimit(action.type);
+    if (!rateCheck.allowed) {
+      const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
+      return {
+        success: false,
+        error: `Rate limit exceeded. Try again in ${waitSec}s.`,
+        errorType: 'RATE_LIMIT' as ErrorType,
+      };
+    }
+    const actionCheck = await checkActionAllowed(action, url);
+    if (!actionCheck.allowed) {
+      return {
+        success: false,
+        error: actionCheck.reason || 'Action not allowed by security policy.',
+        errorType: 'SECURITY_POLICY' as ErrorType,
+      };
+    }
+
     // Handle navigation in background
     if (action.type === 'navigate') {
       try {
@@ -2096,10 +2115,22 @@ export default defineBackground(() => {
     const tabId = await getActiveTabId();
 
     const tab = await chrome.tabs.get(tabId);
-    if (tab.url && isSiteBlacklisted(tab.url, settings.siteBlacklist)) {
+    const pageUrl = tab.url || '';
+    if (pageUrl && isSiteBlacklisted(pageUrl, settings.siteBlacklist)) {
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Site blacklisted.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+    const domainAllowed = await checkDomainAllowed(pageUrl);
+    if (!domainAllowed) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Domain not allowed by privacy settings.',
         success: false,
         stepsUsed: 0,
       });
