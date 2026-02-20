@@ -849,7 +849,10 @@ export default defineBackground(() => {
   ); // Every 5 minutes
 
   // ─── On install: configure side panel ───────────────────────────
-  chrome.runtime.onInstalled.addListener(async () => {
+  chrome.runtime.onInstalled.addListener(async (details) => {
+    if (details.reason === 'update') {
+      await chrome.storage.local.set({ hyperagent_show_changelog: true });
+    }
     await withErrorBoundary('extension_installation', async () => {
       // 3. Initialize Global Learning
       globalLearning

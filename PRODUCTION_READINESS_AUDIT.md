@@ -481,7 +481,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 5.5 Rate limit feedback
 - [x] 5.6 Keyboard shortcut focus input
 - [x] 5.9 Export settings warning
-- [ ] 5.10 Changelog on update
+- [x] 5.10 Changelog on update
 
 ### Phase 7 — Accessibility
 - [x] 8.1 Chat aria-live

@@ -1221,6 +1221,14 @@ components.commandInput.addEventListener('keydown', e => {
 loadHistory();
 loadCommandHistory();
 
+// Show changelog on update
+chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
+  if (data.hyperagent_show_changelog) {
+    chrome.storage.local.remove('hyperagent_show_changelog');
+    showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
+  }
+});
+
 components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
