@@ -1,4 +1,5 @@
 import type { Workflow, WorkflowStep, Condition, PageContext } from './types';
+import { isSafeRegex } from './safe-regex';
 
 // Storage key for workflows
 const WORKFLOWS_STORAGE_KEY = 'hyperagent_workflows';
@@ -113,6 +114,9 @@ export async function checkCondition(
     }
     
     case 'urlMatches': {
+      if (!isSafeRegex(condition.value)) {
+        return context.url.includes(condition.value);
+      }
       try {
         const regex = new RegExp(condition.value, 'i');
         return regex.test(context.url);

@@ -1,3 +1,5 @@
+import { extractDomain } from './url-utils';
+
 // ─── Performance Metrics Types ───────────────────────────────────────────
 export interface PerformanceMetric {
   name: string;
@@ -32,16 +34,6 @@ const MAX_TRACKING_ENTRIES = 1000;
 
 // ─── Action Tracking State ───────────────────────────────────────────────
 const activeActions = new Map<string, ActionTrackingEntry>();
-
-// ─── Helper: Get domain from URL ─────────────────────────────────────────
-function extractDomain(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return 'unknown';
-  }
-}
 
 // ─── Helper: Save to chrome.storage.local ───────────────────────────────
 async function saveToStorage(key: string, data: unknown): Promise<void> {

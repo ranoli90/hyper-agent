@@ -1,18 +1,13 @@
 import { STORAGE_KEYS } from './config';
 import type { SiteStrategy, ActionLogEntry, Locator, Action } from './types';
+import { extractDomain } from './url-utils';
+
+// Re-export for consumers that import from memory
+export { extractDomain } from './url-utils';
 
 // Constants for memory management
 const MAX_ENTRIES_PER_DOMAIN = 100;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
-
-// ─── Helper: Extract domain from URL ───────────────────────────────
-export function extractDomain(url: string): string {
-  try {
-    return new URL(url).hostname;
-  } catch {
-    return '';
-  }
-}
 
 // ─── Helper: Serialize locator for comparison ─────────────────────
 function serializeLocator(locator: Locator): string {

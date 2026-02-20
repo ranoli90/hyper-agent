@@ -169,8 +169,12 @@ body {
   border: 1px solid var(--surface-glass-border);
   position: relative;
   flex: 1;
-  max-width: 300px;
+  max-width: 100%;
   margin: 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
 .tab-btn {
@@ -187,14 +191,12 @@ body {
   transition: all var(--transition-fast);
   font-family: var(--font-primary);
   min-width: 50px;
+  flex-shrink: 0;
   text-align: center;
   height: 32px;
   position: relative;
   z-index: 1;
-  flex: 1;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .tab-btn:hover {

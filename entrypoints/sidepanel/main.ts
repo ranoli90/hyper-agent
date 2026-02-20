@@ -7,6 +7,7 @@ import type {
   MsgAskUser,
 } from '../../shared/types';
 import { billingManager, PRICING_PLANS } from '../../shared/billing';
+import { inputSanitizer } from '../../shared/input-sanitization';
 
 function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
   let timeout: ReturnType<typeof setTimeout>;
@@ -494,23 +495,32 @@ function setRunning(running: boolean) {
 }
 
 // ─── Persistence ────────────────────────────────────────────────
-const saveHistory = debounce(async () => {
+async function saveHistoryImmediate() {
   try {
     const historyHTML = components.chatHistory.innerHTML;
     await chrome.storage.local.set({ chat_history_backup: historyHTML });
   } catch (err) {
     console.warn('[HyperAgent] Failed to save chat history:', err);
   }
-}, 500);
+}
+const saveHistory = debounce(saveHistoryImmediate, 500);
+
+// Flush pending save on close/hide to prevent data loss
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveHistoryImmediate();
+});
+window.addEventListener('beforeunload', () => saveHistoryImmediate());
 
 async function loadHistory() {
   try {
     const data = await chrome.storage.local.get('chat_history_backup');
     if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
-      const sanitized = data.chat_history_backup
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-        .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
-      components.chatHistory.innerHTML = sanitized;
+      const result = inputSanitizer.sanitize(data.chat_history_backup, {
+        allowHtml: true,
+        allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span'],
+        allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
+      });
+      components.chatHistory.innerHTML = result.sanitizedValue;
       scrollToBottom();
     }
   } catch (err) {
@@ -1333,20 +1343,24 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
 // ─── Voice Interface ────────────────────────────────────────────
 import { VoiceInterface } from '../../shared/voice-interface';
+let lastFinalVoiceText = '';
 let voiceInterface = new VoiceInterface({
   onStart: () => {
+    lastFinalVoiceText = '';
     components.btnMic.classList.add('active');
     components.commandInput.placeholder = 'Listening...';
   },
   onEnd: () => {
     components.btnMic.classList.remove('active');
     components.commandInput.placeholder = 'Type a command...';
-    const text = components.commandInput.value.trim();
+    // Only execute if we received a final transcription (avoids partial/interim text)
+    const text = lastFinalVoiceText.trim();
     if (text) handleCommand(text);
   },
   onResult: (text, isFinal) => {
     components.commandInput.value = text;
     if (isFinal) {
+      lastFinalVoiceText = text;
       updateCharCounter(text);
     }
   },

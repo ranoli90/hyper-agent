@@ -5,6 +5,14 @@ import type { Session, ContextSnapshot, Action, ActionResult, CommandIntent } fr
 const MAX_SESSIONS = 10;
 const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Mutex to prevent concurrent load-mutate-save race conditions
+let sessionMutex: Promise<void> = Promise.resolve();
+function withMutex<T>(fn: () => Promise<T>): Promise<T> {
+  const next = sessionMutex.then(() => fn());
+  sessionMutex = next.then(() => {}, () => {});
+  return next;
+}
+
 // ─── Helper: Generate unique session ID ────────────────────────────────
 function generateSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -132,18 +140,20 @@ export async function addActionToSession(
   sessionId: string,
   action: Action
 ): Promise<void> {
-  const session = await loadSession(sessionId);
-  if (!session) return;
-  
-  session.actionHistory.push(action);
-  session.context.lastAction = action;
-  
-  // Keep only last 100 actions
-  if (session.actionHistory.length > 100) {
-    session.actionHistory = session.actionHistory.slice(-100);
-  }
-  
-  await saveSession(session);
+  await withMutex(async () => {
+    const session = await loadSession(sessionId);
+    if (!session) return;
+
+    session.actionHistory.push(action);
+    session.context.lastAction = action;
+
+    // Keep only last 100 actions
+    if (session.actionHistory.length > 100) {
+      session.actionHistory = session.actionHistory.slice(-100);
+    }
+
+    await saveSession(session);
+  });
 }
 
 // ─── Add result to session ───────────────────────────────────────────
@@ -151,17 +161,19 @@ export async function addResultToSession(
   sessionId: string,
   result: ActionResult
 ): Promise<void> {
-  const session = await loadSession(sessionId);
-  if (!session) return;
-  
-  session.results.push(result);
-  
-  // Keep only last 100 results
-  if (session.results.length > 100) {
-    session.results = session.results.slice(-100);
-  }
-  
-  await saveSession(session);
+  await withMutex(async () => {
+    const session = await loadSession(sessionId);
+    if (!session) return;
+
+    session.results.push(result);
+
+    // Keep only last 100 results
+    if (session.results.length > 100) {
+      session.results = session.results.slice(-100);
+    }
+
+    await saveSession(session);
+  });
 }
 
 // ─── Update session page info ────────────────────────────────────────

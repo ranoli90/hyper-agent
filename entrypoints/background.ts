@@ -2057,11 +2057,14 @@ export default defineBackground(() => {
     try {
       // Save initial snapshot for resume capability
       await SnapshotManager.save({
+        sessionId: session.id,
         taskId: session.id,
         command,
         currentStep: 0,
         totalSteps: maxSteps,
+        plan: {},
         history: [],
+        results: [],
         timestamp: Date.now(),
         status: 'running',
         url: tab.url || '',
@@ -2070,11 +2073,14 @@ export default defineBackground(() => {
       for (let step = 1; step <= maxSteps; step++) {
         if (agentState.isAborted) {
           await SnapshotManager.save({
+            sessionId: session.id,
             taskId: session.id,
             command,
             currentStep: step - 1,
             totalSteps: maxSteps,
+            plan: {},
             history,
+            results: [],
             timestamp: Date.now(),
             status: 'aborted',
             url: tab.url || '',
@@ -2248,12 +2254,22 @@ export default defineBackground(() => {
         history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
 
         // Save snapshot after each step for resume
+        const stepResults: ActionResult[] = actionResults.map((r: any) => ({
+          success: r.success,
+          error: r.error,
+          errorType: r.errorType,
+          extractedData: r.extractedData,
+          recovered: r.recovered,
+        }));
         await SnapshotManager.save({
+          sessionId: session.id,
           taskId: session.id,
           command,
           currentStep: step,
           totalSteps: maxSteps,
+          plan: { summary: llmResponse?.summary, actions: llmResponse?.actions },
           history,
+          results: stepResults,
           timestamp: Date.now(),
           status: 'running',
           url: tab.url || '',
@@ -2261,11 +2277,14 @@ export default defineBackground(() => {
 
         if (llmResponse.done || llmResponse.actions.length === 0) {
           await SnapshotManager.save({
+            sessionId: session.id,
             taskId: session.id,
             command,
             currentStep: step,
             totalSteps: maxSteps,
+            plan: { summary: llmResponse?.summary, actions: llmResponse?.actions },
             history,
+            results: stepResults,
             timestamp: Date.now(),
             status: 'completed',
             url: tab.url || '',

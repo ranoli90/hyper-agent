@@ -124,6 +124,8 @@ async function loadCurrentSettings() {
   });
 
   modelStatusText.textContent = `Model: ${DEFAULTS.MODEL_NAME}`;
+  const modelBadge = document.getElementById('model-badge-name');
+  if (modelBadge) modelBadge.textContent = DEFAULTS.MODEL_NAME;
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;

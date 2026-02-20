@@ -6,11 +6,12 @@ export interface AgentSnapshot {
     command: string;
     currentStep: number;
     totalSteps: number;
-    plan: any; // PlanningEngine.Plan
+    plan: any; // PlanningEngine.Plan - optional for backward compat
     history: any[]; // HistoryEntry[]
     results: ActionResult[];
     status: string;
     timestamp: number;
+    url?: string; // Optional for backward compat
 }
 
 /**
