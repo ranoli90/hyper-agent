@@ -528,19 +528,29 @@ export class EnhancedLLMClient implements LLMClientInterface {
   }
 
   async callLLM(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
+    // The standard agent loop uses the traditional API call directly.
+    // This sends the command + page context to the LLM and gets back
+    // structured actions. No extra planning round-trip needed.
+    return await this.makeTraditionalCall(request, signal);
+  }
+
+  async callLLMAutonomous(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
+    // Autonomous mode: uses an extra LLM planning call to decompose
+    // complex tasks into multi-step plans before execution.
     const intelligenceContext: IntelligenceContext = {
       taskDescription: request.command || 'No Command Provided',
       availableTools: ['web_browsing', 'data_extraction', 'multi_tab', 'research'],
       previousAttempts: [],
-      environmentalData: {},
+      environmentalData: {
+        url: request.context?.url,
+        html: request.context?.bodyText?.slice(0, 5000),
+      },
       userPreferences: {},
       domainKnowledge: {},
       successPatterns: [],
     };
 
     try {
-      // Use autonomous intelligence to understand and plan
-      // We pass the signal if supported by autonomousIntelligence (assumed partially supported or ignored for now, but client methods will respect it)
       const autonomousPlan = await autonomousIntelligence.understandAndPlan(
         request.command || '',
         intelligenceContext
@@ -550,7 +560,6 @@ export class EnhancedLLMClient implements LLMClientInterface {
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      // If the autonomous plan has no executable actions, fall back to traditional LLM to avoid no-op plans
       if (
         !autonomousPlan ||
         !Array.isArray((autonomousPlan as any).actions) ||
@@ -559,11 +568,10 @@ export class EnhancedLLMClient implements LLMClientInterface {
         return await this.makeTraditionalCall(request, signal);
       }
 
-      // Convert autonomous plan to LLMResponse format
       return this.convertPlanToResponse(autonomousPlan);
     } catch (error) {
       if ((error as Error).name === 'AbortError') throw error;
-      console.error('[HyperAgent] Autonomous intelligence failed, using fallback:', error);
+      console.error('[HyperAgent] Autonomous planning failed, using direct call:', error);
       return await this.makeTraditionalCall(request, signal);
     }
   }

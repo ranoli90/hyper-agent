@@ -1979,6 +1979,15 @@ export default defineBackground(() => {
       usageTracker.trackAction(action.type);
     }
 
+    // Feed outcome into global learning so the system improves over time
+    if (pageUrl) {
+      const domain = new URL(pageUrl).hostname;
+      globalLearning.learn(domain, action.type, result.success, {
+        errorType: result.errorType,
+        duration: Date.now() - startTime,
+      }).catch(() => {});
+    }
+
     return result;
   }
 

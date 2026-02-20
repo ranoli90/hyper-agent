@@ -195,7 +195,7 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
         'X-Title': 'HyperAgent',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: DEFAULTS.MODEL_NAME,
         messages: [{ role: 'user', content: 'Test' }],
         temperature: 0,
         max_tokens: 1,
