@@ -66,9 +66,13 @@ export class AdvancedCache<T = any> {
       ...config,
     };
 
-    this.initializeCache();
-    this.setupCleanup();
-    this.setupCrossTabSync();
+    // Defer all async/timer initialization to avoid keeping Node.js alive during bundling.
+    // chrome.storage is only available at runtime in the extension.
+    if (typeof chrome !== 'undefined' && chrome?.storage) {
+      this.initializeCache();
+      this.setupCleanup();
+      this.setupCrossTabSync();
+    }
   }
 
   // ─── Core Cache Operations ───────────────────────────────────────────

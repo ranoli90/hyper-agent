@@ -234,7 +234,8 @@ const SLASH_COMMANDS = {
     );
   },
   '/think': () => {
-    const cmd = components.commandInput.value.replace('/think', '').trim();
+    const fullInput = sanitizeInput(components.commandInput.value).trim();
+    const cmd = fullInput.replace(/^\/think\s*/, '').trim();
     if (!cmd) {
       addMessage('Usage: /think [advanced task description]', 'status');
       return;
@@ -375,17 +376,19 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 function renderMarkdown(text: string): string {
   try {
     let html = text.replace(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre><code class="language-${lang}">${escapeHtml(code.trim())}</code></pre>`;
+      return `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(code.trim())}</code></pre>`;
     });
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
+    html = html.replace(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${escapeHtml(t)}</strong>`);
+    html = html.replace(/\*([^*]+)\*/g, (_, t) => `<em>${escapeHtml(t)}</em>`);
     html = html.replace(
       /\[([^\]]+)\]\(([^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
+      (_, linkText, href) => {
+        const safeHref = /^https?:\/\//i.test(href) ? escapeHtml(href) : '#';
+        return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkText)}</a>`;
+      }
     );
 
-    // Wrap lines in paragraphs if they aren't already block elements
     html = html
       .split('\n\n')
       .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
@@ -423,8 +426,14 @@ function updateStepper(stepId: string) {
 
 function handleCommand(text: string) {
   const cmd = sanitizeInput(text).trim();
-  if (cmd.startsWith('/') && SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]) {
-    SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]();
+
+  // Match slash commands — exact match first, then prefix match for commands with args
+  const slashKey = Object.keys(SLASH_COMMANDS).find(
+    k => cmd === k || cmd.startsWith(k + ' ')
+  ) as keyof typeof SLASH_COMMANDS | undefined;
+
+  if (slashKey) {
+    SLASH_COMMANDS[slashKey]();
     components.commandInput.value = '';
     return;
   }
@@ -485,18 +494,38 @@ function setRunning(running: boolean) {
 }
 
 // ─── Persistence ────────────────────────────────────────────────
-async function saveHistory() {
-  const historyHTML = components.chatHistory.innerHTML;
-  await chrome.storage.local.set({ chat_history_backup: historyHTML });
-}
+const saveHistory = debounce(async () => {
+  try {
+    const historyHTML = components.chatHistory.innerHTML;
+    await chrome.storage.local.set({ chat_history_backup: historyHTML });
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to save chat history:', err);
+  }
+}, 500);
 
 async function loadHistory() {
-  const data = await chrome.storage.local.get('chat_history_backup');
-  if (data.chat_history_backup) {
-    components.chatHistory.innerHTML = data.chat_history_backup;
-    scrollToBottom();
+  try {
+    const data = await chrome.storage.local.get('chat_history_backup');
+    if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
+      const sanitized = data.chat_history_backup
+        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+        .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '');
+      components.chatHistory.innerHTML = sanitized;
+      scrollToBottom();
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to load chat history:', err);
   }
 }
+
+// Save on close to prevent data loss from debounce
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    try {
+      chrome.storage.local.set({ chat_history_backup: components.chatHistory.innerHTML });
+    } catch {}
+  }
+});
 
 // ─── Command History ──────────────────────────────────────────────
 async function loadCommandHistory() {
@@ -532,91 +561,262 @@ function navigateHistory(direction: 'up' | 'down'): string | null {
   return state.commandHistory[state.historyIndex] || null;
 }
 
-function updateUsageDisplay() {
-  chrome.runtime.sendMessage({ type: 'getUsage' }, response => {
-    if (response?.usage) {
-      const { actions, sessions, sessionTime } = response.usage;
-      const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
+let selectedBillingInterval: 'month' | 'year' = 'month';
 
-      components.usageActions.textContent = `${actions} / ${limitActions === -1 ? '∞' : limitActions}`;
-      components.usageSessions.textContent = `${sessions} / ${limitSessions === -1 ? '∞' : limitSessions}`;
-      components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+async function updateUsageDisplay() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'getUsage' });
+    if (!response?.usage) return;
+    const { actions, sessions } = response.usage;
+    const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
+
+    // Update text
+    const actionsLabel = limitActions === -1 ? `${actions} / ∞` : `${actions} / ${limitActions}`;
+    const sessionsLabel = limitSessions === -1 ? `${sessions} / ∞` : `${sessions} / ${limitSessions}`;
+    components.usageActions.textContent = actionsLabel;
+    components.usageSessions.textContent = sessionsLabel;
+    components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+
+    // Update progress bars
+    const actionsProgress = document.getElementById('actions-progress');
+    const sessionsProgress = document.getElementById('sessions-progress');
+    if (actionsProgress) {
+      const pct = limitActions === -1 ? 0 : Math.min(100, (actions / limitActions) * 100);
+      actionsProgress.style.width = `${pct}%`;
+      actionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
     }
+    if (sessionsProgress) {
+      const pct = limitSessions === -1 ? 0 : Math.min(100, (sessions / limitSessions) * 100);
+      sessionsProgress.style.width = `${pct}%`;
+      sessionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
+    }
+
+    // Update banner
+    const banner = document.getElementById('current-plan-banner');
+    const bannerTier = document.getElementById('banner-tier');
+    const bannerBadge = document.getElementById('banner-badge');
+    if (banner) {
+      banner.className = `plan-banner ${tier}`;
+    }
+    if (bannerTier) {
+      bannerTier.textContent = `${tier.charAt(0).toUpperCase() + tier.slice(1)} Plan`;
+    }
+    if (bannerBadge) {
+      bannerBadge.textContent = 'Active';
+    }
+
+    // Update plan card buttons based on current tier
+    const freePlanBtn = document.getElementById('btn-plan-free') as HTMLButtonElement;
+    const premiumBtn = document.getElementById('btn-upgrade-premium') as HTMLButtonElement;
+    const unlimitedBtn = document.getElementById('btn-upgrade-unlimited') as HTMLButtonElement;
+    const cancelBtn = document.getElementById('btn-cancel-subscription');
+
+    if (freePlanBtn) {
+      if (tier === 'free') {
+        freePlanBtn.textContent = 'Current Plan';
+        freePlanBtn.className = 'plan-btn current';
+        freePlanBtn.disabled = true;
+      } else {
+        freePlanBtn.textContent = 'Downgrade';
+        freePlanBtn.className = 'plan-btn manage';
+        freePlanBtn.disabled = false;
+      }
+    }
+    if (premiumBtn) {
+      if (tier === 'premium') {
+        premiumBtn.textContent = 'Current Plan';
+        premiumBtn.className = 'plan-btn current';
+        premiumBtn.disabled = true;
+      } else if (tier === 'unlimited') {
+        premiumBtn.textContent = 'Downgrade';
+        premiumBtn.className = 'plan-btn manage';
+        premiumBtn.disabled = false;
+      } else {
+        premiumBtn.textContent = 'Upgrade to Premium';
+        premiumBtn.className = 'plan-btn upgrade';
+        premiumBtn.disabled = false;
+      }
+    }
+    if (unlimitedBtn) {
+      if (tier === 'unlimited') {
+        unlimitedBtn.textContent = 'Current Plan';
+        unlimitedBtn.className = 'plan-btn current';
+        unlimitedBtn.disabled = true;
+      } else {
+        unlimitedBtn.textContent = 'Upgrade to Unlimited';
+        unlimitedBtn.className = 'plan-btn upgrade';
+        unlimitedBtn.disabled = false;
+      }
+    }
+    if (cancelBtn) {
+      cancelBtn.classList.toggle('hidden', tier === 'free');
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to update usage display:', err);
+  }
+}
+
+interface MarketplaceWorkflow {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  category: string;
+  tier: 'free' | 'premium' | 'unlimited';
+  rating: number;
+  installs: string;
+  icon: string;
+}
+
+const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
+  { id: 'web-scraper', name: 'Web Scraper Pro', description: 'Extract structured data from any webpage with CSS selectors and pagination support', price: 'Free', category: 'data', tier: 'free', rating: 4.8, installs: '12.3k', icon: '🔍' },
+  { id: 'form-filler', name: 'Smart Form Filler', description: 'Auto-fill forms using stored profiles with intelligent field matching', price: 'Free', category: 'productivity', tier: 'free', rating: 4.6, installs: '8.7k', icon: '📝' },
+  { id: 'price-tracker', name: 'Price Tracker', description: 'Monitor product prices across e-commerce sites and alert on drops', price: 'Free', category: 'data', tier: 'free', rating: 4.7, installs: '15.1k', icon: '💰' },
+  { id: 'email-automation', name: 'Email Outreach', description: 'Send personalized emails in bulk with templates and tracking', price: 'Premium', category: 'communication', tier: 'premium', rating: 4.5, installs: '5.2k', icon: '✉️' },
+  { id: 'social-media-poster', name: 'Social Publisher', description: 'Schedule and post content to Twitter, LinkedIn, and Facebook', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.4, installs: '3.8k', icon: '📱' },
+  { id: 'invoice-processor', name: 'Invoice Extractor', description: 'Extract line items, totals, and dates from invoice PDFs', price: 'Premium', category: 'business', tier: 'premium', rating: 4.9, installs: '6.4k', icon: '🧾' },
+  { id: 'seo-auditor', name: 'SEO Auditor', description: 'Comprehensive on-page SEO analysis with actionable recommendations', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.3, installs: '4.1k', icon: '📊' },
+  { id: 'lead-generator', name: 'Lead Generator', description: 'Extract business contacts from directories and social profiles', price: 'Premium', category: 'business', tier: 'premium', rating: 4.6, installs: '7.9k', icon: '🎯' },
+  { id: 'competitor-monitor', name: 'Competitor Monitor', description: 'Track competitor pricing, content changes, and new features', price: 'Unlimited', category: 'business', tier: 'unlimited', rating: 4.7, installs: '2.1k', icon: '👁️' },
+  { id: 'data-pipeline', name: 'Data Pipeline', description: 'ETL workflows: extract, transform, and load data across platforms', price: 'Unlimited', category: 'data', tier: 'unlimited', rating: 4.8, installs: '1.5k', icon: '🔄' },
+  { id: 'report-generator', name: 'Report Generator', description: 'Auto-generate weekly reports from multiple data sources', price: 'Premium', category: 'productivity', tier: 'premium', rating: 4.5, installs: '3.3k', icon: '📈' },
+  { id: 'tab-organizer', name: 'Tab Organizer', description: 'Automatically group, sort, and manage browser tabs by project', price: 'Free', category: 'productivity', tier: 'free', rating: 4.2, installs: '9.4k', icon: '🗂️' },
+];
+
+let activeCategory = 'all';
+let searchQuery = '';
+let marketplaceListenersAttached = false;
+let installedWorkflowIds: Set<string> = new Set();
+
+async function loadMarketplace() {
+  // Load installed workflows from background
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'getInstalledWorkflows' });
+    if (resp?.ok && Array.isArray(resp.workflows)) {
+      installedWorkflowIds = new Set(resp.workflows);
+    }
+  } catch {}
+
+  renderMarketplaceWorkflows();
+
+  if (marketplaceListenersAttached) return;
+  marketplaceListenersAttached = true;
+
+  const searchInput = document.getElementById('marketplace-search-input') as HTMLInputElement;
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(() => {
+      searchQuery = searchInput.value.toLowerCase().trim();
+      renderMarketplaceWorkflows();
+    }, 200));
+  }
+
+  document.querySelectorAll('.category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeCategory = (btn as HTMLElement).dataset.category || 'all';
+      renderMarketplaceWorkflows();
+    });
   });
 }
 
-function loadMarketplace() {
-  // Sample workflows for the marketplace
-  const workflows = [
-    {
-      id: 'web-scraper',
-      name: 'Web Scraper',
-      description: 'Automatically extract data from web pages',
-      price: 'Free',
-      category: 'Data',
-    },
-    {
-      id: 'email-automation',
-      name: 'Email Automation',
-      description: 'Send personalized emails based on triggers',
-      price: '$4.99',
-      category: 'Communication',
-    },
-    {
-      id: 'social-media-poster',
-      name: 'Social Media Poster',
-      description: 'Schedule and post to multiple social platforms',
-      price: '$9.99',
-      category: 'Marketing',
-    },
-    {
-      id: 'invoice-processor',
-      name: 'Invoice Processor',
-      description: 'Extract and process invoice data automatically',
-      price: '$14.99',
-      category: 'Business',
-    },
-  ];
+function renderMarketplaceWorkflows() {
+  let filtered = MARKETPLACE_WORKFLOWS;
+
+  if (activeCategory !== 'all') {
+    filtered = filtered.filter(w => w.category === activeCategory);
+  }
+  if (searchQuery) {
+    filtered = filtered.filter(w =>
+      w.name.toLowerCase().includes(searchQuery) ||
+      w.description.toLowerCase().includes(searchQuery)
+    );
+  }
 
   components.marketplaceList.innerHTML = '';
-  workflows.forEach(workflow => {
+
+  if (filtered.length === 0) {
+    components.marketplaceList.innerHTML = '<p class="empty-state">No workflows found matching your criteria.</p>';
+    return;
+  }
+
+  filtered.forEach(workflow => {
+    const currentTier = billingManager.getTier();
+    const tierOrder = { free: 0, premium: 1, unlimited: 2 };
+    const canInstall = tierOrder[currentTier] >= tierOrder[workflow.tier];
+    const isInstalled = installedWorkflowIds.has(workflow.id);
+    const stars = '★'.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
+
+    let btnLabel: string;
+    let btnClass: string;
+    let btnDisabled = '';
+    if (isInstalled) {
+      btnLabel = '✓ Installed';
+      btnClass = 'install-btn installed';
+      btnDisabled = 'disabled';
+    } else if (!canInstall) {
+      btnLabel = '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
+      btnClass = 'install-btn locked';
+    } else {
+      btnLabel = 'Install';
+      btnClass = 'install-btn';
+    }
+
     const card = document.createElement('div');
-    card.className = 'workflow-card';
+    card.className = `workflow-card${!canInstall && !isInstalled ? ' locked' : ''}`;
     card.innerHTML = `
-      <h4>${workflow.name}</h4>
-      <p>${workflow.description}</p>
-      <div class="workflow-meta">
-        <span class="category">${workflow.category}</span>
-        <span class="price">${workflow.price}</span>
+      <div class="workflow-card-header">
+        <span class="workflow-icon">${workflow.icon}</span>
+        <div class="workflow-title-group">
+          <h4>${escapeHtml(workflow.name)}</h4>
+          <span class="workflow-tier-badge ${workflow.tier}">${workflow.price}</span>
+        </div>
       </div>
-      <button class="install-btn" data-workflow-id="${workflow.id}">
-        ${workflow.price === 'Free' ? 'Install' : 'Purchase'}
+      <p class="workflow-desc">${escapeHtml(workflow.description)}</p>
+      <div class="workflow-meta">
+        <span class="workflow-rating" title="${workflow.rating}/5">${stars} ${workflow.rating}</span>
+        <span class="workflow-installs">${workflow.installs} installs</span>
+      </div>
+      <button class="${btnClass}" data-workflow-id="${workflow.id}" ${btnDisabled}>
+        ${btnLabel}
       </button>
     `;
     components.marketplaceList.appendChild(card);
   });
 
-  // Add event listeners for install buttons
   components.marketplaceList.querySelectorAll('.install-btn').forEach(btn => {
     btn.addEventListener('click', e => {
-      const workflowId = (e.target as HTMLElement).dataset.workflowId;
-      if (workflowId) {
-        installWorkflow(workflowId);
+      const target = e.target as HTMLElement;
+      const workflowId = target.dataset.workflowId;
+      if (!workflowId) return;
+
+      if (target.classList.contains('locked')) {
+        switchTab('subscription');
+        showToast('Upgrade required for this workflow', 'warning');
+        return;
       }
+
+      installWorkflow(workflowId);
     });
   });
 }
 
-function installWorkflow(workflowId: string) {
+async function installWorkflow(workflowId: string) {
   addMessage(`Installing workflow: ${workflowId}...`, 'status');
 
-  chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId }, response => {
-    if (response?.success) {
-      addMessage(`Workflow "${workflowId}" installed successfully!`, 'agent');
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId });
+    if (response?.ok) {
+      installedWorkflowIds.add(workflowId);
+      addMessage(`Workflow "${escapeHtml(workflowId)}" installed successfully!`, 'agent');
+      showToast('Workflow installed', 'success');
+      renderMarketplaceWorkflows();
     } else {
-      addMessage(`Failed to install workflow: ${response?.error || 'Unknown error'}`, 'error');
+      addMessage(`Failed to install workflow: ${escapeHtml(response?.error || 'Unknown error')}`, 'error');
     }
-  });
+  } catch (err) {
+    addMessage('Failed to install workflow: connection error', 'error');
+  }
 }
 
 // ─── Memory Tab ────────────────────────────────────────────────
@@ -639,13 +839,16 @@ async function loadMemoryTab() {
           const card = document.createElement('div');
           card.className = 'memory-card';
           const s = strategy as any;
+          const successCount = Number(s.successfulLocators?.length) || 0;
+          const failedCount = Number(s.failedLocators?.length) || 0;
+          const lastUsedStr = s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never';
           card.innerHTML = `
-            <div class="memory-domain">${domain}</div>
+            <div class="memory-domain">${escapeHtml(domain)}</div>
             <div class="memory-stats-row">
-              <span>Success: ${s.successfulLocators?.length || 0}</span>
-              <span>Failed: ${s.failedLocators?.length || 0}</span>
+              <span>Success: ${successCount}</span>
+              <span>Failed: ${failedCount}</span>
             </div>
-            <div class="memory-last-used">Last used: ${s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never'}</div>
+            <div class="memory-last-used">Last used: ${escapeHtml(lastUsedStr)}</div>
           `;
           memoryList.appendChild(card);
         }
@@ -673,17 +876,18 @@ async function loadTasksTab() {
       response.tasks.forEach((task: any) => {
         const item = document.createElement('div');
         item.className = 'task-item';
+        const safeId = escapeHtml(String(task.id || ''));
         item.innerHTML = `
           <div class="task-header">
-            <span class="task-name">${task.name}</span>
+            <span class="task-name">${escapeHtml(task.name || 'Unnamed')}</span>
             <span class="task-status ${task.enabled ? 'enabled' : 'disabled'}">${task.enabled ? 'Active' : 'Paused'}</span>
           </div>
-          <div class="task-command">${task.command}</div>
-          <div class="task-schedule">${formatSchedule(task.schedule)}</div>
-          <div class="task-next-run">Next: ${task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not scheduled'}</div>
+          <div class="task-command">${escapeHtml(task.command || '')}</div>
+          <div class="task-schedule">${escapeHtml(formatSchedule(task.schedule))}</div>
+          <div class="task-next-run">Next: ${task.nextRun ? escapeHtml(new Date(task.nextRun).toLocaleString()) : 'Not scheduled'}</div>
           <div class="task-actions">
-            <button class="btn-small" data-task-id="${task.id}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
-            <button class="btn-small btn-danger" data-task-id="${task.id}" data-action="delete">Delete</button>
+            <button class="btn-small" data-task-id="${safeId}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
+            <button class="btn-small btn-danger" data-task-id="${safeId}" data-action="delete">Delete</button>
           </div>
         `;
         tasksList.appendChild(item);
@@ -738,6 +942,7 @@ async function handleTaskAction(taskId: string | undefined, action: string | und
 }
 
 // ─── Vision Tab ────────────────────────────────────────────────
+let visionListenersAttached = false;
 function loadVisionTab() {
   const visionContainer = document.getElementById('vision-container');
   const visionOverlays = document.getElementById('vision-overlays');
@@ -760,6 +965,9 @@ function loadVisionTab() {
     </div>
   `;
 
+  if (visionListenersAttached) return;
+  visionListenersAttached = true;
+
   const captureBtn = document.getElementById('btn-capture-vision');
   if (captureBtn) {
     captureBtn.addEventListener('click', async () => {
@@ -779,6 +987,7 @@ function loadVisionTab() {
 }
 
 // ─── Swarm Tab ───────────────────────────────────────────────────
+let swarmListenersAttached = false;
 async function loadSwarmTab() {
   const swarmState = document.getElementById('swarm-state');
   const missionsCompleted = document.getElementById('missions-completed');
@@ -811,15 +1020,20 @@ async function loadSwarmTab() {
         snapshotsResponse.snapshots.slice(0, 5).forEach((snapshot: any) => {
           const item = document.createElement('div');
           item.className = 'snapshot-item';
+          const safeTaskId = escapeHtml(String(snapshot.taskId || ''));
+          const safeCmd = escapeHtml((snapshot.command || 'Unknown mission').substring(0, 50));
+          const step = Number(snapshot.currentStep) || 0;
+          const total = Number(snapshot.totalSteps) || 0;
+          const timeStr = snapshot.timestamp ? new Date(snapshot.timestamp).toLocaleString() : '';
           item.innerHTML = `
-            <div class="snapshot-command">${snapshot.command?.substring(0, 50) || 'Unknown mission'}...</div>
+            <div class="snapshot-command">${safeCmd}...</div>
             <div class="snapshot-meta">
-              <span>Step ${snapshot.currentStep || 0}/${snapshot.totalSteps || 0}</span>
-              <span>${new Date(snapshot.timestamp).toLocaleString()}</span>
+              <span>Step ${step}/${total}</span>
+              <span>${escapeHtml(timeStr)}</span>
             </div>
             <div class="snapshot-actions">
-              <button class="btn-small" data-task-id="${snapshot.taskId}">Resume</button>
-              <button class="btn-small btn-danger" data-task-id="${snapshot.taskId}" data-action="delete">Delete</button>
+              <button class="btn-small" data-task-id="${safeTaskId}">Resume</button>
+              <button class="btn-small btn-danger" data-task-id="${safeTaskId}" data-action="delete">Delete</button>
             </div>
           `;
           snapshotsList.appendChild(item);
@@ -843,7 +1057,9 @@ async function loadSwarmTab() {
     console.warn('[HyperAgent] Failed to load swarm tab:', err);
   }
 
-  // Clear snapshots button
+  if (swarmListenersAttached) return;
+  swarmListenersAttached = true;
+
   const clearBtn = document.getElementById('btn-clear-snapshots');
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
@@ -944,6 +1160,19 @@ components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+// Dark mode toggle
+const btnDarkMode = document.getElementById('btn-dark-mode');
+if (btnDarkMode) {
+  btnDarkMode.addEventListener('click', () => {
+    toggleDarkMode();
+    btnDarkMode.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+  });
+  // Set initial icon
+  if (document.body.classList.contains('dark-mode')) {
+    btnDarkMode.textContent = '☀️';
+  }
+}
+
 // Global keyboard shortcuts
 document.addEventListener('keydown', e => {
   // Ctrl/Cmd + L: Clear chat
@@ -981,7 +1210,17 @@ chrome.runtime.onMessage.addListener((message: any) => {
       }
       if (typeof message.step === 'string') updateStepper(message.step);
       if (typeof message.summary === 'string') addMessage(message.summary, 'thinking');
-      if (typeof message.progress === 'number') updateProgress(message.progress);
+
+      // Compute progress from status text "Step N/M" pattern, or use explicit progress
+      if (typeof message.progress === 'number') {
+        updateProgress(message.progress);
+      } else if (typeof message.status === 'string') {
+        const stepMatch = message.status.match(/Step\s+(\d+)\s*\/\s*(\d+)/i);
+        if (stepMatch) {
+          const pct = (parseInt(stepMatch[1], 10) / parseInt(stepMatch[2], 10)) * 100;
+          updateProgress(Math.min(95, pct));
+        }
+      }
 
       // Live Trace: Display the physical actions the agent is taking
       if (Array.isArray(message.actionDescriptions) && message.actionDescriptions.length > 0) {
@@ -1034,8 +1273,13 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
       components.confirmModal.classList.remove('hidden');
 
+      // Resolve any orphaned previous confirmation before creating a new one
+      if (state.confirmResolve) {
+        state.confirmResolve(false);
+        state.confirmResolve = null;
+      }
+
       new Promise<boolean>(resolve => {
-        // Store resolve function in state so buttons can call it
         state.confirmResolve = (val: boolean) => {
           resolve(val);
           state.confirmResolve = null;
@@ -1096,24 +1340,117 @@ let voiceInterface = new VoiceInterface({
   },
   onEnd: () => {
     components.btnMic.classList.remove('active');
-    components.commandInput.placeholder = 'Ask HyperAgent...';
+    components.commandInput.placeholder = 'Type a command...';
     const text = components.commandInput.value.trim();
     if (text) handleCommand(text);
   },
-  onResult: text => {
+  onResult: (text, isFinal) => {
     components.commandInput.value = text;
+    if (isFinal) {
+      updateCharCounter(text);
+    }
   },
 });
 
+// Mic button toggle
+components.btnMic.addEventListener('click', () => {
+  try {
+    if (voiceInterface.isListening) {
+      voiceInterface.stopListening();
+    } else {
+      voiceInterface.startListening();
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Voice interface error:', err);
+    showToast('Voice input not available in this browser', 'error');
+  }
+});
+
 components.btnUpgradePremium.addEventListener('click', async () => {
-  await billingManager.openCheckout('premium');
-  addMessage('Redirecting to Stripe checkout for Premium plan...', 'status');
+  await billingManager.openCheckout('premium', selectedBillingInterval);
+  addMessage(`Redirecting to Stripe checkout for Premium (${selectedBillingInterval}ly)...`, 'status');
+  showToast('Opening Stripe checkout...', 'info');
 });
 
 components.btnUpgradeUnlimited.addEventListener('click', async () => {
-  await billingManager.openCheckout('unlimited');
-  addMessage('Redirecting to Stripe checkout for Unlimited plan...', 'status');
+  await billingManager.openCheckout('unlimited', selectedBillingInterval);
+  addMessage(`Redirecting to Stripe checkout for Unlimited (${selectedBillingInterval}ly)...`, 'status');
+  showToast('Opening Stripe checkout...', 'info');
 });
+
+// Billing interval toggle
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedBillingInterval = (btn as HTMLElement).dataset.interval as 'month' | 'year';
+    updatePricingDisplay();
+  });
+});
+
+function updatePricingDisplay() {
+  const premiumPrice = document.getElementById('premium-price');
+  const premiumPeriod = document.getElementById('premium-period');
+  const unlimitedPrice = document.getElementById('unlimited-price');
+  const unlimitedPeriod = document.getElementById('unlimited-period');
+
+  if (selectedBillingInterval === 'year') {
+    if (premiumPrice) premiumPrice.textContent = '$190';
+    if (premiumPeriod) premiumPeriod.textContent = '/year';
+    if (unlimitedPrice) unlimitedPrice.textContent = '$490';
+    if (unlimitedPeriod) unlimitedPeriod.textContent = '/year';
+  } else {
+    if (premiumPrice) premiumPrice.textContent = '$19';
+    if (premiumPeriod) premiumPeriod.textContent = '/month';
+    if (unlimitedPrice) unlimitedPrice.textContent = '$49';
+    if (unlimitedPeriod) unlimitedPeriod.textContent = '/month';
+  }
+}
+
+// License key activation
+const licenseInput = document.getElementById('license-key-input') as HTMLInputElement;
+const licenseBtn = document.getElementById('btn-activate-license');
+const licenseStatus = document.getElementById('license-status');
+
+if (licenseBtn && licenseInput) {
+  licenseBtn.addEventListener('click', async () => {
+    const key = licenseInput.value.trim();
+    if (!key) {
+      if (licenseStatus) {
+        licenseStatus.textContent = 'Please enter a license key';
+        licenseStatus.className = 'license-status error';
+        licenseStatus.classList.remove('hidden');
+      }
+      return;
+    }
+
+    const result = await billingManager.activateWithLicenseKey(key);
+    if (licenseStatus) {
+      if (result.success) {
+        licenseStatus.textContent = 'License activated successfully! Refreshing...';
+        licenseStatus.className = 'license-status success';
+        showToast('License activated!', 'success');
+        setTimeout(() => updateUsageDisplay(), 500);
+      } else {
+        licenseStatus.textContent = result.error || 'Activation failed';
+        licenseStatus.className = 'license-status error';
+      }
+      licenseStatus.classList.remove('hidden');
+    }
+  });
+}
+
+// Cancel subscription
+const cancelSubBtn = document.getElementById('btn-cancel-subscription');
+if (cancelSubBtn) {
+  cancelSubBtn.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to cancel? You will keep access until the end of your billing period.')) {
+      await billingManager.cancelSubscription();
+      showToast('Subscription will be canceled at end of period', 'info');
+      updateUsageDisplay();
+    }
+  });
+}
 
 // Init
 addMessage('**HyperAgent Dashboard Initialized.** Ready for commands.', 'agent');
@@ -1124,13 +1461,16 @@ updateSubscriptionBadge();
 // ─── Subscription Badge ───────────────────────────────────────────
 async function updateSubscriptionBadge() {
   try {
+    await billingManager.initialize();
     const status = billingManager.getState();
-    if (status.tier !== 'free') {
-      components.subscriptionBadge.textContent =
-        status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
-      components.subscriptionBadge.classList.remove('hidden');
-    } else {
-      components.subscriptionBadge.classList.add('hidden');
+    const badge = components.subscriptionBadge;
+    if (!badge) return;
+
+    badge.textContent = status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
+    badge.className = `subscription-badge ${status.tier}`;
+
+    if (status.tier === 'free') {
+      badge.classList.add('free');
     }
   } catch (err) {
     console.warn('[HyperAgent] Failed to update subscription badge:', err);
@@ -1172,6 +1512,8 @@ async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
   if (data.dark_mode) {
     document.body.classList.add('dark-mode');
+    const btn = document.getElementById('btn-dark-mode');
+    if (btn) btn.textContent = '☀️';
   }
 }
 

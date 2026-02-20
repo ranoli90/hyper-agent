@@ -4,7 +4,7 @@ export default defineConfig({
   manifest: {
     name: 'HyperAgent',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
-    version: '2.16.0',
+    version: '3.0.0',
     permissions: [
       'sidePanel',
       'tabs',

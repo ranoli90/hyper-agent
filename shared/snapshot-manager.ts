@@ -50,7 +50,12 @@ export class SnapshotManager {
 
     static async clear(taskId: string): Promise<void> {
         const key = `${this.STORAGE_KEY_PREFIX}${taskId}`;
-        await chrome.storage.local.remove([key, 'last_active_task_id']);
+        const result = await chrome.storage.local.get('last_active_task_id');
+        const keysToRemove = [key];
+        if (result.last_active_task_id === taskId) {
+            keysToRemove.push('last_active_task_id');
+        }
+        await chrome.storage.local.remove(keysToRemove);
     }
 
     /**

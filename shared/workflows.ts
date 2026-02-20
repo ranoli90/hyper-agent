@@ -179,8 +179,13 @@ export async function runWorkflow(
     return { success: false, error: 'No start step found' };
   }
   
-  // Execute workflow steps
+  const MAX_WORKFLOW_ITERATIONS = 100;
+  let iterations = 0;
+
   while (currentStepId) {
+    if (++iterations > MAX_WORKFLOW_ITERATIONS) {
+      return { success: false, error: 'Workflow exceeded maximum iterations (possible infinite loop)', results };
+    }
     const step = workflow.steps.find(s => s.id === currentStepId);
     
     if (!step) {

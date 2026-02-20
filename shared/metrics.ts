@@ -54,7 +54,7 @@ async function saveToStorage(key: string, data: unknown): Promise<void> {
 async function loadFromStorage<T>(key: string): Promise<T | null> {
   return new Promise((resolve) => {
     chrome.storage.local.get(key, (result) => {
-      resolve(result[key] as T | null || null);
+      resolve((result[key] as T) ?? null);
     });
   });
 }

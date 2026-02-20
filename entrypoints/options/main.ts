@@ -13,6 +13,9 @@ const dryRunInput = document.getElementById('dry-run') as HTMLInputElement;
 const enableVisionInput = document.getElementById('enable-vision') as HTMLInputElement;
 const autoRetryInput = document.getElementById('auto-retry') as HTMLInputElement;
 const siteBlacklistInput = document.getElementById('site-blacklist') as HTMLTextAreaElement;
+const enableSwarmInput = document.getElementById('enable-swarm') as HTMLInputElement;
+const enableAutonomousInput = document.getElementById('enable-autonomous') as HTMLInputElement;
+const enableLearningInput = document.getElementById('enable-learning') as HTMLInputElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
 const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
@@ -120,8 +123,7 @@ async function loadCurrentSettings() {
     status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
   });
 
-  // Model is fixed to google/gemini-2.5-flash
-  modelStatusText.textContent = 'Model: google/gemini-2.5-flash';
+  modelStatusText.textContent = `Model: ${DEFAULTS.MODEL_NAME}`;
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -129,6 +131,9 @@ async function loadCurrentSettings() {
   enableVisionInput.checked = settings.enableVision;
   autoRetryInput.checked = settings.autoRetry;
   siteBlacklistInput.value = settings.siteBlacklist;
+  enableSwarmInput.checked = settings.enableSwarmIntelligence;
+  enableAutonomousInput.checked = settings.enableAutonomousMode;
+  enableLearningInput.checked = settings.learningEnabled;
 }
 
 // ─── Detect provider from URL ───────────────────────────────────
@@ -153,17 +158,17 @@ btnSave.addEventListener('click', async () => {
   await saveSettings({
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: 'google/gemini-2.5-flash',
-    backupModel: 'google/gemini-2.5-flash',
+    modelName: DEFAULTS.MODEL_NAME,
+    backupModel: DEFAULTS.BACKUP_MODEL,
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
     enableVision: enableVisionInput.checked,
     autoRetry: autoRetryInput.checked,
     siteBlacklist: siteBlacklistInput.value,
-    enableSwarmIntelligence: current?.enableSwarmIntelligence ?? DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
-    enableAutonomousMode: current?.enableAutonomousMode ?? DEFAULTS.ENABLE_AUTONOMOUS_MODE,
-    learningEnabled: current?.learningEnabled ?? DEFAULTS.LEARNING_ENABLED,
+    enableSwarmIntelligence: enableSwarmInput.checked,
+    enableAutonomousMode: enableAutonomousInput.checked,
+    learningEnabled: enableLearningInput.checked,
   });
 
   saveStatus.classList.remove('hidden');
@@ -190,7 +195,7 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
         'X-Title': 'HyperAgent',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: DEFAULTS.MODEL_NAME,
         messages: [{ role: 'user', content: 'Test' }],
         temperature: 0,
         max_tokens: 1,

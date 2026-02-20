@@ -710,17 +710,25 @@ function initializeReasoning(): void {
   }
 }
 
-function initializePersistentAutonomous(): void {
+async function initializePersistentAutonomous(): Promise<void> {
   if (!persistentAutonomousEngine) {
     persistentAutonomousEngine = new PersistentAutonomousEngine();
+    await persistentAutonomousEngine.initialize();
     console.log('[Background] Persistent autonomous engine initialized');
   }
 }
 
-// Initialize on startup
+// Initialize on startup — these run top-level in the service-worker scope.
+// Non-async inits are called directly; async ones are awaited inside onInstalled.
 initializeSwarm();
 initializeReasoning();
 initializePersistentAutonomous();
+
+// Load persisted usage metrics so limits are enforced immediately
+usageTracker.loadMetrics();
+
+// Initialize billing manager so subscription state is available
+billingManager.initialize().catch(e => console.warn('[Billing] init failed', e));
 
 // ─── Input validation ───────────────────────────────────────────────────
 
@@ -754,6 +762,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getAgentStatus':
     case 'clearHistory':
     case 'getMetrics':
+      return true;
     case 'contextMenuCommand':
       return typeof (message as any).command === 'string';
     case 'captureScreenshot':
@@ -765,6 +774,12 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'clearSnapshot':
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
+    case 'getUsage':
+    case 'getMemoryStats':
+    case 'getScheduledTasks':
+    case 'getSubscriptionState':
+    case 'verifySubscription':
+    case 'cancelSubscription':
       return true;
     case 'executeTool':
       return typeof (message as any).toolId === 'string';
@@ -868,12 +883,6 @@ export default defineBackground(() => {
       // Initialize security settings
       await withErrorBoundary('security_initialization', async () => {
         await initializeSecuritySettings();
-        // Initialize Long-Term Memory
-        const { memoryManager } = await import('../shared/memory-system');
-        await memoryManager.initialize();
-        // Initialize Scheduler
-        const { schedulerEngine } = await import('../shared/scheduler-engine');
-        await schedulerEngine.initialize();
       });
     });
   });
@@ -926,12 +935,13 @@ export default defineBackground(() => {
   async function runAutonomousLoop(command: string) {
     if (agentState.isRunning) return;
 
-    // Check premium feature access
-    if (!usageTracker.isPremiumFeatureAllowed('autonomous_mode')) {
+    // Check autonomous mode access via billing
+    const autoUsage = usageTracker.getCurrentUsage();
+    const autoCheck = billingManager.isWithinLimits(autoUsage.actions, autoUsage.sessions);
+    if (!autoCheck.allowed) {
       sendToSidePanel({
         type: 'agentDone',
-        finalSummary:
-          'Autonomous mode requires Premium subscription. Upgrade to unlock unlimited autonomous sessions.',
+        finalSummary: autoCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
         success: false,
         stepsUsed: 0,
       });
@@ -983,23 +993,17 @@ export default defineBackground(() => {
       });
 
       logger.log('info', 'Starting autonomous reasoning for task', { command: redact(command) });
-      sendToSidePanel({ type: 'agentProgress', status: 'Thinking (Advanced)...', step: 'plan' });
+      sendToSidePanel({ type: 'agentProgress', status: 'Deep reasoning...', step: 'plan' });
 
       const pageCtx = await getPageContext(tabId);
-      const plan = await autonomousIntelligence.understandAndPlan(command, {
+
+      const intelligenceContext = {
         taskDescription: command,
         availableTools: [
-          'navigate',
-          'click',
-          'fill',
-          'extract',
-          'scroll',
-          'wait',
-          'hover',
-          'focus',
-          'select',
+          'navigate', 'click', 'fill', 'extract', 'scroll',
+          'wait', 'hover', 'focus', 'select',
         ],
-        previousAttempts: [],
+        previousAttempts: [] as any[],
         environmentalData: {
           url: tab.url,
           html: pageCtx.bodyText.slice(0, 5000),
@@ -1007,8 +1011,30 @@ export default defineBackground(() => {
         },
         userPreferences: {},
         domainKnowledge: {},
-        successPatterns: [],
-      });
+        successPatterns: [] as any[],
+      };
+
+      // Phase 1: Tree-of-Thoughts reasoning (if reasoning engine is available)
+      if (reasoningEngine) {
+        try {
+          sendToSidePanel({ type: 'agentProgress', status: 'Tree-of-Thoughts analysis...', step: 'plan' });
+          const reasoning = await reasoningEngine.analyzeTask(intelligenceContext);
+          logger.log('info', 'Reasoning engine analysis', { steps: reasoning.length });
+          // Feed reasoning insights into the planning context
+          intelligenceContext.domainKnowledge = { reasoningInsights: reasoning };
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Planning with insights...',
+            step: 'plan',
+            summary: reasoning.slice(0, 3).join(' | '),
+          });
+        } catch (err: any) {
+          logger.log('warn', 'Reasoning engine failed, continuing without', { error: err.message });
+        }
+      }
+
+      // Phase 2: Generate autonomous plan
+      const plan = await autonomousIntelligence.understandAndPlan(command, intelligenceContext);
 
       logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
 
@@ -1182,11 +1208,17 @@ export default defineBackground(() => {
 
       case 'getUsage': {
         const usage = usageTracker.getCurrentUsage();
-        const limits = usageTracker.getUsageLimits();
+        // Use billingManager as authoritative source for tier-based limits
+        const billingLimits = billingManager.getUsageLimit();
+        const currentTier = billingManager.getTier();
         return {
           ok: true,
           usage,
-          limits,
+          limits: {
+            actions: billingLimits.actions,
+            sessions: billingLimits.sessions,
+            tier: currentTier,
+          },
         };
       }
 
@@ -1219,33 +1251,64 @@ export default defineBackground(() => {
 
       case 'installWorkflow': {
         const msg = message as any;
-        const workflows: Record<string, any> = {
-          'web-scraper': {
-            id: 'web-scraper',
-            name: 'Web Scraper',
-            actions: [{ type: 'extract', description: 'Extract data from page' }],
-          },
-          'email-automation': {
-            id: 'email-automation',
-            name: 'Email Automation',
-            actions: [{ type: 'fill', description: 'Fill email form' }],
-          },
-          'social-media-poster': {
-            id: 'social-media-poster',
-            name: 'Social Media Poster',
-            actions: [{ type: 'click', description: 'Post to social media' }],
-          },
-          'invoice-processor': {
-            id: 'invoice-processor',
-            name: 'Invoice Processor',
-            actions: [{ type: 'extract', description: 'Extract invoice data' }],
-          },
-        };
-        const workflow = workflows[msg.workflowId];
-        if (workflow) {
-          return { ok: true, workflow };
+        if (!msg.workflowId) return { ok: false, error: 'No workflowId provided' };
+
+        try {
+          // Track installed marketplace workflows
+          const installed = await chrome.storage.local.get('hyperagent_installed_workflows');
+          const list: string[] = installed.hyperagent_installed_workflows || [];
+          if (!list.includes(msg.workflowId)) {
+            list.push(msg.workflowId);
+            await chrome.storage.local.set({ hyperagent_installed_workflows: list });
+          }
+          return { ok: true, workflowId: msg.workflowId };
+        } catch (err: any) {
+          return { ok: false, error: err.message };
         }
-        return { ok: false, error: 'Workflow not found' };
+      }
+
+      case 'getInstalledWorkflows': {
+        try {
+          const installed = await chrome.storage.local.get('hyperagent_installed_workflows');
+          return { ok: true, workflows: installed.hyperagent_installed_workflows || [] };
+        } catch {
+          return { ok: true, workflows: [] };
+        }
+      }
+
+      case 'getSubscriptionState': {
+        return {
+          ok: true,
+          state: billingManager.getState(),
+          plans: billingManager.getAllPlans(),
+        };
+      }
+
+      case 'activateLicenseKey': {
+        const msg = message as any;
+        if (!msg.key) return { ok: false, error: 'No key provided' };
+        const result = await billingManager.activateWithLicenseKey(msg.key);
+        if (result.success) {
+          usageTracker.setSubscriptionTier(billingManager.getTier());
+        }
+        return { ok: result.success, error: result.error };
+      }
+
+      case 'openCheckout': {
+        const msg = message as any;
+        if (!msg.tier) return { ok: false, error: 'No tier provided' };
+        await billingManager.openCheckout(msg.tier, msg.interval || 'month');
+        return { ok: true };
+      }
+
+      case 'cancelSubscription': {
+        await billingManager.cancelSubscription();
+        return { ok: true };
+      }
+
+      case 'verifySubscription': {
+        const valid = await billingManager.verifySubscription();
+        return { ok: true, valid, state: billingManager.getState() };
       }
 
       default:
@@ -1297,7 +1360,12 @@ export default defineBackground(() => {
           await SnapshotManager.clear(message.taskId);
           return { ok: true };
         }
-        return { ok: false, error: 'No taskId provided' };
+        // Clear ALL snapshots when no taskId provided
+        const allSnapshots = await SnapshotManager.listAll();
+        for (const snap of allSnapshots) {
+          await SnapshotManager.clear(snap.taskId);
+        }
+        return { ok: true };
       }
 
       case 'parseIntent': {
@@ -1917,6 +1985,15 @@ export default defineBackground(() => {
       usageTracker.trackAction(action.type);
     }
 
+    // Feed outcome into global learning so the system improves over time
+    if (pageUrl) {
+      const domain = new URL(pageUrl).hostname;
+      globalLearning.learn(domain, action.type, result.success, {
+        errorType: result.errorType,
+        duration: Date.now() - startTime,
+      }).catch(() => {});
+    }
+
     return result;
   }
 
@@ -1925,6 +2002,20 @@ export default defineBackground(() => {
     logger.log('info', 'Starting agent loop', { command: redact(command) });
     agentState.setRunning(true);
     agentState.setAborted(false);
+
+    // Check usage limits before starting (billing-authoritative)
+    const currentUsage = usageTracker.getCurrentUsage();
+    const billingCheck = billingManager.isWithinLimits(currentUsage.actions, currentUsage.sessions);
+    if (!billingCheck.allowed) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: billingCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
 
     const settings = await loadSettings();
     if (!settings.apiKey) {
@@ -1960,10 +2051,34 @@ export default defineBackground(() => {
 
     const history: HistoryEntry[] = [];
     let requestScreenshot = false;
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 3;
 
     try {
+      // Save initial snapshot for resume capability
+      await SnapshotManager.save({
+        taskId: session.id,
+        command,
+        currentStep: 0,
+        totalSteps: maxSteps,
+        history: [],
+        timestamp: Date.now(),
+        status: 'running',
+        url: tab.url || '',
+      });
+
       for (let step = 1; step <= maxSteps; step++) {
         if (agentState.isAborted) {
+          await SnapshotManager.save({
+            taskId: session.id,
+            command,
+            currentStep: step - 1,
+            totalSteps: maxSteps,
+            history,
+            timestamp: Date.now(),
+            status: 'aborted',
+            url: tab.url || '',
+          });
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: 'Stopped.',
@@ -1973,8 +2088,23 @@ export default defineBackground(() => {
           return;
         }
 
+        // Check for too many consecutive failures
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `Stopped after ${MAX_CONSECUTIVE_FAILURES} consecutive failures. The page may not be responding as expected.`,
+            success: false,
+            stepsUsed: step - 1,
+          });
+          return;
+        }
+
         // ── Step 1: Observe ──
-        sendToSidePanel({ type: 'agentProgress', status: 'Analyzing page...', step: 'observe' });
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: `Step ${step}/${maxSteps}: Analyzing page...`,
+          step: 'observe',
+        });
         let context = await getPageContext(tabId);
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
@@ -2045,8 +2175,19 @@ export default defineBackground(() => {
         }
 
         // ── Step 4: Act ──
-        sendToSidePanel({ type: 'agentProgress', status: 'Executing...', step: 'act' });
+        const actionDescs = llmResponse.actions
+          .filter((a: any) => a?.description)
+          .map((a: any) => a.description);
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: `Step ${step}/${maxSteps}: Executing ${llmResponse.actions.length} action(s)...`,
+          step: 'act',
+          actionDescriptions: actionDescs,
+        });
+
         const actionResults = [];
+        let stepHadFailure = false;
+
         for (const action of llmResponse.actions) {
           if (agentState.isAborted) break;
 
@@ -2082,25 +2223,54 @@ export default defineBackground(() => {
                   }
                 } catch (verifyErr: any) {
                   logger.log('warn', 'Vision verification error', { error: verifyErr.message });
-                  // Continue without verification rather than fail
                 }
               }
             } catch (screenErr: any) {
               logger.log('warn', 'Screenshot capture failed', { error: screenErr.message });
-              // Continue without verification
             }
           }
 
           if (result) {
             actionResults.push({ action, ...result });
+            if (!result.success) stepHadFailure = true;
           }
           await delay(DEFAULTS.ACTION_DELAY_MS);
+        }
+
+        // Track consecutive failures for circuit-breaking
+        if (stepHadFailure) {
+          consecutiveFailures++;
+        } else {
+          consecutiveFailures = 0;
         }
 
         history.push({ role: 'user', context, command });
         history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
 
+        // Save snapshot after each step for resume
+        await SnapshotManager.save({
+          taskId: session.id,
+          command,
+          currentStep: step,
+          totalSteps: maxSteps,
+          history,
+          timestamp: Date.now(),
+          status: 'running',
+          url: tab.url || '',
+        }).catch(() => {});
+
         if (llmResponse.done || llmResponse.actions.length === 0) {
+          await SnapshotManager.save({
+            taskId: session.id,
+            command,
+            currentStep: step,
+            totalSteps: maxSteps,
+            history,
+            timestamp: Date.now(),
+            status: 'completed',
+            url: tab.url || '',
+          }).catch(() => {});
+
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: llmResponse.summary || 'Done',
@@ -2157,8 +2327,10 @@ export default defineBackground(() => {
 
   async function switchToTab(tabId: number): Promise<{ success: boolean; error?: string }> {
     try {
-      await chrome.tabs.update(tabId, { active: true });
-      await chrome.windows.update(tabId as unknown as number, { focused: true }).catch(() => {});
+      const tab = await chrome.tabs.update(tabId, { active: true });
+      if (tab?.windowId) {
+        await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+      }
       await waitForTabLoad(tabId);
       return { success: true };
     } catch (err: any) {
@@ -2305,13 +2477,9 @@ Return JSON:
   }
 
   // ─── Scheduler Integration ─────────────────────────────────────
+  // Note: schedulerEngine.initialize() sets up its own alarm listener internally,
+  // so we do NOT add a duplicate chrome.alarms.onAlarm listener here.
   schedulerEngine.initialize().catch((err: any) => {
     console.error('[Background] Scheduler initialization failed:', err);
-  });
-
-  chrome.alarms.onAlarm.addListener(alarm => {
-    schedulerEngine.handleAlarm(alarm).catch((err: any) => {
-      console.error('[Background] Scheduler alarm handle failed:', err);
-    });
   });
 });
