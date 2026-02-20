@@ -651,6 +651,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[HyperAgent] Completion error ${response.status}:`, errorText);
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
+          throw new Error(`Rate limit exceeded. Try again in ${waitSec} seconds.`);
+        }
         throw new Error(`Completion request failed: ${response.status}`);
       }
 
@@ -730,6 +735,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`[HyperAgent] API error ${response.status}:`, errorText);
+        if (response.status === 429) {
+          const retryAfter = response.headers.get('Retry-After');
+          const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
+          throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
+        }
         throw new Error(`API request failed: ${response.status} - ${errorText.slice(0, 500)}`);
       }
 

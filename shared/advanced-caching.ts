@@ -507,7 +507,7 @@ export class AdvancedCache<T = any> {
   // ─── Maintenance ─────────────────────────────────────────────────────
   private setupCleanup(): void {
     // Clean up expired entries every 5 minutes
-    this.cleanupInterval = window.setInterval(
+    this.cleanupInterval = setInterval(
       () => {
         this.cleanup();
       },

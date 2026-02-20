@@ -12,6 +12,7 @@ import type {
   MsgAskUser,
 } from '../../shared/types';
 import { billingManager, PRICING_PLANS } from '../../shared/billing';
+import { validateAndFilterImportData } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 
 function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
@@ -129,7 +130,9 @@ function updateCharCounter(value: string) {
 function switchTab(tabId: string) {
   state.activeTab = tabId;
   components.tabs.forEach(btn => {
-    btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tabId);
+    const isSelected = (btn as HTMLElement).dataset.tab === tabId;
+    btn.classList.toggle('active', isSelected);
+    btn.setAttribute('aria-selected', String(isSelected));
   });
   components.panes.forEach(pane => {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
@@ -252,6 +255,7 @@ const SLASH_COMMANDS = {
     addMessage(
       `
 **Hyper-Commands:**
+- \`/think\`: Advanced autonomous reasoning
 - \`/memory\`: View stored knowledge
 - \`/schedule\`: Manage background tasks
 - \`/tools\`: List agent capabilities
@@ -279,6 +283,7 @@ const SLASH_COMMANDS = {
 - \`Arrow Up\`: Previous command in history
 - \`Arrow Down\`: Next command in history
 - \`Escape\`: Close modals/suggestions
+- \`Ctrl/Cmd+K\`: Focus command input
 - \`Ctrl/Cmd+L\`: Clear chat
 - \`Ctrl/Cmd+S\`: Open settings
     `,
@@ -411,7 +416,8 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 function scrollToBottom() {
@@ -510,10 +516,11 @@ async function saveHistoryImmediate() {
 }
 const saveHistory = debounce(saveHistoryImmediate, 500);
 
-// Flush pending save on close/hide to prevent data loss
-document.addEventListener('visibilitychange', () => {
+// Flush pending save on close/hide to prevent data loss (single handler)
+const flushHistoryOnHide = () => {
   if (document.visibilityState === 'hidden') saveHistoryImmediate();
-});
+};
+document.addEventListener('visibilitychange', flushHistoryOnHide);
 window.addEventListener('beforeunload', () => saveHistoryImmediate());
 
 async function loadHistory() {
@@ -533,14 +540,7 @@ async function loadHistory() {
   }
 }
 
-// Save on close to prevent data loss from debounce
-window.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    try {
-      chrome.storage.local.set({ chat_history_backup: components.chatHistory.innerHTML });
-    } catch {}
-  }
-});
+// (visibilitychange handled above via flushHistoryOnHide)
 
 // ─── Command History ──────────────────────────────────────────────
 async function loadCommandHistory() {
@@ -878,9 +878,21 @@ async function loadMemoryTab() {
 }
 
 // ─── Tasks Tab ────────────────────────────────────────────────
+let tasksListenersAttached = false;
 async function loadTasksTab() {
   const tasksList = document.getElementById('tasks-list');
   if (!tasksList) return;
+
+  const addTaskBtn = document.getElementById('btn-add-task-ui');
+  if (addTaskBtn && !tasksListenersAttached) {
+    tasksListenersAttached = true;
+    addTaskBtn.addEventListener('click', () => {
+      switchTab('chat');
+      components.commandInput.value = '';
+      components.commandInput.placeholder = 'e.g. schedule daily search for news';
+      components.commandInput.focus();
+    });
+  }
 
   try {
     const response = await chrome.runtime.sendMessage({ type: 'getScheduledTasks' });
@@ -988,7 +1000,7 @@ function loadVisionTab() {
     captureBtn.addEventListener('click', async () => {
       try {
         const response = await chrome.runtime.sendMessage({ type: 'captureScreenshot' });
-        if (response?.dataUrl) {
+        if (response?.dataUrl && components.visionSnapshot) {
           components.visionSnapshot.src = `data:image/jpeg;base64,${response.dataUrl}`;
           components.visionSnapshot.classList.remove('hidden');
           components.visionPlaceholder.classList.add('hidden');
@@ -997,6 +1009,14 @@ function loadVisionTab() {
       } catch (err) {
         addMessage('Failed to capture screenshot.', 'error');
       }
+    });
+  }
+  const analyzeBtn = document.getElementById('btn-analyze-vision');
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener('click', () => {
+      switchTab('chat');
+      components.commandInput.value = 'Analyze this page and describe what you see.';
+      components.commandInput.focus();
     });
   }
 }
@@ -1047,11 +1067,41 @@ async function loadSwarmTab() {
               <span>${escapeHtml(timeStr)}</span>
             </div>
             <div class="snapshot-actions">
-              <button class="btn-small" data-task-id="${safeTaskId}">Resume</button>
-              <button class="btn-small btn-danger" data-task-id="${safeTaskId}" data-action="delete">Delete</button>
+              <button class="btn-small btn-resume" data-task-id="${safeTaskId}">Resume</button>
+              <button class="btn-small btn-danger btn-delete-snapshot" data-task-id="${safeTaskId}">Delete</button>
             </div>
           `;
           snapshotsList.appendChild(item);
+        });
+
+        // Attach click handlers for Resume and Delete
+        snapshotsList.querySelectorAll('.btn-resume').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+            if (taskId) {
+              const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
+              if (resp?.ok) {
+                showToast('Resuming mission...', 'success');
+                loadSwarmTab();
+              } else {
+                showToast(resp?.error || 'Failed to resume', 'error');
+              }
+            }
+          });
+        });
+        snapshotsList.querySelectorAll('.btn-delete-snapshot').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+            if (taskId) {
+              const resp = await chrome.runtime.sendMessage({ type: 'clearSnapshot', taskId });
+              if (resp?.ok) {
+                showToast('Mission deleted', 'success');
+                loadSwarmTab();
+              } else {
+                showToast(resp?.error || 'Failed to delete', 'error');
+              }
+            }
+          });
         });
 
         // Count recovered tasks
@@ -1171,6 +1221,14 @@ components.commandInput.addEventListener('keydown', e => {
 loadHistory();
 loadCommandHistory();
 
+// Show changelog on update
+chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
+  if (data.hyperagent_show_changelog) {
+    chrome.storage.local.remove('hyperagent_show_changelog');
+    showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
+  }
+});
+
 components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
@@ -1199,6 +1257,12 @@ document.addEventListener('keydown', e => {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
+  }
+  // Ctrl/Cmd + K: Focus command input
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    switchTab('chat');
+    components.commandInput.focus();
   }
   // Escape: Close modals and suggestions
   if (e.key === 'Escape') {
@@ -1250,8 +1314,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'visionUpdate': {
-      if (typeof message.screenshot === 'string' && message.screenshot.length > 0) {
-        components.visionSnapshot.src = message.screenshot;
+      if (typeof message.screenshot === 'string' && message.screenshot.length > 0 && components.visionSnapshot) {
+        const s = message.screenshot;
+        components.visionSnapshot.src = s.startsWith('data:') ? s : `data:image/jpeg;base64,${s}`;
         components.visionSnapshot.classList.remove('hidden');
         components.visionPlaceholder.classList.add('hidden');
       }
@@ -1529,7 +1594,13 @@ async function toggleDarkMode() {
 
 async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
-  if (data.dark_mode) {
+  const useDark =
+    data.dark_mode === true
+      ? true
+      : data.dark_mode === false
+        ? false
+        : typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
+  if (useDark) {
     document.body.classList.add('dark-mode');
     const btn = document.getElementById('btn-dark-mode');
     if (btn) btn.textContent = '☀️';
@@ -1574,6 +1645,10 @@ function setLoadingText(text: string) {
 
 // ─── Export/Import Settings ─────────────────────────────────────────
 async function exportSettings() {
+  const warned = confirm(
+    'Export includes chat history and preferences. Do not share this file if it contains sensitive data. Continue?'
+  );
+  if (!warned) return;
   try {
     const data = await chrome.storage.local.get(null);
     const exportData = {
@@ -1619,7 +1694,14 @@ async function importSettings() {
         throw new Error('Invalid settings file format');
       }
 
-      await chrome.storage.local.set(data.settings);
+      const { filtered, errors } = validateAndFilterImportData(data.settings);
+      if (Object.keys(filtered).length === 0) {
+        throw new Error('No valid settings to import');
+      }
+      if (errors.length > 0) {
+        console.warn('[HyperAgent] Import validation warnings:', errors);
+      }
+      await chrome.storage.local.set(filtered);
       showToast('Settings imported successfully!', 'success');
 
       // Reload to apply imported settings

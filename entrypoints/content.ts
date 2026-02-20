@@ -325,6 +325,13 @@ export default defineContentScript({
             return null;
           }
         }
+        case 'ariaLabel':
+          // Alias for "aria" — LLM prompt may use ariaLabel
+          return resolveLocatorSingle({ strategy: 'aria', value, index });
+        case 'id': {
+          const el = document.getElementById(value);
+          return el && isVisible(el) ? el : null;
+        }
         default:
           return null;
       }
@@ -887,11 +894,12 @@ export default defineContentScript({
             return { success: true };
           }
 
+          // navigate/goBack are handled by background executeAction; content never receives them.
+          // Kept for potential direct performAction flows (e.g. future workflow injection).
           case 'navigate': {
             window.location.href = action.url;
             return { success: true };
           }
-
           case 'goBack': {
             window.history.back();
             return { success: true };
@@ -1086,9 +1094,11 @@ export default defineContentScript({
       (message: any, _sender: any, sendResponse: (response?: any) => void): boolean => {
         // Basic validation and simple rate limiting per type
         if (!validateInboundMessage(message)) {
+          sendResponse({ success: false, error: 'Invalid message format' });
           return false;
         }
         if (!canAccept(message.type)) {
+          sendResponse({ success: false, error: 'Rate limit exceeded' });
           return false;
         }
 
@@ -1152,15 +1162,13 @@ export default defineContentScript({
               }
             }
             default:
-              return null;
+              return { success: false, error: 'Unknown message type' };
           }
         };
 
         handleAsync()
           .then(result => {
-            if (result !== null) {
-              sendResponse(result);
-            }
+            sendResponse(result ?? { success: false, error: 'Unknown error' });
           })
           .catch(err => {
             console.error('[HyperAgent] Message handler error:', err);

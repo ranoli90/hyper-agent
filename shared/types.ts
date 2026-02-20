@@ -49,6 +49,8 @@ export type ErrorType =
   | 'ACTION_FAILED'
   | 'TIMEOUT'
   | 'NAVIGATION_ERROR'
+  | 'RATE_LIMIT'
+  | 'SECURITY_POLICY'
   | 'UNKNOWN';
 
 // Supported languages for multi-language support
@@ -139,7 +141,7 @@ export interface PageContext {
 }
 
 // ─── Locator ────────────────────────────────────────────────────────
-export type LocatorStrategy = 'css' | 'text' | 'aria' | 'role' | 'xpath' | 'index';
+export type LocatorStrategy = 'css' | 'text' | 'aria' | 'ariaLabel' | 'id' | 'role' | 'xpath' | 'index';
 
 export type Locator =
   | string

@@ -61,12 +61,7 @@ import {
   MsgGetUsage,
   MsgGetUsageResponse,
 } from '../shared/types';
-import {
-  withErrorBoundary,
-  withGracefulDegradation,
-  errorBoundary,
-  gracefulDegradation,
-} from '../shared/error-boundary';
+import { withErrorBoundary } from '../shared/error-boundary';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
@@ -760,8 +755,11 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
 
   switch (type) {
     case 'executeCommand':
+      const cmd = (message as any).command;
       return (
-        typeof (message as any).command === 'string' &&
+        typeof cmd === 'string' &&
+        cmd.trim().length > 0 &&
+        cmd.length <= 10000 &&
         ((message as any).useAutonomous === undefined ||
           typeof (message as any).useAutonomous === 'boolean')
       );
@@ -784,6 +782,9 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getSnapshot':
     case 'listSnapshots':
     case 'clearSnapshot':
+      return true;
+    case 'resumeSnapshot':
+      return typeof (message as any).taskId === 'string';
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
     case 'getUsage':
@@ -797,9 +798,27 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
       return typeof (message as any).toolId === 'string';
     case 'parseIntent':
       return typeof (message as any).command === 'string';
-    default:
-      // Allow extended message types
+    case 'getAPICache':
+    case 'setAPICache':
+    case 'invalidateCacheTag':
+    case 'getMemoryLeaks':
+    case 'forceMemoryCleanup':
+    case 'getAutonomousSession':
+    case 'createAutonomousSession':
+    case 'getProactiveSuggestions':
+    case 'executeSuggestion':
+    case 'getCacheStats':
+    case 'sanitizeInput':
+    case 'sanitizeUrl':
+    case 'sanitizeBatch':
+    case 'toggleScheduledTask':
+    case 'deleteScheduledTask':
+    case 'installWorkflow':
+    case 'activateLicenseKey':
+    case 'openCheckout':
       return true;
+    default:
+      return false;
   }
 }
 
@@ -830,7 +849,10 @@ export default defineBackground(() => {
   ); // Every 5 minutes
 
   // ─── On install: configure side panel ───────────────────────────
-  chrome.runtime.onInstalled.addListener(async () => {
+  chrome.runtime.onInstalled.addListener(async (details) => {
+    if (details.reason === 'update') {
+      await chrome.storage.local.set({ hyperagent_show_changelog: true });
+    }
     await withErrorBoundary('extension_installation', async () => {
       // 3. Initialize Global Learning
       globalLearning
@@ -1081,35 +1103,40 @@ export default defineBackground(() => {
 
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
     (async () => {
-      await withErrorBoundary('message_processing', async () => {
-        // Rate limiting
-        const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
-        if (!rateLimiter.canAcceptMessage(senderId)) {
-          logger.log('warn', 'Message rate limited', { senderId });
-          sendResponse({ ok: false, error: 'Rate limit exceeded' });
-          return;
-        }
+      try {
+        await withErrorBoundary('message_processing', async () => {
+          // Rate limiting
+          const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
+          if (!rateLimiter.canAcceptMessage(senderId)) {
+            logger.log('warn', 'Message rate limited', { senderId });
+            sendResponse({ ok: false, error: 'Rate limit exceeded' });
+            return;
+          }
 
-        // Input validation
-        if (!validateExtensionMessage(message)) {
-          logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
-          sendResponse({ ok: false, error: 'Invalid message format' });
-          return;
-        }
+          // Input validation
+          if (!validateExtensionMessage(message)) {
+            logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
+            sendResponse({ ok: false, error: 'Invalid message format' });
+            return;
+          }
 
-        logger.log('debug', 'Processing message', { type: message.type, senderId });
+          logger.log('debug', 'Processing message', { type: message.type, senderId });
 
-        // Try extended handlers first
-        const extendedResult = await handleExtendedMessage(message);
-        if (extendedResult !== null) {
-          sendResponse(extendedResult);
-          return;
-        }
+          // Try extended handlers first
+          const extendedResult = await handleExtendedMessage(message);
+          if (extendedResult !== null) {
+            sendResponse(extendedResult);
+            return;
+          }
 
-        // Route message
-        const result = await handleExtensionMessage(message, sender);
-        sendResponse(result);
-      });
+          // Route message
+          const result = await handleExtensionMessage(message, sender);
+          sendResponse(result);
+        });
+      } catch (err: any) {
+        logger.log('error', 'Message handler error', { error: err?.message });
+        sendResponse({ ok: false, error: err?.message || 'Unknown error' });
+      }
     })();
 
     // Keep channel open for async response
@@ -1380,6 +1407,31 @@ export default defineBackground(() => {
         return { ok: true };
       }
 
+      case 'resumeSnapshot': {
+        if (agentState.isRunning) {
+          return { ok: false, error: 'Agent is already running' };
+        }
+        const taskId = message.taskId;
+        if (!taskId) {
+          return { ok: false, error: 'No taskId provided' };
+        }
+        const snapshot = await SnapshotManager.load(taskId);
+        if (!snapshot?.command) {
+          return { ok: false, error: 'Snapshot not found or invalid' };
+        }
+        runAgentLoop(snapshot.command).catch(err => {
+          logger.log('error', 'Resume agent loop error', err);
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `Resume failed: ${err.message || String(err)}`,
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+        });
+        return { ok: true };
+      }
+
       case 'parseIntent': {
         if (message.command) {
           const intents = parseIntent(message.command);
@@ -1475,11 +1527,6 @@ export default defineBackground(() => {
           return { ok: true, invalidated: count };
         }
         return { ok: false, error: 'No tag provided' };
-      }
-
-      case 'getMemoryStats': {
-        const stats = memoryManager.getMemoryStats();
-        return { ok: true, stats };
       }
 
       case 'getMemoryLeaks': {
@@ -1705,6 +1752,25 @@ export default defineBackground(() => {
       console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
       trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
       return { success: true };
+    }
+
+    const url = pageUrl || '';
+    const rateCheck = await checkRateLimit(action.type);
+    if (!rateCheck.allowed) {
+      const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
+      return {
+        success: false,
+        error: `Rate limit exceeded. Try again in ${waitSec}s.`,
+        errorType: 'RATE_LIMIT' as ErrorType,
+      };
+    }
+    const actionCheck = await checkActionAllowed(action, url);
+    if (!actionCheck.allowed) {
+      return {
+        success: false,
+        error: actionCheck.reason || 'Action not allowed by security policy.',
+        errorType: 'SECURITY_POLICY' as ErrorType,
+      };
     }
 
     // Handle navigation in background
@@ -2044,10 +2110,22 @@ export default defineBackground(() => {
     const tabId = await getActiveTabId();
 
     const tab = await chrome.tabs.get(tabId);
-    if (tab.url && isSiteBlacklisted(tab.url, settings.siteBlacklist)) {
+    const pageUrl = tab.url || '';
+    if (pageUrl && isSiteBlacklisted(pageUrl, settings.siteBlacklist)) {
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Site blacklisted.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+    const domainAllowed = await checkDomainAllowed(pageUrl);
+    if (!domainAllowed) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Domain not allowed by privacy settings.',
         success: false,
         stepsUsed: 0,
       });
@@ -2495,7 +2573,7 @@ Return JSON:
       };
     } catch (err) {
       console.warn('[Reflex] Verification failed:', err);
-      return { success: true }; // Fail open (assume success if check fails)
+      return { success: false, reason: 'Verification parse error' };
     }
   }
 

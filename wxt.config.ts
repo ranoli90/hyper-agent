@@ -3,6 +3,8 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   manifest: {
     name: 'HyperAgent',
+    minimum_chrome_version: '88',
+    author: 'HyperAgent',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
     version: '3.0.0',
     permissions: [
@@ -18,6 +20,7 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Open HyperAgent',
+      // Icons from public/icon/ (16, 32, 48, 128 px) — copied to output root
       default_icon: {
         16: 'icon/16.png',
         32: 'icon/32.png',

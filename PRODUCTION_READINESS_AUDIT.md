@@ -435,43 +435,43 @@ Fix in this exact order to minimize rework and address blocking issues first:
 ## 12. COMPREHENSIVE CHECKLIST (All Items in Fix Order)
 
 ### Phase 1 — Blocking
-- [ ] 1.2 Add icon assets
-- [ ] 1.13 window.setInterval → globalThis in SW (advanced-caching, memory-management)
-- [ ] 1.1 Message handler sendResponse on error
+- [x] 1.2 Add icon assets
+- [x] 1.13 window.setInterval → globalThis in SW (advanced-caching, memory-management)
+- [x] 1.1 Message handler sendResponse on error
 
 ### Phase 2 — Critical Crashes & Data Loss
-- [ ] 2.2 Validate import settings schema
-- [ ] 2.2b Reset settings confirm text
-- [ ] 1.3 Fix "built-in key" misleading UX
-- [ ] 4.9 Snapshot Resume/Delete — add click handlers
-- [ ] 4.10 Snapshot Resume — add backend support
+- [x] 2.2 Validate import settings schema
+- [x] 2.2b Reset settings confirm text
+- [x] 1.3 Fix "built-in key" misleading UX
+- [x] 4.9 Snapshot Resume/Delete — add click handlers
+- [x] 4.10 Snapshot Resume — add backend support
 
 ### Phase 3 — Security
-- [ ] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
-- [ ] 2.1 API key storage (document or encrypt)
-- [ ] 1.6 ReDoS in findTabByUrl + workflow urlMatches
-- [ ] 2.5 validateExtensionMessage — reject unknown types
+- [x] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
+- [x] 2.1 API key storage (document or encrypt)
+- [x] 1.6 ReDoS in findTabByUrl + workflow urlMatches
+- [x] 2.5 validateExtensionMessage — reject unknown types
 
 ### Phase 4 — Broken Features
-- [ ] 1.11 LLM locator strategy mismatch
-- [ ] 1.4 verifyActionWithVision fail-open
-- [ ] 1.5 Screenshot format consistency
-- [ ] 4.12 visionUpdate screenshot format
-- [ ] 1.12 Empty command validation
-- [ ] 4.3 Tasks "New" button handler
-- [ ] 4.5 Vision "Analyze Page" handler
+- [x] 1.11 LLM locator strategy mismatch
+- [x] 1.4 verifyActionWithVision fail-open
+- [x] 1.5 Screenshot format consistency
+- [x] 4.12 visionUpdate screenshot format
+- [x] 1.12 Empty command validation
+- [x] 4.3 Tasks "New" button handler
+- [x] 4.5 Vision "Analyze Page" handler
 - [ ] 4.2 Stripe checkout return flow
 - [ ] 4.1 Marketplace workflows
-- [ ] 4.11 Scheduler "once" task validation
+- [x] 4.11 Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
-- [ ] 3.1 Duplicate visibilitychange handler
-- [ ] 3.2 Ask modal backdrop resolve
-- [ ] 3.4 require-confirm default
-- [ ] 3.6 Dark mode system preference
-- [ ] 3.5 Add /think to help
-- [ ] 3.7 Duplicate font loading
-- [ ] 3.9 Remove dead import getUserSiteConfigs
+- [x] 3.1 Duplicate visibilitychange handler
+- [x] 3.2 Ask modal backdrop resolve
+- [x] 3.4 require-confirm default
+- [x] 3.6 Dark mode system preference
+- [x] 3.5 Add /think to help
+- [x] 3.7 Duplicate font loading
+- [x] 3.9 Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Features
 - [ ] 5.1 Error reporting
@@ -479,27 +479,27 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 5.3 Onboarding
 - [ ] 5.4 Offline handling
 - [ ] 5.5 Rate limit feedback
-- [ ] 5.6 Keyboard shortcut focus input
-- [ ] 5.9 Export settings warning
-- [ ] 5.10 Changelog on update
+- [x] 5.6 Keyboard shortcut focus input
+- [x] 5.9 Export settings warning
+- [x] 5.10 Changelog on update
 
 ### Phase 7 — Accessibility
-- [ ] 8.1 Chat aria-live
+- [x] 8.1 Chat aria-live
 - [ ] 8.2 Modal focus trap
-- [ ] 8.3 Status aria-live
-- [ ] 8.4 Tab aria-selected
-- [ ] 8.9 visionSnapshot null check
+- [x] 8.3 Status aria-live
+- [x] 8.4 Tab aria-selected
+- [x] 8.9 visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
 - [ ] 6.1 Content script overhead
 - [ ] 6.2 getPageContext cost
 - [ ] 6.9 Storage quota monitoring
-- [ ] 10.7 Replace substr
+- [x] 10.7 Replace substr
 - [ ] 10.8 Console.log in production
 
 ### Phase 9 — Technical Debt
-- [ ] 1.8 Duplicate getMemoryStats
-- [ ] 1.7 Dead content-script navigate/goBack
+- [x] 1.8 Duplicate getMemoryStats
+- [x] 1.7 Dead content-script navigate/goBack
 - [ ] 1.9 buildFallbackPlan stub
 - [ ] 10.1 Reduce any types
 - [ ] 10.3 Storage key sprawl
@@ -507,39 +507,39 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 4.13 TikTok Moderator selectors
 
 ### Phase 10 — Service Worker / Context Fixes
-- [ ] 6.11 memory-management performance.memory guard
-- [ ] 6.12 memory-management document guard
-- [ ] 13.1 intelligent-clarification interval cleanup
-- [ ] 13.2 persistent-autonomous window check
-- [ ] 13.9 Remove withGracefulDegradation import
+- [x] 6.11 memory-management performance.memory guard
+- [x] 6.12 memory-management document guard
+- [x] 13.1 intelligent-clarification interval cleanup
+- [x] 13.2 persistent-autonomous window check
+- [x] 13.9 Remove withGracefulDegradation import
 
 ### Phase 11 — Edge Cases
-- [ ] 13.5 Command length validation
+- [x] 13.5 Command length validation
 - [ ] 13.6 Tab closed during agent
 - [ ] 13.8 Content script path verify
-- [ ] 13.12 escapeHtml single quote
+- [x] 13.12 escapeHtml single quote
 
 ### Phase 12 — Manifest & Build
-- [ ] 13.13 minimum_chrome_version
-- [ ] 13.14 author/developer in manifest
+- [x] 13.13 minimum_chrome_version
+- [x] 13.14 author/developer in manifest
 - [ ] 13.15 Content script path verify
 
 ### Phase 13 — Testing & CI
-- [ ] 14.1 Add GitHub Actions
-- [ ] 14.2 E2E build step
+- [x] 14.1 Add GitHub Actions
+- [x] 14.2 E2E build step
 - [ ] 14.3 Unit test coverage gaps
 - [ ] 14.6 Service worker test
 
 ### Phase 14 — Dependencies
 - [ ] 15.1 npm audit fix
-- [ ] 15.2 package-lock committed
-- [ ] 15.3 Dependabot
+- [x] 15.2 package-lock committed
+- [x] 15.3 Dependabot
 
 ### Phase 15 — LLM/API Resilience
-- [ ] 16.1 429 handling
+- [x] 16.1 429 handling
 - [ ] 16.2 retry for LLM
 - [ ] 16.3 Token/cost caps
-- [ ] 22.1 User-friendly errors
+- [x] 22.1 User-friendly errors
 
 ### Phase 16 — Legal & Compliance
 - [ ] 19.1 Privacy policy
@@ -553,8 +553,8 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 21.3 iframe handling
 
 ### Phase 18 — Release & Docs
-- [ ] 20.1 GitHub Actions
-- [ ] 20.4 CHANGELOG.md
+- [x] 20.1 GitHub Actions
+- [x] 20.4 CHANGELOG.md
 - [ ] 24.2 User docs
 
 ### Phase 19 — Low Priority
