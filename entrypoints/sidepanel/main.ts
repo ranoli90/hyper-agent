@@ -1150,6 +1150,10 @@ async function loadSwarmTab() {
 
 // ─── Event Listeners ────────────────────────────────────────────
 components.btnExecute.addEventListener('click', () => {
+  if (!navigator.onLine) {
+    showToast('You are offline. Check your internet connection.', 'error');
+    return;
+  }
   const text = components.commandInput.value;
   if (text.trim()) handleCommand(text);
 });
@@ -1168,6 +1172,13 @@ components.commandInput.addEventListener('keydown', e => {
   }
 });
 
+n// Offline indicator
+window.addEventListener('offline', () => {
+  showToast('You are offline. Some features may not work.', 'warning');
+});
+window.addEventListener('online', () => {
+  showToast('Back online!', 'success');
+});
 const handleInput = debounce((e: Event) => {
   const target = e.target as HTMLTextAreaElement;
 
