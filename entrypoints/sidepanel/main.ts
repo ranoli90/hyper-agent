@@ -193,6 +193,10 @@ components.askModal.addEventListener('click', e => {
   if (e.target === components.askModal) {
     components.askModal.classList.add('hidden');
     components.askReply.value = '';
+    if (state.askResolve) {
+      state.askResolve('');
+      state.askResolve = null;
+    }
     chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
   }
 });
@@ -976,7 +980,7 @@ function loadVisionTab() {
 
   if (!visionContainer || !visionOverlays) return;
 
-  if (components.visionSnapshot.src && components.visionSnapshot.src !== '') {
+  if (components.visionSnapshot && components.visionSnapshot.src && components.visionSnapshot.src !== '') {
     components.visionSnapshot.classList.remove('hidden');
     components.visionPlaceholder.classList.add('hidden');
   }
@@ -1694,12 +1698,13 @@ async function importSettings() {
         throw new Error('Invalid settings file format');
       }
 
-      const { filtered, errors } = validateAndFilterImportData(data.settings);
+      const { valid, filtered, errors } = validateAndFilterImportData(data.settings);
       if (Object.keys(filtered).length === 0) {
-        throw new Error('No valid settings to import');
+        throw new Error(errors.length > 0 ? errors[0] : 'No valid settings to import');
       }
       if (errors.length > 0) {
         console.warn('[HyperAgent] Import validation warnings:', errors);
+        showToast(`Imported with warnings: ${errors.join('; ')}`, 'warning');
       }
       await chrome.storage.local.set(filtered);
       showToast('Settings imported successfully!', 'success');

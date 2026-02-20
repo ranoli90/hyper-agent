@@ -344,6 +344,8 @@ export interface MsgExecuteCommand {
   type: 'executeCommand';
   command: string;
   useAutonomous?: boolean;
+  /** Set by scheduler when running a scheduled task; used for analytics/UI. */
+  scheduled?: boolean;
 }
 
 export interface MsgStopAgent {
@@ -419,6 +421,8 @@ export interface MsgAgentDone {
   finalSummary: string;
   success: boolean;
   stepsUsed: number;
+  /** True when this run was started by the scheduler (scheduled task). */
+  scheduled?: boolean;
 }
 
 export interface MsgContextMenuCommand {

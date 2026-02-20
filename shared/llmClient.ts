@@ -24,6 +24,27 @@ const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
 
 import { redact, sanitizeMessages } from './security';
 
+/** Map API status codes to user-friendly messages (22.1). */
+function userFriendlyApiError(status: number): string | null {
+  switch (status) {
+    case 400:
+      return 'Invalid request. Please check your command and try again.';
+    case 401:
+      return 'API key invalid or expired. Check your key in Settings.';
+    case 403:
+      return 'Access denied. Check your API key and subscription.';
+    case 500:
+      return 'Server error. Please try again in a few minutes.';
+    case 502:
+    case 503:
+      return 'Service temporarily unavailable. Please try again shortly.';
+    case 504:
+      return 'Request timed out. Try again or use a shorter command.';
+    default:
+      return null;
+  }
+}
+
 // ─── Utility Classes ──────────────────────────────────────────────────────
 class RateLimiter {
   recordRequest(model: string): void {
@@ -656,7 +677,8 @@ export class EnhancedLLMClient implements LLMClientInterface {
           const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
           throw new Error(`Rate limit exceeded. Try again in ${waitSec} seconds.`);
         }
-        throw new Error(`Completion request failed: ${response.status}`);
+        const friendly = userFriendlyApiError(response.status);
+        throw new Error(friendly || `Completion request failed: ${response.status}`);
       }
 
       const data = await response.json();
@@ -740,7 +762,8 @@ export class EnhancedLLMClient implements LLMClientInterface {
           const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
           throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
         }
-        throw new Error(`API request failed: ${response.status} - ${errorText.slice(0, 500)}`);
+        const friendly = userFriendlyApiError(response.status);
+        throw new Error(friendly || `API request failed: ${response.status}`);
       }
 
       const data = await response.json();

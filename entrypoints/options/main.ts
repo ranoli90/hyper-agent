@@ -460,7 +460,7 @@ function attachDangerZoneHandlers() {
   dangerZoneHandlersAttached = true;
 
   resetSettings?.addEventListener('click', async () => {
-    if (!confirm('Reset all settings to defaults? This will clear your API key, chat history, sessions, and all preferences.')) return;
+    if (!confirm('Reset all settings to defaults? This will permanently clear your API key, chat history, sessions, snapshots, and all preferences. This cannot be undone.')) return;
     await storageClear();
     cachedSettings = null;
     await loadCurrentSettings();

@@ -392,6 +392,8 @@ class AgentStateManager {
     isRunning: false,
     isAborted: false,
     currentSessionId: null as string | null,
+    currentAgentTabId: null as number | null,
+    wasScheduledRun: false,
     pendingConfirmResolve: null as ((confirmed: boolean) => void) | null,
     pendingUserReplyResolve: null as ((reply: string) => void) | null,
   };
@@ -439,6 +441,21 @@ class AgentStateManager {
   get hasPendingReply(): boolean {
     return this.state.pendingUserReplyResolve !== null;
   }
+  /** @returns Tab ID the agent is acting on, or null */
+  get currentAgentTabId(): number | null {
+    return this.state.currentAgentTabId;
+  }
+
+  setCurrentAgentTabId(tabId: number | null): void {
+    this.state.currentAgentTabId = tabId;
+  }
+
+  get wasScheduledRun(): boolean {
+    return this.state.wasScheduledRun;
+  }
+  setScheduledRun(scheduled: boolean): void {
+    this.state.wasScheduledRun = scheduled;
+  }
 
   getSignal(): AbortSignal | undefined {
     return this.abortController?.signal;
@@ -458,6 +475,8 @@ class AgentStateManager {
       this.state.isAborted = false;
       this.abortController = new AbortController();
     } else {
+      this.state.currentAgentTabId = null;
+      this.state.wasScheduledRun = false;
       this.abortController = null;
     }
     this.notifyListeners();
@@ -680,6 +699,8 @@ class AgentStateManager {
       isRunning: false,
       isAborted: false,
       currentSessionId: null,
+      currentAgentTabId: null,
+      wasScheduledRun: false,
       pendingConfirmResolve: null,
       pendingUserReplyResolve: null,
     };
@@ -754,15 +775,18 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
   if (typeof type !== 'string') return false;
 
   switch (type) {
-    case 'executeCommand':
+    case 'executeCommand': {
       const cmd = (message as any).command;
+      const scheduled = (message as any).scheduled;
       return (
         typeof cmd === 'string' &&
         cmd.trim().length > 0 &&
         cmd.length <= 10000 &&
         ((message as any).useAutonomous === undefined ||
-          typeof (message as any).useAutonomous === 'boolean')
+          typeof (message as any).useAutonomous === 'boolean') &&
+        (scheduled === undefined || typeof scheduled === 'boolean')
       );
+    }
     case 'stopAgent':
       return true;
     case 'confirmResponse':
@@ -847,6 +871,21 @@ export default defineBackground(() => {
     },
     5 * 60 * 1000
   ); // Every 5 minutes
+
+  // ─── Tab closed during agent: abort and notify (13.6) ─────────────
+  chrome.tabs.onRemoved.addListener((closedTabId) => {
+    if (!agentState.isRunning || agentState.currentAgentTabId !== closedTabId) return;
+    agentState.setAborted(true);
+    if (agentState.hasPendingConfirm) agentState.resolveConfirm(false);
+    if (agentState.hasPendingReply) agentState.resolveReply('');
+    sendToSidePanel({
+      type: 'agentDone',
+      finalSummary: 'Tab was closed. Agent stopped.',
+      success: false,
+      stepsUsed: 0,
+    });
+    agentState.setRunning(false);
+  });
 
   // ─── On install: configure side panel ───────────────────────────
   chrome.runtime.onInstalled.addListener(async (details) => {
@@ -999,6 +1038,7 @@ export default defineBackground(() => {
       return;
     }
     const tabId = await getActiveTabId();
+    agentState.setCurrentAgentTabId(tabId);
     const tab = await chrome.tabs.get(tabId);
 
     try {
@@ -1102,6 +1142,17 @@ export default defineBackground(() => {
   }
 
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+    let responded = false;
+    const safeSend = (response: unknown): void => {
+      if (responded) return;
+      responded = true;
+      try {
+        sendResponse(response);
+      } catch (e) {
+        logger.log('error', 'sendResponse failed (port closed or non-serializable)', { error: (e as Error)?.message });
+      }
+    };
+
     (async () => {
       try {
         await withErrorBoundary('message_processing', async () => {
@@ -1109,14 +1160,14 @@ export default defineBackground(() => {
           const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
           if (!rateLimiter.canAcceptMessage(senderId)) {
             logger.log('warn', 'Message rate limited', { senderId });
-            sendResponse({ ok: false, error: 'Rate limit exceeded' });
+            safeSend({ ok: false, error: 'Rate limit exceeded' });
             return;
           }
 
           // Input validation
           if (!validateExtensionMessage(message)) {
             logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
-            sendResponse({ ok: false, error: 'Invalid message format' });
+            safeSend({ ok: false, error: 'Invalid message format' });
             return;
           }
 
@@ -1125,17 +1176,17 @@ export default defineBackground(() => {
           // Try extended handlers first
           const extendedResult = await handleExtendedMessage(message);
           if (extendedResult !== null) {
-            sendResponse(extendedResult);
+            safeSend(extendedResult);
             return;
           }
 
           // Route message
           const result = await handleExtensionMessage(message, sender);
-          sendResponse(result);
+          safeSend(result);
         });
-      } catch (err: any) {
-        logger.log('error', 'Message handler error', { error: err?.message });
-        sendResponse({ ok: false, error: err?.message || 'Unknown error' });
+      } catch (err: unknown) {
+        logger.log('error', 'Message handler error', { error: err instanceof Error ? err.message : String(err) });
+        safeSend({ ok: false, error: err instanceof Error ? err.message : 'Unknown error' });
       }
     })();
 
@@ -1163,6 +1214,7 @@ export default defineBackground(() => {
         if (agentState.isRunning) {
           return { ok: false, error: 'Agent is already running' };
         }
+        agentState.setScheduledRun(message.scheduled === true);
 
         // Determine which loop to run
         const loopToRun = message.useAutonomous ? runAutonomousLoop : runAgentLoop;
@@ -1574,6 +1626,14 @@ export default defineBackground(() => {
     chrome.runtime.sendMessage(msg).catch(() => {});
   }
 
+  function sendAgentDone(payload: { finalSummary: string; success: boolean; stepsUsed: number }) {
+    sendToSidePanel({
+      type: 'agentDone',
+      ...payload,
+      ...(agentState.wasScheduledRun && { scheduled: true }),
+    });
+  }
+
   async function getActiveTabId(): Promise<number> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error('No active tab found');
@@ -1640,6 +1700,7 @@ export default defineBackground(() => {
     };
   }
 
+  /** Returns raw base64 (no data URL prefix). Callers must add `data:image/jpeg;base64,` when setting img.src. */
   async function captureScreenshot(): Promise<string> {
     try {
       const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, {
@@ -2108,6 +2169,7 @@ export default defineBackground(() => {
     }
     const maxSteps = settings.maxSteps;
     const tabId = await getActiveTabId();
+    agentState.setCurrentAgentTabId(tabId);
 
     const tab = await chrome.tabs.get(tabId);
     const pageUrl = tab.url || '';
@@ -2381,8 +2443,7 @@ export default defineBackground(() => {
             url: tab.url || '',
           }).catch(() => {});
 
-          sendToSidePanel({
-            type: 'agentDone',
+          sendAgentDone({
             finalSummary: llmResponse.summary || 'Done',
             success: true,
             stepsUsed: step,
@@ -2391,15 +2452,13 @@ export default defineBackground(() => {
         }
         await delay(350);
       }
-      sendToSidePanel({
-        type: 'agentDone',
+      sendAgentDone({
         finalSummary: 'Max steps reached.',
         success: false,
         stepsUsed: maxSteps,
       });
     } catch (err: any) {
-      sendToSidePanel({
-        type: 'agentDone',
+      sendAgentDone({
         finalSummary: `Agent error: ${err?.message || String(err)}`,
         success: false,
         stepsUsed: history.length,
@@ -2577,12 +2636,12 @@ Return JSON:
     }
   }
 
-  // ─── Fallback planner (placeholder for now) ──────────────────────
+  // ─── Fallback planner (intentionally unimplemented) ─────────────────
+  /** Stub: no automatic fallback when LLM fails. buildIntelligentFallback is used for recovery. */
   function buildFallbackPlan(
-    command: string,
-    context: PageContext
+    _command: string,
+    _context: PageContext
   ): { summary: string; actions: Action[] } | null {
-    // This would be implemented with the comprehensive workflow system
     return null;
   }
 

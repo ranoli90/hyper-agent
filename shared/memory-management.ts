@@ -466,7 +466,8 @@ export class MemoryManager {
   }
 
   private clearAllCaches(): void {
-    // Emergency cache clearing
+    // Emergency cache clearing (skip in service worker — no localStorage)
+    if (typeof localStorage === 'undefined') return;
     try {
       // Clear all cache-like localStorage entries
       const keys = Object.keys(localStorage);
@@ -759,10 +760,9 @@ export class MemorySafeCache<K extends object, V> {
 
   private cleanup(): void {
     // WeakMap automatically cleans up when keys are garbage collected
-    // We can't manually iterate, but we can suggest GC
-    if ((window as any).gc) {
-      (window as any).gc();
-    }
+    // We can't manually iterate, but we can suggest GC (only in window context; SW has no window)
+    const win = typeof globalThis !== 'undefined' ? (globalThis as any).window : undefined;
+    if (win?.gc) (win as any).gc();
   }
 
   destroy(): void {

@@ -20,12 +20,12 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Open HyperAgent',
-      // Icons from public/icon/ (16, 32, 48, 128 px) — copied to output root
+      // Icons from public/icons/ (16, 32, 48, 128 px) — copied to output root
       default_icon: {
-        16: 'icon/16.png',
-        32: 'icon/32.png',
-        48: 'icon/48.png',
-        128: 'icon/128.png',
+        16: 'icons/16.png',
+        32: 'icons/32.png',
+        48: 'icons/48.png',
+        128: 'icons/128.png',
       },
     },
     background: {
@@ -43,14 +43,14 @@ export default defineConfig({
       default_path: 'sidepanel.html',
     },
     icons: {
-      16: 'icon/16.png',
-      32: 'icon/32.png',
-      48: 'icon/48.png',
-      128: 'icon/128.png',
+      16: 'icons/16.png',
+      32: 'icons/32.png',
+      48: 'icons/48.png',
+      128: 'icons/128.png',
     },
     web_accessible_resources: [
       {
-        resources: ['icon/*', 'assets/*', 'chunks/*'],
+        resources: ['icons/*', 'assets/*', 'chunks/*'],
         matches: ['<all_urls>'],
       },
     ],

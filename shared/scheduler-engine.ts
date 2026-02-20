@@ -106,6 +106,7 @@ class SchedulerEngineImpl {
         if (!time || time <= Date.now()) {
           console.warn(`[Scheduler] Once task ${task.id} has invalid or past time; disabling`);
           task.enabled = false;
+          this.saveTasks().catch(() => {});
         } else {
           chrome.alarms.create(alarmName, { when: time });
         }

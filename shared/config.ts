@@ -4,6 +4,8 @@
  */
 
 // ─── Storage keys ───────────────────────────────────────────────────
+// API key is stored in chrome.storage.local (extension storage). Only this extension
+// can access it; it is not encrypted at rest. Do not share exported settings files.
 export const STORAGE_KEYS = {
   API_KEY: 'hyperagent_api_key',
   BASE_URL: 'hyperagent_base_url',
@@ -291,6 +293,9 @@ export function validateAndFilterImportData(settings: unknown): {
     const v = filtered[STORAGE_KEYS.API_KEY];
     if (v !== undefined && typeof v !== 'string') {
       errors.push('API key must be a string');
+      delete filtered[STORAGE_KEYS.API_KEY];
+    } else if (typeof v === 'string' && v.length > 1024) {
+      errors.push('API key exceeds maximum length');
       delete filtered[STORAGE_KEYS.API_KEY];
     }
   }

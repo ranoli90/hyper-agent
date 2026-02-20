@@ -500,10 +500,10 @@ Fix in this exact order to minimize rework and address blocking issues first:
 ### Phase 9 — Technical Debt
 - [x] 1.8 Duplicate getMemoryStats
 - [x] 1.7 Dead content-script navigate/goBack
-- [ ] 1.9 buildFallbackPlan stub
+- [x] 1.9 buildFallbackPlan stub (documented as intentional; buildIntelligentFallback used for recovery)
 - [ ] 10.1 Reduce any types
 - [ ] 10.3 Storage key sprawl
-- [ ] 10.9 Scheduler scheduled flag
+- [x] 10.9 Scheduler scheduled flag (MsgExecuteCommand/MsgAgentDone + sendAgentDone; used for analytics/UI)
 - [ ] 4.13 TikTok Moderator selectors
 
 ### Phase 10 — Service Worker / Context Fixes
@@ -515,7 +515,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 11 — Edge Cases
 - [x] 13.5 Command length validation
-- [ ] 13.6 Tab closed during agent
+- [x] 13.6 Tab closed during agent (chrome.tabs.onRemoved; abort + notify; currentAgentTabId tracking)
 - [ ] 13.8 Content script path verify
 - [x] 13.12 escapeHtml single quote
 
