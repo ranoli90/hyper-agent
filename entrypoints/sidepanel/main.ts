@@ -114,6 +114,7 @@ const state = {
   lastCommandTime: 0,
   commandHistory: [] as string[],
   historyIndex: -1,
+  cleanupFocusTrap: null as (() => void) | null,
 };
 
 const MAX_COMMAND_LENGTH = 2000;
@@ -164,6 +165,7 @@ components.tabs.forEach(tab => {
 // Confirm / cancel modal actions
 components.btnConfirm.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
     state.confirmResolve(true);
     state.confirmResolve = null;
@@ -172,6 +174,7 @@ components.btnConfirm.addEventListener('click', () => {
 
 components.btnCancel.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
     state.confirmResolve(false);
     state.confirmResolve = null;
@@ -182,6 +185,7 @@ components.btnCancel.addEventListener('click', () => {
 components.confirmModal.addEventListener('click', e => {
   if (e.target === components.confirmModal) {
     components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     if (state.confirmResolve) {
       state.confirmResolve(false);
       state.confirmResolve = null;
@@ -192,6 +196,7 @@ components.confirmModal.addEventListener('click', e => {
 components.askModal.addEventListener('click', e => {
   if (e.target === components.askModal) {
     components.askModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     components.askReply.value = '';
     if (state.askResolve) {
       state.askResolve('');
@@ -205,12 +210,14 @@ components.askModal.addEventListener('click', e => {
 components.btnAskReply.addEventListener('click', () => {
   const reply = components.askReply.value.trim();
   components.askModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   components.askReply.value = '';
   chrome.runtime.sendMessage({ type: 'userReply', reply });
 });
 
 components.btnAskCancel.addEventListener('click', () => {
   components.askModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   components.askReply.value = '';
   chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
 });
@@ -416,6 +423,35 @@ function renderMarkdown(text: string): string {
 }
 
 function escapeHtml(text: string): string {
+n// Focus trap for modals (accessibility)
+function trapFocus(modal: HTMLElement): () => void {
+  const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  const focusableElements = modal.querySelectorAll<HTMLElement>(focusableSelectors);
+  const firstFocusable = focusableElements[0];
+  const lastFocusable = focusableElements[focusableElements.length - 1];
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Tab') return;
+    if (focusableElements.length === 0) return;
+
+    if (e.shiftKey) {
+      if (document.activeElement === firstFocusable) {
+        e.preventDefault();
+        lastFocusable.focus();
+      }
+    } else {
+      if (document.activeElement === lastFocusable) {
+        e.preventDefault();
+        firstFocusable.focus();
+      }
+    }
+  };
+
+  modal.addEventListener('keydown', handleKeyDown);
+  firstFocusable?.focus();
+
+  return () => modal.removeEventListener('keydown', handleKeyDown);
+}
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -1304,7 +1340,9 @@ document.addEventListener('keydown', e => {
   // Escape: Close modals and suggestions
   if (e.key === 'Escape') {
     components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     components.askModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     components.suggestions.classList.add('hidden');
     if (state.confirmResolve) {
       state.confirmResolve(false);
@@ -1363,7 +1401,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
       const question =
         typeof message.question === 'string' ? message.question : 'Agent needs more information.';
       components.askQuestion.textContent = question;
+      if (state.cleanupFocusTrap) state.cleanupFocusTrap();
       components.askModal.classList.remove('hidden');
+      state.cleanupFocusTrap = trapFocus(components.askModal);
       components.askReply.focus();
       break;
     }
@@ -1388,7 +1428,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
         });
       }
 
+      if (state.cleanupFocusTrap) state.cleanupFocusTrap();
       components.confirmModal.classList.remove('hidden');
+      state.cleanupFocusTrap = trapFocus(components.confirmModal);
 
       // Resolve any orphaned previous confirmation before creating a new one
       if (state.confirmResolve) {
@@ -1412,10 +1454,12 @@ chrome.runtime.onMessage.addListener((message: any) => {
           // Ensure confirmed is boolean
           chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed: !!confirmed });
           components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         })
         .catch(err => {
           console.error('Confirmation error:', err);
           components.confirmModal.classList.add('hidden');
+    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         });
       break;
     }
