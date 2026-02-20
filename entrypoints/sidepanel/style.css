@@ -111,7 +111,7 @@
 
 body {
   font-family: var(--font-primary);
-  background: #f8fafc;
+  background: var(--surface-secondary);
   color: var(--text-primary);
   height: 100vh;
   overflow: hidden;
@@ -131,7 +131,7 @@ body {
   flex-direction: column;
   height: 100vh;
   width: 100%;
-  background: #ffffff;
+  background: var(--surface);
   overflow: hidden;
   position: relative;
 }
@@ -139,8 +139,8 @@ body {
 /* Modern Header & Tabs */
 #header {
   padding: 12px 16px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--surface-glass-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -163,10 +163,10 @@ body {
 #tabs-nav {
   display: flex;
   gap: 4px;
-  background: #f8fafc;
+  background: var(--surface-secondary);
   padding: 4px;
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--surface-glass-border);
   position: relative;
   flex: 1;
   max-width: 300px;
@@ -897,8 +897,8 @@ body {
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  height: calc(100vh - 60px); /* Subtract header height */
+  background: var(--surface);
+  height: calc(100vh - 60px);
   width: 100%;
   box-sizing: border-box;
 }
@@ -1316,8 +1316,8 @@ body {
 /* Modern Input Area */
 #input-area {
   padding: 20px;
-  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
-  border-top: 1px solid #e5e7eb;
+  background: var(--surface-secondary);
+  border-top: 1px solid var(--surface-glass-border);
   position: relative;
   width: 100%;
   box-sizing: border-box;
@@ -1335,8 +1335,8 @@ body {
 .input-wrapper {
   flex: 1;
   position: relative;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
+  background: var(--surface);
+  border: 1px solid var(--surface-glass-border);
   border-radius: 12px;
   padding: 16px;
   transition: all var(--transition-base);

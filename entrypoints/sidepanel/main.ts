@@ -1079,6 +1079,19 @@ components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+// Dark mode toggle
+const btnDarkMode = document.getElementById('btn-dark-mode');
+if (btnDarkMode) {
+  btnDarkMode.addEventListener('click', () => {
+    toggleDarkMode();
+    btnDarkMode.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+  });
+  // Set initial icon
+  if (document.body.classList.contains('dark-mode')) {
+    btnDarkMode.textContent = '☀️';
+  }
+}
+
 // Global keyboard shortcuts
 document.addEventListener('keydown', e => {
   // Ctrl/Cmd + L: Clear chat
@@ -1240,6 +1253,20 @@ let voiceInterface = new VoiceInterface({
   },
 });
 
+// Mic button toggle
+components.btnMic.addEventListener('click', () => {
+  try {
+    if (voiceInterface.isListening) {
+      voiceInterface.stop();
+    } else {
+      voiceInterface.start();
+    }
+  } catch (err) {
+    console.warn('[HyperAgent] Voice interface error:', err);
+    showToast('Voice input not available in this browser', 'error');
+  }
+});
+
 components.btnUpgradePremium.addEventListener('click', async () => {
   await billingManager.openCheckout('premium', selectedBillingInterval);
   addMessage(`Redirecting to Stripe checkout for Premium (${selectedBillingInterval}ly)...`, 'status');
@@ -1386,6 +1413,8 @@ async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
   if (data.dark_mode) {
     document.body.classList.add('dark-mode');
+    const btn = document.getElementById('btn-dark-mode');
+    if (btn) btn.textContent = '☀️';
   }
 }
 

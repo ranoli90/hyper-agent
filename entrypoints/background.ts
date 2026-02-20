@@ -718,10 +718,17 @@ async function initializePersistentAutonomous(): Promise<void> {
   }
 }
 
-// Initialize on startup
+// Initialize on startup — these run top-level in the service-worker scope.
+// Non-async inits are called directly; async ones are awaited inside onInstalled.
 initializeSwarm();
 initializeReasoning();
 initializePersistentAutonomous();
+
+// Load persisted usage metrics so limits are enforced immediately
+usageTracker.loadMetrics();
+
+// Initialize billing manager so subscription state is available
+billingManager.initialize().catch(e => console.warn('[Billing] init failed', e));
 
 // ─── Input validation ───────────────────────────────────────────────────
 
@@ -927,12 +934,13 @@ export default defineBackground(() => {
   async function runAutonomousLoop(command: string) {
     if (agentState.isRunning) return;
 
-    // Check premium feature access
-    if (!usageTracker.isPremiumFeatureAllowed('autonomous_mode')) {
+    // Check autonomous mode access via billing
+    const autoUsage = usageTracker.getCurrentUsage();
+    const autoCheck = billingManager.isWithinLimits(autoUsage.actions, autoUsage.sessions);
+    if (!autoCheck.allowed) {
       sendToSidePanel({
         type: 'agentDone',
-        finalSummary:
-          'Autonomous mode requires Premium subscription. Upgrade to unlock unlimited autonomous sessions.',
+        finalSummary: autoCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
         success: false,
         stepsUsed: 0,
       });
@@ -1183,11 +1191,17 @@ export default defineBackground(() => {
 
       case 'getUsage': {
         const usage = usageTracker.getCurrentUsage();
-        const limits = usageTracker.getUsageLimits();
+        // Use billingManager as authoritative source for tier-based limits
+        const billingLimits = billingManager.getUsageLimit();
+        const currentTier = billingManager.getTier();
         return {
           ok: true,
           usage,
-          limits,
+          limits: {
+            actions: billingLimits.actions,
+            sessions: billingLimits.sessions,
+            tier: currentTier,
+          },
         };
       }
 
@@ -1247,6 +1261,41 @@ export default defineBackground(() => {
           return { ok: true, workflow };
         }
         return { ok: false, error: 'Workflow not found' };
+      }
+
+      case 'getSubscriptionState': {
+        return {
+          ok: true,
+          state: billingManager.getState(),
+          plans: billingManager.getAllPlans(),
+        };
+      }
+
+      case 'activateLicenseKey': {
+        const msg = message as any;
+        if (!msg.key) return { ok: false, error: 'No key provided' };
+        const result = await billingManager.activateWithLicenseKey(msg.key);
+        if (result.success) {
+          usageTracker.setSubscriptionTier(billingManager.getTier());
+        }
+        return { ok: result.success, error: result.error };
+      }
+
+      case 'openCheckout': {
+        const msg = message as any;
+        if (!msg.tier) return { ok: false, error: 'No tier provided' };
+        await billingManager.openCheckout(msg.tier, msg.interval || 'month');
+        return { ok: true };
+      }
+
+      case 'cancelSubscription': {
+        await billingManager.cancelSubscription();
+        return { ok: true };
+      }
+
+      case 'verifySubscription': {
+        const valid = await billingManager.verifySubscription();
+        return { ok: true, valid, state: billingManager.getState() };
       }
 
       default:
@@ -1927,13 +1976,13 @@ export default defineBackground(() => {
     agentState.setRunning(true);
     agentState.setAborted(false);
 
-    // Check usage limits before starting
+    // Check usage limits before starting (billing-authoritative)
     const currentUsage = usageTracker.getCurrentUsage();
-    const limits = usageTracker.getUsageLimits();
-    if (limits.actions !== -1 && currentUsage.actions >= limits.actions) {
+    const billingCheck = billingManager.isWithinLimits(currentUsage.actions, currentUsage.sessions);
+    if (!billingCheck.allowed) {
       sendToSidePanel({
         type: 'agentDone',
-        finalSummary: `Monthly action limit reached (${currentUsage.actions}/${limits.actions}). Upgrade your plan in the Subscription tab to continue.`,
+        finalSummary: billingCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
         success: false,
         stepsUsed: 0,
       });

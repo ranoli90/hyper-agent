@@ -13,6 +13,9 @@ const dryRunInput = document.getElementById('dry-run') as HTMLInputElement;
 const enableVisionInput = document.getElementById('enable-vision') as HTMLInputElement;
 const autoRetryInput = document.getElementById('auto-retry') as HTMLInputElement;
 const siteBlacklistInput = document.getElementById('site-blacklist') as HTMLTextAreaElement;
+const enableSwarmInput = document.getElementById('enable-swarm') as HTMLInputElement;
+const enableAutonomousInput = document.getElementById('enable-autonomous') as HTMLInputElement;
+const enableLearningInput = document.getElementById('enable-learning') as HTMLInputElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
 const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
@@ -129,6 +132,9 @@ async function loadCurrentSettings() {
   enableVisionInput.checked = settings.enableVision;
   autoRetryInput.checked = settings.autoRetry;
   siteBlacklistInput.value = settings.siteBlacklist;
+  enableSwarmInput.checked = settings.enableSwarmIntelligence;
+  enableAutonomousInput.checked = settings.enableAutonomousMode;
+  enableLearningInput.checked = settings.learningEnabled;
 }
 
 // ─── Detect provider from URL ───────────────────────────────────
@@ -161,9 +167,9 @@ btnSave.addEventListener('click', async () => {
     enableVision: enableVisionInput.checked,
     autoRetry: autoRetryInput.checked,
     siteBlacklist: siteBlacklistInput.value,
-    enableSwarmIntelligence: current?.enableSwarmIntelligence ?? DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
-    enableAutonomousMode: current?.enableAutonomousMode ?? DEFAULTS.ENABLE_AUTONOMOUS_MODE,
-    learningEnabled: current?.learningEnabled ?? DEFAULTS.LEARNING_ENABLED,
+    enableSwarmIntelligence: enableSwarmInput.checked,
+    enableAutonomousMode: enableAutonomousInput.checked,
+    learningEnabled: enableLearningInput.checked,
   });
 
   saveStatus.classList.remove('hidden');
