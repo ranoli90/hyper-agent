@@ -1927,6 +1927,20 @@ export default defineBackground(() => {
     agentState.setRunning(true);
     agentState.setAborted(false);
 
+    // Check usage limits before starting
+    const currentUsage = usageTracker.getCurrentUsage();
+    const limits = usageTracker.getUsageLimits();
+    if (limits.actions !== -1 && currentUsage.actions >= limits.actions) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: `Monthly action limit reached (${currentUsage.actions}/${limits.actions}). Upgrade your plan in the Subscription tab to continue.`,
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+
     const settings = await loadSettings();
     if (!settings.apiKey) {
       sendToSidePanel({

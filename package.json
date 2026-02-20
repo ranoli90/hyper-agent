@@ -13,6 +13,8 @@
     "zip:firefox": "wxt zip --browser firefox",
     "postinstall": "wxt prepare",
     "test": "playwright test",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
