@@ -457,7 +457,8 @@ function handleCommand(text: string) {
   // Rate limiting check
   const now = Date.now();
   if (now - state.lastCommandTime < COMMAND_RATE_LIMIT_MS) {
-    addMessage('Please wait before sending another command.', 'status');
+    const waitMs = COMMAND_RATE_LIMIT_MS - (now - state.lastCommandTime);
+    addMessage(`Please wait ${Math.ceil(waitMs / 1000)} seconds before sending another command.`, 'status');
     return;
   }
 

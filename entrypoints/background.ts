@@ -1169,7 +1169,8 @@ export default defineBackground(() => {
           const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
           if (!rateLimiter.canAcceptMessage(senderId)) {
             logger.log('warn', 'Message rate limited', { senderId });
-            safeSend({ ok: false, error: 'Rate limit exceeded' });
+            const waitSec = Math.ceil(rateLimiter.getTimeUntilReset(senderId) / 1000);
+            safeSend({ ok: false, error: `Rate limit exceeded. Try again in ${waitSec} seconds.` });
             return;
           }
 
