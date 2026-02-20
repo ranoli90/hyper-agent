@@ -17,6 +17,7 @@
  */
 
 import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS } from '../shared/config';
+import { initErrorReporter, captureError } from '../shared/error-reporter';
 import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
@@ -863,6 +864,12 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
  * - Error boundary setup for reliability
  */
 export default defineBackground(() => {
+  // Initialize error reporter
+  initErrorReporter({
+    enabled: DEFAULTS.ERROR_REPORTING_ENABLED ?? false,
+    environment: "production",
+    sampleRate: 0.1,
+  });
   // ─── Cleanup intervals ───────────────────────────────────────────────
   globalThis.setInterval(
     () => {
