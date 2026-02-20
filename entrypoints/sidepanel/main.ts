@@ -234,7 +234,8 @@ const SLASH_COMMANDS = {
     );
   },
   '/think': () => {
-    const cmd = components.commandInput.value.replace('/think', '').trim();
+    const fullInput = sanitizeInput(components.commandInput.value).trim();
+    const cmd = fullInput.replace(/^\/think\s*/, '').trim();
     if (!cmd) {
       addMessage('Usage: /think [advanced task description]', 'status');
       return;
@@ -423,8 +424,14 @@ function updateStepper(stepId: string) {
 
 function handleCommand(text: string) {
   const cmd = sanitizeInput(text).trim();
-  if (cmd.startsWith('/') && SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]) {
-    SLASH_COMMANDS[cmd as keyof typeof SLASH_COMMANDS]();
+
+  // Match slash commands — exact match first, then prefix match for commands with args
+  const slashKey = Object.keys(SLASH_COMMANDS).find(
+    k => cmd === k || cmd.startsWith(k + ' ')
+  ) as keyof typeof SLASH_COMMANDS | undefined;
+
+  if (slashKey) {
+    SLASH_COMMANDS[slashKey]();
     components.commandInput.value = '';
     return;
   }
@@ -485,10 +492,14 @@ function setRunning(running: boolean) {
 }
 
 // ─── Persistence ────────────────────────────────────────────────
-async function saveHistory() {
-  const historyHTML = components.chatHistory.innerHTML;
-  await chrome.storage.local.set({ chat_history_backup: historyHTML });
-}
+const saveHistory = debounce(async () => {
+  try {
+    const historyHTML = components.chatHistory.innerHTML;
+    await chrome.storage.local.set({ chat_history_backup: historyHTML });
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to save chat history:', err);
+  }
+}, 500);
 
 async function loadHistory() {
   const data = await chrome.storage.local.get('chat_history_backup');
@@ -534,8 +545,9 @@ function navigateHistory(direction: 'up' | 'down'): string | null {
 
 let selectedBillingInterval: 'month' | 'year' = 'month';
 
-function updateUsageDisplay() {
-  chrome.runtime.sendMessage({ type: 'getUsage' }, response => {
+async function updateUsageDisplay() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'getUsage' });
     if (!response?.usage) return;
     const { actions, sessions } = response.usage;
     const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
@@ -621,7 +633,9 @@ function updateUsageDisplay() {
     if (cancelBtn) {
       cancelBtn.classList.toggle('hidden', tier === 'free');
     }
-  });
+  } catch (err) {
+    console.warn('[HyperAgent] Failed to update usage display:', err);
+  }
 }
 
 interface MarketplaceWorkflow {
@@ -653,11 +667,14 @@ const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
 
 let activeCategory = 'all';
 let searchQuery = '';
+let marketplaceListenersAttached = false;
 
 function loadMarketplace() {
   renderMarketplaceWorkflows();
 
-  // Search handler
+  if (marketplaceListenersAttached) return;
+  marketplaceListenersAttached = true;
+
   const searchInput = document.getElementById('marketplace-search-input') as HTMLInputElement;
   if (searchInput) {
     searchInput.addEventListener('input', debounce(() => {
@@ -666,7 +683,6 @@ function loadMarketplace() {
     }, 200));
   }
 
-  // Category handlers
   document.querySelectorAll('.category-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
@@ -742,16 +758,20 @@ function renderMarketplaceWorkflows() {
   });
 }
 
-function installWorkflow(workflowId: string) {
+async function installWorkflow(workflowId: string) {
   addMessage(`Installing workflow: ${workflowId}...`, 'status');
 
-  chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId }, response => {
-    if (response?.success) {
-      addMessage(`Workflow "${workflowId}" installed successfully!`, 'agent');
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId });
+    if (response?.ok) {
+      addMessage(`Workflow "${escapeHtml(workflowId)}" installed successfully!`, 'agent');
+      showToast('Workflow installed', 'success');
     } else {
-      addMessage(`Failed to install workflow: ${response?.error || 'Unknown error'}`, 'error');
+      addMessage(`Failed to install workflow: ${escapeHtml(response?.error || 'Unknown error')}`, 'error');
     }
-  });
+  } catch (err) {
+    addMessage('Failed to install workflow: connection error', 'error');
+  }
 }
 
 // ─── Memory Tab ────────────────────────────────────────────────
@@ -774,13 +794,16 @@ async function loadMemoryTab() {
           const card = document.createElement('div');
           card.className = 'memory-card';
           const s = strategy as any;
+          const successCount = Number(s.successfulLocators?.length) || 0;
+          const failedCount = Number(s.failedLocators?.length) || 0;
+          const lastUsedStr = s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never';
           card.innerHTML = `
-            <div class="memory-domain">${domain}</div>
+            <div class="memory-domain">${escapeHtml(domain)}</div>
             <div class="memory-stats-row">
-              <span>Success: ${s.successfulLocators?.length || 0}</span>
-              <span>Failed: ${s.failedLocators?.length || 0}</span>
+              <span>Success: ${successCount}</span>
+              <span>Failed: ${failedCount}</span>
             </div>
-            <div class="memory-last-used">Last used: ${s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never'}</div>
+            <div class="memory-last-used">Last used: ${escapeHtml(lastUsedStr)}</div>
           `;
           memoryList.appendChild(card);
         }
@@ -808,17 +831,18 @@ async function loadTasksTab() {
       response.tasks.forEach((task: any) => {
         const item = document.createElement('div');
         item.className = 'task-item';
+        const safeId = escapeHtml(String(task.id || ''));
         item.innerHTML = `
           <div class="task-header">
-            <span class="task-name">${task.name}</span>
+            <span class="task-name">${escapeHtml(task.name || 'Unnamed')}</span>
             <span class="task-status ${task.enabled ? 'enabled' : 'disabled'}">${task.enabled ? 'Active' : 'Paused'}</span>
           </div>
-          <div class="task-command">${task.command}</div>
-          <div class="task-schedule">${formatSchedule(task.schedule)}</div>
-          <div class="task-next-run">Next: ${task.nextRun ? new Date(task.nextRun).toLocaleString() : 'Not scheduled'}</div>
+          <div class="task-command">${escapeHtml(task.command || '')}</div>
+          <div class="task-schedule">${escapeHtml(formatSchedule(task.schedule))}</div>
+          <div class="task-next-run">Next: ${task.nextRun ? escapeHtml(new Date(task.nextRun).toLocaleString()) : 'Not scheduled'}</div>
           <div class="task-actions">
-            <button class="btn-small" data-task-id="${task.id}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
-            <button class="btn-small btn-danger" data-task-id="${task.id}" data-action="delete">Delete</button>
+            <button class="btn-small" data-task-id="${safeId}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
+            <button class="btn-small btn-danger" data-task-id="${safeId}" data-action="delete">Delete</button>
           </div>
         `;
         tasksList.appendChild(item);
@@ -873,6 +897,7 @@ async function handleTaskAction(taskId: string | undefined, action: string | und
 }
 
 // ─── Vision Tab ────────────────────────────────────────────────
+let visionListenersAttached = false;
 function loadVisionTab() {
   const visionContainer = document.getElementById('vision-container');
   const visionOverlays = document.getElementById('vision-overlays');
@@ -895,6 +920,9 @@ function loadVisionTab() {
     </div>
   `;
 
+  if (visionListenersAttached) return;
+  visionListenersAttached = true;
+
   const captureBtn = document.getElementById('btn-capture-vision');
   if (captureBtn) {
     captureBtn.addEventListener('click', async () => {
@@ -914,6 +942,7 @@ function loadVisionTab() {
 }
 
 // ─── Swarm Tab ───────────────────────────────────────────────────
+let swarmListenersAttached = false;
 async function loadSwarmTab() {
   const swarmState = document.getElementById('swarm-state');
   const missionsCompleted = document.getElementById('missions-completed');
@@ -946,15 +975,20 @@ async function loadSwarmTab() {
         snapshotsResponse.snapshots.slice(0, 5).forEach((snapshot: any) => {
           const item = document.createElement('div');
           item.className = 'snapshot-item';
+          const safeTaskId = escapeHtml(String(snapshot.taskId || ''));
+          const safeCmd = escapeHtml((snapshot.command || 'Unknown mission').substring(0, 50));
+          const step = Number(snapshot.currentStep) || 0;
+          const total = Number(snapshot.totalSteps) || 0;
+          const timeStr = snapshot.timestamp ? new Date(snapshot.timestamp).toLocaleString() : '';
           item.innerHTML = `
-            <div class="snapshot-command">${snapshot.command?.substring(0, 50) || 'Unknown mission'}...</div>
+            <div class="snapshot-command">${safeCmd}...</div>
             <div class="snapshot-meta">
-              <span>Step ${snapshot.currentStep || 0}/${snapshot.totalSteps || 0}</span>
-              <span>${new Date(snapshot.timestamp).toLocaleString()}</span>
+              <span>Step ${step}/${total}</span>
+              <span>${escapeHtml(timeStr)}</span>
             </div>
             <div class="snapshot-actions">
-              <button class="btn-small" data-task-id="${snapshot.taskId}">Resume</button>
-              <button class="btn-small btn-danger" data-task-id="${snapshot.taskId}" data-action="delete">Delete</button>
+              <button class="btn-small" data-task-id="${safeTaskId}">Resume</button>
+              <button class="btn-small btn-danger" data-task-id="${safeTaskId}" data-action="delete">Delete</button>
             </div>
           `;
           snapshotsList.appendChild(item);
@@ -978,7 +1012,9 @@ async function loadSwarmTab() {
     console.warn('[HyperAgent] Failed to load swarm tab:', err);
   }
 
-  // Clear snapshots button
+  if (swarmListenersAttached) return;
+  swarmListenersAttached = true;
+
   const clearBtn = document.getElementById('btn-clear-snapshots');
   if (clearBtn) {
     clearBtn.addEventListener('click', async () => {
