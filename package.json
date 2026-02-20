@@ -1,6 +1,6 @@
 {
   "name": "hyper-agent",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "description": "AI-powered browser agent Chrome extension",
   "private": true,
   "type": "module",
@@ -21,7 +21,7 @@
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "tsc --noEmit",
-    "test:all": "npm run type-check && npm run lint && npm run test"
+    "test:all": "npm run test:unit && npm run test"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

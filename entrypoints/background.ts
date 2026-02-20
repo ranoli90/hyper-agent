@@ -1975,10 +1975,34 @@ export default defineBackground(() => {
 
     const history: HistoryEntry[] = [];
     let requestScreenshot = false;
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 3;
 
     try {
+      // Save initial snapshot for resume capability
+      await SnapshotManager.save({
+        taskId: session.id,
+        command,
+        currentStep: 0,
+        totalSteps: maxSteps,
+        history: [],
+        timestamp: Date.now(),
+        status: 'running',
+        url: tab.url || '',
+      });
+
       for (let step = 1; step <= maxSteps; step++) {
         if (agentState.isAborted) {
+          await SnapshotManager.save({
+            taskId: session.id,
+            command,
+            currentStep: step - 1,
+            totalSteps: maxSteps,
+            history,
+            timestamp: Date.now(),
+            status: 'aborted',
+            url: tab.url || '',
+          });
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: 'Stopped.',
@@ -1988,8 +2012,23 @@ export default defineBackground(() => {
           return;
         }
 
+        // Check for too many consecutive failures
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `Stopped after ${MAX_CONSECUTIVE_FAILURES} consecutive failures. The page may not be responding as expected.`,
+            success: false,
+            stepsUsed: step - 1,
+          });
+          return;
+        }
+
         // ── Step 1: Observe ──
-        sendToSidePanel({ type: 'agentProgress', status: 'Analyzing page...', step: 'observe' });
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: `Step ${step}/${maxSteps}: Analyzing page...`,
+          step: 'observe',
+        });
         let context = await getPageContext(tabId);
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
@@ -2060,8 +2099,19 @@ export default defineBackground(() => {
         }
 
         // ── Step 4: Act ──
-        sendToSidePanel({ type: 'agentProgress', status: 'Executing...', step: 'act' });
+        const actionDescs = llmResponse.actions
+          .filter((a: any) => a?.description)
+          .map((a: any) => a.description);
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: `Step ${step}/${maxSteps}: Executing ${llmResponse.actions.length} action(s)...`,
+          step: 'act',
+          actionDescriptions: actionDescs,
+        });
+
         const actionResults = [];
+        let stepHadFailure = false;
+
         for (const action of llmResponse.actions) {
           if (agentState.isAborted) break;
 
@@ -2097,25 +2147,54 @@ export default defineBackground(() => {
                   }
                 } catch (verifyErr: any) {
                   logger.log('warn', 'Vision verification error', { error: verifyErr.message });
-                  // Continue without verification rather than fail
                 }
               }
             } catch (screenErr: any) {
               logger.log('warn', 'Screenshot capture failed', { error: screenErr.message });
-              // Continue without verification
             }
           }
 
           if (result) {
             actionResults.push({ action, ...result });
+            if (!result.success) stepHadFailure = true;
           }
           await delay(DEFAULTS.ACTION_DELAY_MS);
+        }
+
+        // Track consecutive failures for circuit-breaking
+        if (stepHadFailure) {
+          consecutiveFailures++;
+        } else {
+          consecutiveFailures = 0;
         }
 
         history.push({ role: 'user', context, command });
         history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
 
+        // Save snapshot after each step for resume
+        await SnapshotManager.save({
+          taskId: session.id,
+          command,
+          currentStep: step,
+          totalSteps: maxSteps,
+          history,
+          timestamp: Date.now(),
+          status: 'running',
+          url: tab.url || '',
+        }).catch(() => {});
+
         if (llmResponse.done || llmResponse.actions.length === 0) {
+          await SnapshotManager.save({
+            taskId: session.id,
+            command,
+            currentStep: step,
+            totalSteps: maxSteps,
+            history,
+            timestamp: Date.now(),
+            status: 'completed',
+            url: tab.url || '',
+          }).catch(() => {});
+
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: llmResponse.summary || 'Done',
