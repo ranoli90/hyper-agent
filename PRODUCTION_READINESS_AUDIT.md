@@ -24,97 +24,98 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 2 — Critical Crashes & Data Loss
 4. **2.2** Import settings validation (malicious import corrupts state)
-5. **1.3** Fix "built-in key" misleading UX (users think configured when not)
-6. **4.9** Snapshot Resume/Delete buttons — no click handlers (completely broken)
-7. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
+5. **2.2b** Reset settings confirm text (user may not realize full wipe of sessions/history)
+6. **1.3** Fix "built-in key" misleading UX (users think configured when not)
+7. **4.9** Snapshot Resume/Delete buttons — no click handlers (completely broken)
+8. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
 
 ### Phase 3 — Security Critical
-8. **2.11** Security module not integrated — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported but NEVER called. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor) are completely ignored during agent execution
-9. **2.1** API key storage (document or encrypt)
-10. **1.6** ReDoS in findTabByUrl + workflow urlMatches
-11. **2.5** validateExtensionMessage default: return true
+9. **2.11** Security module not integrated — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported but NEVER called. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor) are completely ignored during agent execution
+10. **2.1** API key storage (document or encrypt)
+11. **1.6** ReDoS in findTabByUrl + workflow urlMatches
+12. **2.5** validateExtensionMessage default: return true
 
 ### Phase 4 — User-Facing Broken Features
-12. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
-13. **1.4** verifyActionWithVision fail-open
-14. **1.5** Screenshot format consistency
-15. **4.12** visionUpdate screenshot format
-16. **1.12** Empty command not rejected — validateExtensionMessage accepts `command === ''`; agent would run with empty command (wasted LLM call)
-17. **4.3** Tasks "New" button — no handler
-18. **4.5** Vision "Analyze Page" — no handler
-19. **4.2** Stripe checkout return flow
-20. **4.1** Marketplace workflows (implement or label)
-21. **4.11** Scheduler "once" task validation
+13. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
+14. **1.4** verifyActionWithVision fail-open
+15. **1.5** Screenshot format consistency
+16. **4.12** visionUpdate screenshot format
+17. **1.12** Empty command not rejected — validateExtensionMessage accepts `command === ''`; agent would run with empty command (wasted LLM call)
+18. **4.3** Tasks "New" button — no handler
+19. **4.5** Vision "Analyze Page" — no handler
+20. **4.2** Stripe checkout return flow
+21. **4.1** Marketplace workflows (implement or label)
+22. **4.11** Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
-22. **3.1** Duplicate visibilitychange handler
-23. **3.2** Ask modal backdrop — doesn't resolve
-24. **3.4** require-confirm default mismatch
-25. **3.6** Dark mode — no system preference
-26. **3.5** Add /think to help
-27. **3.7** Duplicate font loading
-28. **3.9** Remove dead import getUserSiteConfigs
+23. **3.1** Duplicate visibilitychange handler
+24. **3.2** Ask modal backdrop — doesn't resolve
+25. **3.4** require-confirm default mismatch
+26. **3.6** Dark mode — no system preference
+27. **3.5** Add /think to help
+28. **3.7** Duplicate font loading
+29. **3.9** Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Industry Standard
-29. **5.1** Error reporting (Sentry)
-30. **7.3** Privacy policy
-31. **5.3** Onboarding
-32. **5.4** Offline handling
-33. **5.5** Rate limit feedback in UI
-34. **5.9** Export settings warning
-35. **5.10** Changelog on update
+30. **5.1** Error reporting (Sentry)
+31. **7.3** Privacy policy
+32. **5.3** Onboarding
+33. **5.4** Offline handling
+34. **5.5** Rate limit feedback in UI
+35. **5.9** Export settings warning
+36. **5.10** Changelog on update
 
 ### Phase 7 — Accessibility
-36. **8.1** Chat aria-live
-37. **8.2** Modal focus trap
-38. **8.3** Status aria-live
-39. **8.4** Tab aria-selected
-40. **8.9** visionSnapshot null check
+37. **8.1** Chat aria-live
+38. **8.2** Modal focus trap
+39. **8.3** Status aria-live
+40. **8.4** Tab aria-selected
+41. **8.9** visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
-41. **6.1** Content script overhead
-42. **6.2** getPageContext cost
-43. **6.9** Storage quota monitoring
-44. **10.7** Replace deprecated substr
-45. **10.8** Console.log in production
+42. **6.1** Content script overhead
+43. **6.2** getPageContext cost
+44. **6.9** Storage quota monitoring
+45. **10.7** Replace deprecated substr
+46. **10.8** Console.log in production
 
 ### Phase 9 — Technical Debt
-46. **1.8** Duplicate getMemoryStats handler
-47. **1.7** Dead content-script navigate/goBack
-48. **1.9** buildFallbackPlan stub
-49. **10.1** Reduce any types
-50. **10.3** Storage key sprawl
-51. **10.9** Scheduler scheduled flag
-52. **4.13** TikTok Moderator selectors
+47. **1.8** Duplicate getMemoryStats handler
+48. **1.7** Dead content-script navigate/goBack
+49. **1.9** buildFallbackPlan stub
+50. **10.1** Reduce any types
+51. **10.3** Storage key sprawl
+52. **10.9** Scheduler scheduled flag
+53. **4.13** TikTok Moderator selectors
 
 ### Phase 10 — Testing & CI
-53. **14.1** Add GitHub Actions (lint, type-check, test, build)
-54. **14.2** E2E build step in CI
-55. **14.6** Test service worker / background
+54. **14.1** Add GitHub Actions (lint, type-check, test, build)
+55. **14.2** E2E build step in CI
+56. **14.6** Test service worker / background
 
 ### Phase 11 — Dependencies
-56. **15.1** npm audit fix (23 vulnerabilities)
-57. **15.2** Verify package-lock committed
-58. **15.3** Dependabot config
+57. **15.1** npm audit fix (23 vulnerabilities)
+58. **15.2** Verify package-lock committed
+59. **15.3** Dependabot config
 
 ### Phase 12 — LLM/API Resilience
-59. **16.1** 429 rate limit handling
-60. **16.2** Use retry-circuit-breaker for LLM
-61. **22.1** User-friendly error messages
+60. **16.1** 429 rate limit handling
+61. **16.2** Use retry-circuit-breaker for LLM
+62. **22.1** User-friendly error messages
 
 ### Phase 13 — Legal & Compliance
-62. **19.1** Privacy policy
-63. **19.3** Data handling disclosure
-64. **19.4** Data export/deletion (GDPR)
+63. **19.1** Privacy policy
+64. **19.3** Data handling disclosure
+65. **19.4** Data export/deletion (GDPR)
 
 ### Phase 14 — Storage & DOM
-65. **17.1** Storage schema migration
-66. **21.1** Shadow DOM traversal
+66. **17.1** Storage schema migration
+67. **21.1** Shadow DOM traversal
 
 ### Phase 15 — Release & Polish
-67. **20.1** GitHub Actions
-68. **20.4** CHANGELOG.md
-69. **24.2** User-facing docs
+68. **20.1** GitHub Actions
+69. **20.4** CHANGELOG.md
+70. **24.2** User-facing docs
 
 ---
 
@@ -773,6 +774,17 @@ Items discovered from alternative viewpoints: service worker lifecycle, cross-co
 | UI | sidepanel/index.html, sidepanel/style.css, options/index.html |
 | Tests | extension.spec.ts, extension-basic.spec.ts, extension-mock.spec.ts, unit/config.test.ts, unit/billing.test.ts, unit/intent.test.ts |
 | CI/Build | playwright.config.ts, vitest.config.ts (no .github/workflows) |
+
+---
+
+---
+
+## Next Steps
+
+1. **Implement Phase 1 first** — Icon assets, `window.setInterval` → `globalThis` in service worker, message handler `sendResponse` on error. These block extension load.
+2. **Phase 2 before any user testing** — Import validation, reset confirm text, built-in key UX, snapshot handlers.
+3. **Security integration (Phase 3)** — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` must be called in agent flow.
+4. **Use the full checklist** (Section 12) for implementation tracking; phases 10–19 cover service worker fixes, edge cases, and lower-priority items.
 
 ---
 
