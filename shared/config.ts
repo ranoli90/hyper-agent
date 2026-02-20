@@ -32,6 +32,26 @@ export const STORAGE_KEYS = {
   ENABLE_SWARM_INTELLIGENCE: 'hyperagent_enable_swarm',
   ENABLE_AUTONOMOUS_MODE: 'hyperagent_enable_autonomous',
   LEARNING_ENABLED: 'hyperagent_learning_enabled',
+  // UI state
+  CHAT_HISTORY: 'hyperagent_chat_history',
+  COMMAND_HISTORY: 'hyperagent_command_history',
+  DARK_MODE: 'hyperagent_dark_mode',
+  // Onboarding
+  SHOW_ONBOARDING: 'hyperagent_show_onboarding',
+  SHOW_CHANGELOG: 'hyperagent_show_changelog',
+  // Billing
+  SUBSCRIPTION: 'hyperagent_subscription',
+  STRIPE_PENDING: 'hyperagent_stripe_pending',
+  STRIPE_SUCCESS: 'hyperagent_stripe_success',
+  // Workflows
+  WORKFLOWS: 'hyperagent_workflows',
+  INSTALLED_WORKFLOWS: 'hyperagent_installed_workflows',
+  // Scheduler
+  SCHEDULED_TASKS: 'hyperagent_scheduled_tasks',
+  // Snapshots
+  LAST_ACTIVE_TASK: 'hyperagent_last_active_task',
+  // Metrics
+  USAGE_METRICS: 'hyperagent_usage_metrics',
 } as const;
 
 // ─── Validation constants ─────────────────────────────────────────────
