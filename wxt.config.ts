@@ -18,6 +18,7 @@ export default defineConfig({
     host_permissions: ['<all_urls>'],
     action: {
       default_title: 'Open HyperAgent',
+      // Icons from public/icon/ (16, 32, 48, 128 px) — copied to output root
       default_icon: {
         16: 'icon/16.png',
         32: 'icon/32.png',
