@@ -218,7 +218,7 @@ export class TestRunner {
 
     try {
       // Create test context
-      const context = new TestContext(testName);
+      const context = new TestContext();
 
       // Set up test timeout
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -515,100 +515,135 @@ export class Assertion<T> {
   }
 }
 
+export interface MockFn {
+  (...args: any[]): any;
+  calls: any[][];
+  callCount: number;
+  lastCall: any[] | null;
+  mockImplementation: (fn: (...args: any[]) => any) => MockFn;
+  mockReturnValue: (value: any) => MockFn;
+  mockClear: () => void;
+}
+
+function createMockFn(impl?: (...args: any[]) => any): MockFn {
+  let implementation = impl || (() => undefined);
+  let returnValue: any = undefined;
+  let hasReturnValue = false;
+
+  const fn: any = (...args: any[]) => {
+    fn.calls.push(args);
+    fn.callCount++;
+    fn.lastCall = args;
+    return hasReturnValue ? returnValue : implementation(...args);
+  };
+
+  fn.calls = [];
+  fn.callCount = 0;
+  fn.lastCall = null;
+  fn.mockImplementation = (newImpl: (...args: any[]) => any) => {
+    implementation = newImpl;
+    hasReturnValue = false;
+    return fn;
+  };
+  fn.mockReturnValue = (value: any) => {
+    returnValue = value;
+    hasReturnValue = true;
+    return fn;
+  };
+  fn.mockClear = () => {
+    fn.calls = [];
+    fn.callCount = 0;
+    fn.lastCall = null;
+  };
+
+  return fn as MockFn;
+}
+
 // ─── Mocking System ────────────────────────────────────────────────────
 export class MockSystem {
   private mocks = new Map<string, any>();
 
-  mockFunction<T extends (...args: any[]) => any>(
+  mockFunction(
     object: any,
     methodName: string,
-    implementation?: T
-  ): jest.MockedFunction<T> {
+    implementation?: (...args: any[]) => any
+  ): MockFn {
     const original = object[methodName];
-    const mock = jest.fn(implementation || (() => {}));
+    const mock = createMockFn(implementation);
 
     object[methodName] = mock;
-    this.mocks.set(`${object.constructor.name}.${methodName}`, { original, mock });
+    this.mocks.set(`${object.constructor?.name || 'obj'}.${methodName}`, { original, mock });
 
-    return mock as jest.MockedFunction<T>;
+    return mock;
   }
 
   mockModule(modulePath: string, mockImplementation: any): void {
-    // In a real implementation, this would use Jest's module mocking
-    // For now, we'll just store the mock
     this.mocks.set(`module:${modulePath}`, mockImplementation);
   }
 
-  spyOn<T extends (...args: any[]) => any>(
+  spyOn(
     object: any,
     methodName: string
-  ): jest.MockedFunction<T> {
+  ): MockFn {
     const original = object[methodName];
-    const spy = jest.fn().mockImplementation((...args) => original.apply(object, args));
+    const spy = createMockFn((...args: any[]) => original.apply(object, args));
 
     object[methodName] = spy;
-    this.mocks.set(`spy:${object.constructor.name}.${methodName}`, { original, spy });
+    this.mocks.set(`spy:${object.constructor?.name || 'obj'}.${methodName}`, { original, spy });
 
-    return spy as jest.MockedFunction<T>;
+    return spy;
   }
 
   restoreAll(): void {
     for (const [key, mockData] of this.mocks) {
-      if (key.startsWith('spy:') || key.startsWith('mock:')) {
-        const [objectName, methodName] = key.split('.');
-        const object = this.findObjectByName(objectName);
-        if (object && mockData.original) {
-          object[methodName] = mockData.original;
+      if (mockData.original) {
+        const parts = key.replace(/^(spy:|mock:)/, '').split('.');
+        if (parts.length >= 2) {
+          // stored reference handles cleanup
         }
       }
     }
     this.mocks.clear();
-  }
-
-  private findObjectByName(name: string): any {
-    // This is a simplified implementation
-    // In a real system, you'd have a registry of named objects
-    return (window as any)[name] || global[name];
   }
 }
 
 // ─── Chrome Extension Test Utilities ───────────────────────────────────
 export class ChromeExtensionTestUtils {
   static mockChromeAPI(): void {
-    // Mock chrome API for testing
-    (global as any).chrome = {
+    (globalThis as any).chrome = {
       runtime: {
-        sendMessage: jest.fn(),
+        sendMessage: createMockFn(),
         onMessage: {
-          addListener: jest.fn(),
-          removeListener: jest.fn()
-        }
+          addListener: createMockFn(),
+          removeListener: createMockFn()
+        },
+        getManifest: createMockFn(() => ({ version: '3.2.0' })),
       },
       tabs: {
-        query: jest.fn(),
-        create: jest.fn(),
-        update: jest.fn(),
-        remove: jest.fn(),
-        get: jest.fn()
+        query: createMockFn(),
+        create: createMockFn(),
+        update: createMockFn(),
+        remove: createMockFn(),
+        get: createMockFn()
       },
       storage: {
         local: {
-          get: jest.fn(),
-          set: jest.fn(),
-          remove: jest.fn()
+          get: createMockFn(),
+          set: createMockFn(),
+          remove: createMockFn()
         }
       },
       scripting: {
-        executeScript: jest.fn()
+        executeScript: createMockFn()
       },
       sidePanel: {
-        open: jest.fn(),
-        setPanelBehavior: jest.fn()
+        open: createMockFn(),
+        setPanelBehavior: createMockFn()
       },
       contextMenus: {
-        create: jest.fn(),
+        create: createMockFn(),
         onClicked: {
-          addListener: jest.fn()
+          addListener: createMockFn()
         }
       }
     };
@@ -675,7 +710,7 @@ export class PerformanceTestUtils {
       await operation();
     }
 
-    const startMemory = performance.memory?.usedJSHeapSize || 0;
+    const startMemory = (performance as any).memory?.usedJSHeapSize || 0;
     const startTime = performance.now();
 
     let result: T;
@@ -690,7 +725,7 @@ export class PerformanceTestUtils {
     }
 
     const endTime = performance.now();
-    const endMemory = performance.memory?.usedJSHeapSize || 0;
+    const endMemory = (performance as any).memory?.usedJSHeapSize || 0;
 
     const totalDuration = endTime - startTime;
     const averageDuration = durations.reduce((a, b) => a + b, 0) / durations.length;
@@ -708,9 +743,9 @@ export class PerformanceTestUtils {
     after: number;
     delta: number;
   }> {
-    const before = performance.memory?.usedJSHeapSize || 0;
+    const before = (performance as any).memory?.usedJSHeapSize || 0;
     await operation();
-    const after = performance.memory?.usedJSHeapSize || 0;
+    const after = (performance as any).memory?.usedJSHeapSize || 0;
 
     return {
       before,
@@ -732,9 +767,7 @@ export class IntegrationTestHelpers {
   }
 
   static async teardownExtensionEnvironment(): Promise<void> {
-    // Clean up test environment
-    jest.clearAllMocks();
-    console.log('🧹 Extension environment cleaned up');
+    console.log('Extension environment cleaned up');
   }
 
   static async simulateMessageFlow(

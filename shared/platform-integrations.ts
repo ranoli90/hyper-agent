@@ -32,6 +32,27 @@ export interface PlatformConfig {
   termsAccepted: boolean;
 }
 
+export interface CarListingInfo {
+  make: string;
+  model: string;
+  year: number;
+  price: number;
+  mileage: number;
+  condition: 'new' | 'like_new' | 'excellent' | 'good' | 'fair' | 'poor';
+  color: string;
+  vin?: string;
+  title: string;
+  description: string;
+  images: string[];
+  location: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  features?: string[];
+  transmission?: 'automatic' | 'manual';
+  fuelType?: 'gasoline' | 'diesel' | 'electric' | 'hybrid';
+  bodyType?: string;
+}
+
 // ─── Base Platform Integration Class ────────────────────────────────────
 export abstract class PlatformIntegration {
   protected config: PlatformConfig;

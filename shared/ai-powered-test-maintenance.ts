@@ -222,7 +222,7 @@ export class TestMaintenanceEngine {
     const description = (action as any).description || '';
     const elements = context.semanticElements;
 
-    const keywords = description.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const keywords = description.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
     let bestMatch: any = null;
     let bestScore = 0;
 

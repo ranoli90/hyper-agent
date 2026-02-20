@@ -3,6 +3,15 @@
 // real estate listings, and other valuable services that users will pay for.
 
 import { TaskType } from './intelligent-clarification';
+import { type CarListingInfo } from './platform-integrations';
+
+export interface WorkflowMetrics {
+  totalWorkflows: number;
+  successfulWorkflows: number;
+  failedWorkflows: number;
+  averageCompletionTime: number;
+  platformSuccessRates: Map<string, number>;
+}
 
 export interface WorkflowExecution {
   id: string;
@@ -147,7 +156,7 @@ export class ComprehensiveWorkflowExecutor {
     if (!carInfo.location || carInfo.location.trim().length === 0) {
       errors.push('Location is required');
     }
-    if (!carInfo.contactInfo || (!carInfo.contactInfo.phone && !carInfo.contactInfo.email)) {
+    if (!carInfo.contactPhone && !carInfo.contactEmail) {
       errors.push('Contact information is required');
     }
 
@@ -270,17 +279,16 @@ export class ComprehensiveWorkflowExecutor {
 
       console.log(`[Workflow] Car sales workflow ${workflowId} completed successfully`);
 
-    } catch (error: any) {
-      return { success: false, error: error.message || String(error) };
-    } finally {
+    } catch (err: any) {
+      workflow.status = ExecutionStatus.FAILED;
       workflow.errors.push({
         step: workflow.currentStep,
-        error: error.message,
+        error: err.message || String(err),
         retryCount: 0,
         recoverable: false,
         timestamp: Date.now()
       });
-      console.error(`[Workflow] Car sales workflow ${workflowId} failed:`, error);
+      console.error(`[Workflow] Car sales workflow ${workflowId} failed:`, err);
     }
   }
 
@@ -376,6 +384,18 @@ Don't miss this opportunity!`;
         'Any issues or repairs needed?': 'Vehicle is in excellent condition, no known issues.'
       }
     };
+  }
+
+  private cleanupCompletedWorkflows(): void {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [id, workflow] of this.activeWorkflows) {
+      if (
+        (workflow.status === ExecutionStatus.COMPLETED || workflow.status === ExecutionStatus.FAILED) &&
+        workflow.metadata.startTime < cutoff
+      ) {
+        this.activeWorkflows.delete(id);
+      }
+    }
   }
 
   private initializePlatformIntegrations(): void {

@@ -276,7 +276,7 @@ export class AdaptiveTestExecution {
       const keywords = description.toLowerCase().split(/\s+/);
       for (const element of elements) {
         const elementText = `${element.visibleText} ${element.ariaLabel} ${element.name}`.toLowerCase();
-        const matchScore = keywords.filter(kw => elementText.includes(kw)).length / keywords.length;
+        const matchScore = keywords.filter((kw: string) => elementText.includes(kw)).length / keywords.length;
 
         if (matchScore > 0.5) {
           const result: SelfHealingResult = {

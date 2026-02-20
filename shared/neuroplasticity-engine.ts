@@ -22,6 +22,49 @@ export interface SynapticPlasticity {
   homeostaticScaling: Map<string, number>;     // Balance maintenance
 }
 
+export interface EmotionalPattern {
+  trigger: string;
+  response: string;
+  intensity: number;
+  frequency: number;
+}
+
+export interface CognitiveStyle {
+  learningPreference: 'visual' | 'verbal' | 'kinesthetic';
+  decisionSpeed: number;
+  riskTolerance: number;
+  attentionSpan: number;
+  abstractionLevel: number;
+}
+
+export interface EmotionalEvent {
+  timestamp: number;
+  trigger: string;
+  response: MoodState;
+  intensity: number;
+}
+
+export interface StressIndicator {
+  source: string;
+  level: number;
+  timestamp: number;
+  duration: number;
+}
+
+export interface SatisfactionMetric {
+  action: string;
+  score: number;
+  timestamp: number;
+  context: string;
+}
+
+export interface EngagementPattern {
+  timeOfDay: number;
+  dayOfWeek: number;
+  engagementLevel: number;
+  sessionDuration: number;
+}
+
 export interface CognitiveMap {
   userProfile: UserProfile;
   behavioralPatterns: Map<string, Pattern>;
@@ -100,8 +143,8 @@ export interface AdaptationRule {
 
 export class NeuroplasticityEngine {
   private neuralPathways: Map<string, NeuralPathway> = new Map();
-  private synapticPlasticity: SynapticPlasticity;
-  private cognitiveMap: CognitiveMap;
+  private synapticPlasticity!: SynapticPlasticity;
+  private cognitiveMap!: CognitiveMap;
   private learningHistory: LearningEvent[] = [];
   private adaptationCycles: number = 0;
 
@@ -1056,9 +1099,12 @@ export class NeuroplasticityEngine {
         existing.confidence = (existing.confidence + pattern.confidence) / 2;
       } else {
         this.cognitiveMap.behavioralPatterns.set(pattern.type, {
+          id: `pattern_${Date.now()}`,
           ...pattern,
           frequency: 1,
-          lastOccurrence: Date.now()
+          lastOccurrence: Date.now(),
+          predictivePower: pattern.confidence || 0.5,
+          contextualFactors: [],
         });
       }
     }
