@@ -23,69 +23,98 @@ Fix in this exact order to minimize rework and address blocking issues first:
 3. **1.1** Message handler sendResponse on error (callers hang on any error)
 
 ### Phase 2 — Critical Crashes & Data Loss
-3. **2.2** Import settings validation (malicious import corrupts state)
-4. **1.3** Fix "built-in key" misleading UX (users think configured when not)
-5. **4.9** Snapshot Resume/Delete buttons — no click handlers (completely broken)
-6. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
+4. **2.2** Import settings validation (malicious import corrupts state)
+5. **1.3** Fix "built-in key" misleading UX (users think configured when not)
+6. **4.9** Snapshot Resume/Delete buttons — no click handlers (completely broken)
+7. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
 
 ### Phase 3 — Security Critical
-7. **2.11** Security module not integrated — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported but NEVER called. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor) are completely ignored during agent execution
-8. **2.1** API key storage (document or encrypt)
-9. **1.6** ReDoS in findTabByUrl + workflow urlMatches
-10. **2.5** validateExtensionMessage default: return true
+8. **2.11** Security module not integrated — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported but NEVER called. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor) are completely ignored during agent execution
+9. **2.1** API key storage (document or encrypt)
+10. **1.6** ReDoS in findTabByUrl + workflow urlMatches
+11. **2.5** validateExtensionMessage default: return true
 
 ### Phase 4 — User-Facing Broken Features
-11. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
-12. **1.4** verifyActionWithVision fail-open
-13. **1.5** Screenshot format consistency
-14. **4.12** visionUpdate screenshot format
-15. **1.12** Empty command not rejected — validateExtensionMessage accepts `command === ''`; agent would run with empty command (wasted LLM call)
-16. **4.3** Tasks "New" button — no handler
-17. **4.5** Vision "Analyze Page" — no handler
-18. **4.2** Stripe checkout return flow
-19. **4.1** Marketplace workflows (implement or label)
-20. **4.11** Scheduler "once" task validation
+12. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
+13. **1.4** verifyActionWithVision fail-open
+14. **1.5** Screenshot format consistency
+15. **4.12** visionUpdate screenshot format
+16. **1.12** Empty command not rejected — validateExtensionMessage accepts `command === ''`; agent would run with empty command (wasted LLM call)
+17. **4.3** Tasks "New" button — no handler
+18. **4.5** Vision "Analyze Page" — no handler
+19. **4.2** Stripe checkout return flow
+20. **4.1** Marketplace workflows (implement or label)
+21. **4.11** Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
-21. **3.1** Duplicate visibilitychange handler
-22. **3.2** Ask modal backdrop — doesn't resolve
-23. **3.4** require-confirm default mismatch
-24. **3.6** Dark mode — no system preference
-25. **3.5** Add /think to help
-26. **3.7** Duplicate font loading
-27. **3.9** Remove dead import getUserSiteConfigs
+22. **3.1** Duplicate visibilitychange handler
+23. **3.2** Ask modal backdrop — doesn't resolve
+24. **3.4** require-confirm default mismatch
+25. **3.6** Dark mode — no system preference
+26. **3.5** Add /think to help
+27. **3.7** Duplicate font loading
+28. **3.9** Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Industry Standard
-28. **5.1** Error reporting (Sentry)
-29. **7.3** Privacy policy
-30. **5.3** Onboarding
-31. **5.4** Offline handling
-32. **5.5** Rate limit feedback in UI
-33. **5.9** Export settings warning
-34. **5.10** Changelog on update
+29. **5.1** Error reporting (Sentry)
+30. **7.3** Privacy policy
+31. **5.3** Onboarding
+32. **5.4** Offline handling
+33. **5.5** Rate limit feedback in UI
+34. **5.9** Export settings warning
+35. **5.10** Changelog on update
 
 ### Phase 7 — Accessibility
-35. **8.1** Chat aria-live
-36. **8.2** Modal focus trap
-37. **8.3** Status aria-live
-38. **8.4** Tab aria-selected
-39. **8.9** visionSnapshot null check
+36. **8.1** Chat aria-live
+37. **8.2** Modal focus trap
+38. **8.3** Status aria-live
+39. **8.4** Tab aria-selected
+40. **8.9** visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
-40. **6.1** Content script overhead
-41. **6.2** getPageContext cost
-42. **6.9** Storage quota monitoring
-43. **10.7** Replace deprecated substr
-44. **10.8** Console.log in production
+41. **6.1** Content script overhead
+42. **6.2** getPageContext cost
+43. **6.9** Storage quota monitoring
+44. **10.7** Replace deprecated substr
+45. **10.8** Console.log in production
 
 ### Phase 9 — Technical Debt
-45. **1.8** Duplicate getMemoryStats handler
-46. **1.7** Dead content-script navigate/goBack
-47. **1.9** buildFallbackPlan stub
-48. **10.1** Reduce any types
-49. **10.3** Storage key sprawl
-50. **10.9** Scheduler scheduled flag
-51. **4.13** TikTok Moderator selectors
+46. **1.8** Duplicate getMemoryStats handler
+47. **1.7** Dead content-script navigate/goBack
+48. **1.9** buildFallbackPlan stub
+49. **10.1** Reduce any types
+50. **10.3** Storage key sprawl
+51. **10.9** Scheduler scheduled flag
+52. **4.13** TikTok Moderator selectors
+
+### Phase 10 — Testing & CI
+53. **14.1** Add GitHub Actions (lint, type-check, test, build)
+54. **14.2** E2E build step in CI
+55. **14.6** Test service worker / background
+
+### Phase 11 — Dependencies
+56. **15.1** npm audit fix (23 vulnerabilities)
+57. **15.2** Verify package-lock committed
+58. **15.3** Dependabot config
+
+### Phase 12 — LLM/API Resilience
+59. **16.1** 429 rate limit handling
+60. **16.2** Use retry-circuit-breaker for LLM
+61. **22.1** User-friendly error messages
+
+### Phase 13 — Legal & Compliance
+62. **19.1** Privacy policy
+63. **19.3** Data handling disclosure
+64. **19.4** Data export/deletion (GDPR)
+
+### Phase 14 — Storage & DOM
+65. **17.1** Storage schema migration
+66. **21.1** Shadow DOM traversal
+
+### Phase 15 — Release & Polish
+67. **20.1** GitHub Actions
+68. **20.4** CHANGELOG.md
+69. **24.2** User-facing docs
 
 ---
 
@@ -494,7 +523,40 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 13.14 author/developer in manifest
 - [ ] 13.15 Content script path verify
 
-### Phase 13 — Low Priority
+### Phase 13 — Testing & CI
+- [ ] 14.1 Add GitHub Actions
+- [ ] 14.2 E2E build step
+- [ ] 14.3 Unit test coverage gaps
+- [ ] 14.6 Service worker test
+
+### Phase 14 — Dependencies
+- [ ] 15.1 npm audit fix
+- [ ] 15.2 package-lock committed
+- [ ] 15.3 Dependabot
+
+### Phase 15 — LLM/API Resilience
+- [ ] 16.1 429 handling
+- [ ] 16.2 retry for LLM
+- [ ] 16.3 Token/cost caps
+- [ ] 22.1 User-friendly errors
+
+### Phase 16 — Legal & Compliance
+- [ ] 19.1 Privacy policy
+- [ ] 19.3 Data disclosure
+- [ ] 19.4 Data export/deletion
+
+### Phase 17 — Storage & DOM
+- [ ] 17.1 Storage migration
+- [ ] 17.2 Corruption recovery
+- [ ] 21.1 Shadow DOM traversal
+- [ ] 21.3 iframe handling
+
+### Phase 18 — Release & Docs
+- [ ] 20.1 GitHub Actions
+- [ ] 20.4 CHANGELOG.md
+- [ ] 24.2 User docs
+
+### Phase 19 — Low Priority
 - [ ] 1.10 Condition.value sanitization
 - [ ] 2.4 InputSanitizer allowedDomains
 - [ ] 2.6 redact patterns
@@ -510,6 +572,22 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 6.5 Cache TTL audit
 - [ ] 6.6 loadHistory lazy
 - [ ] 7.1 Single purpose
+- [ ] 14.4 E2E with real extension
+- [ ] 14.5 Vitest jsdom for DOM tests
+- [ ] 15.4 WXT tar vulnerability
+- [ ] 16.4 Model fallback
+- [ ] 17.3 Uninstall behavior
+- [ ] 18.1 Firefox testing
+- [ ] 18.3 Edge compatibility
+- [ ] 19.2 Terms of service
+- [ ] 20.2 Pre-push hooks
+- [ ] 20.3 Release automation
+- [ ] 21.2 Strict CSP sites
+- [ ] 22.2 Loading skeleton
+- [ ] 22.3 Empty state consistency
+- [ ] 22.4 Error recovery guidance
+- [ ] 23.1 Permission docs
+- [ ] 24.4 API/JSDoc docs
 - [ ] 7.2 Permission justification
 - [ ] 7.4 Screenshots
 - [ ] 7.5 Data usage disclosure
@@ -565,6 +643,125 @@ Items discovered from alternative viewpoints: service worker lifecycle, cross-co
 
 ---
 
+## 14. TESTING & COVERAGE
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 14.1 | **No CI/CD** — No `.github/workflows`. Lint, type-check, tests not run on PR. | Regressions can slip; no gate before merge. | Add GitHub Actions: lint, type-check, test:unit, build. | Medium |
+| 14.2 | **E2E tests require build** — Playwright tests load `file://.output/chrome-mv3/sidepanel.html`. Must run `npm run build` first. No pre-test build in CI. | Tests fail if build stale. | Add build step before Playwright in CI. | Quick |
+| 14.3 | **Unit test coverage gaps** — Only config, billing, intent tested. No tests for: background message handlers, content script performAction, llmClient, security, input-sanitization, workflows, session, snapshot-manager. | Critical paths untested. | Add unit tests for security-sensitive and core logic. | Significant |
+| 14.4 | **E2E tests use mocks** — extension.spec.ts mocks chrome APIs; many assertions are conditional ("expected in test environment"). Real extension behavior not validated. | False confidence. | Add at least one E2E that loads real extension in Chrome. | Medium |
+| 14.5 | **Vitest environment: node** — Unit tests run in Node. Chrome APIs mocked. Some modules (memory-management) use `window`; may behave differently. | Environment mismatch. | Consider jsdom or happy-dom for DOM-dependent tests. | Medium |
+| 14.6 | **No test for service worker** — Background script never tested. window.setInterval crash would not be caught. | Critical path untested. | Add background script load test or unit test with SW mocks. | Medium |
+
+---
+
+## 15. DEPENDENCIES & SUPPLY CHAIN
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 15.1 | **23 npm audit vulnerabilities** — 5 moderate, 18 high. ajv ReDoS, minimatch ReDoS, esbuild dev server, tar path traversal. Most in ESLint/vitest (dev deps). | Dev/build compromise; minimatch could affect production if used. | Run `npm audit fix`; for breaking changes, upgrade incrementally. | Medium |
+| 15.2 | **package-lock.json** — Verify committed. Ensures reproducible installs. | Build consistency. | Ensure lock file in repo; CI uses `npm ci`. | Quick |
+| 15.3 | **No Dependabot/Renovate** — Dependencies not auto-updated. | Drift; security patches missed. | Add Dependabot config for npm. | Quick |
+| 15.4 | **WXT depends on vulnerable tar** — Via giget → tar. Affects `wxt prepare` / install. | Supply chain risk. | Upgrade WXT when fix available; track. | Low |
+
+---
+
+## 16. LLM/API RESILIENCE
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 16.1 | **No 429 (rate limit) handling** — llmClient fetch throws on `!response.ok`. OpenRouter 429 returns 429. No retry with backoff; no Retry-After header parsing. | User hits rate limit; agent fails with generic error. | Check response.status === 429; parse Retry-After; retry with exponential backoff (max 2–3). | Medium |
+| 16.2 | **retry-circuit-breaker not used for LLM** — `retryManager` and `networkRetryPolicy` exist but llmClient does not import or use them. LLM calls have no retry. | Wasted opportunity; transient failures not retried. | Wrap fetch in `retryWithBackoff` or equivalent for 5xx/429. | Medium |
+| 16.3 | **No token/cost caps** — No max tokens per request or per session. Long context can exhaust quota. | Unbounded API cost. | Add configurable maxTokens; consider context truncation. | Medium |
+| 16.4 | **No model fallback** — Single model (gemini-2.0-flash). If model unavailable, agent fails. | Single point of failure. | Document backup model in config; optional fallback on 503. | Low |
+| 16.5 | **API key in fetch headers** — Sent to OpenRouter. Ensure no logging of full key. | Credential leak. | Audit logs; redact already in place. | Quick |
+
+---
+
+## 17. DATA & STORAGE
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 17.1 | **No storage schema migration** — Adding/removing keys or changing structure. No version field or migration logic. | Upgrades can corrupt or lose data. | Add storage version; migration on load. | Significant |
+| 17.2 | **No corruption recovery** — If chrome.storage returns malformed data, code may throw. loadSettings has try/catch; others vary. | Unhandled exceptions. | Wrap all storage reads in try/catch; return defaults on parse error. | Medium |
+| 17.3 | **Uninstall behavior** — Chrome clears extension storage on uninstall. No export-on-uninstall. | User data lost. | Document; consider uninstall survey. | Low |
+
+---
+
+## 18. BROWSER & PLATFORM
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 18.1 | **Firefox build exists, untested** — `build:firefox` in package.json. Manifest differences; Firefox MV2/MV3 support. | May not work on Firefox. | Test Firefox build; fix compatibility. | Medium |
+| 18.2 | **No minimum_chrome_version** — MV3 requires Chrome 88+. Older Chrome may fail. | User confusion. | Add `minimum_chrome_version: "88"` to manifest. | Quick |
+| 18.3 | **Edge compatibility** — Edge supports MV3. Not explicitly tested. | Broader reach. | Test on Edge; document support. | Low |
+
+---
+
+## 19. LEGAL & COMPLIANCE
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 19.1 | **No privacy policy** — Required for Chrome Web Store when handling user data. API key, chat history, usage stored. | Store rejection. | Create and host privacy policy; link in manifest/listing. | Medium |
+| 19.2 | **No terms of service** — If commercial. | Legal protection. | Add ToS if applicable. | Medium |
+| 19.3 | **Data handling disclosure** — What data is stored, where, retention. Not documented. | GDPR/CCPA; user trust. | Document in privacy policy. | Quick |
+| 19.4 | **No data export/deletion** — Users cannot export or delete their data via UI. | GDPR right to data portability/erasure. | Add export all; delete all in settings. | Medium |
+
+---
+
+## 20. RELEASE & CI/CD
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 20.1 | **No GitHub Actions** — No workflow for lint, test, build. | No automation. | Add `.github/workflows/ci.yml`. | Medium |
+| 20.2 | **No pre-push hooks** — CONTRIBUTING says run type-check, test:unit. Not enforced. | Regressions pushed. | Add husky + lint-staged or similar. | Quick |
+| 20.3 | **No release automation** — Version bump, changelog, zip for store. Manual. | Error-prone. | Add release workflow or script. | Low |
+| 20.4 | **Changelog** — No CHANGELOG.md. Version history unclear. | User/developer visibility. | Add CHANGELOG.md; update per release. | Quick |
+
+---
+
+## 21. CONTENT SCRIPT & DOM
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 21.1 | **No Shadow DOM traversal** — `document.querySelectorAll` does not pierce shadow roots. Modern apps (e.g. web components) put interactive elements in shadow DOM. Agent cannot find them. | Fails on many SPAs. | Add shadow DOM traversal: for each element with shadowRoot, query inside. | Significant |
+| 21.2 | **Strict CSP on host pages** — Some sites have CSP that blocks inline scripts. Content script is extension-origin; usually fine. | Edge case. | Document; test on strict CSP sites. | Low |
+| 21.3 | **iframe handling** — Content script runs in top-level frame. Elements in iframes are in different document. Not traversed. | Fails on iframe-heavy pages. | Consider `all_frames: true` or targeted injection. | Medium |
+
+---
+
+## 22. UX & ERROR MESSAGES
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 22.1 | **Generic error messages** — "API request failed: 429" or "LLM call failed" — not user-friendly. | Poor UX. | Map status codes to friendly messages: "Rate limited; try again in a minute." | Quick |
+| 22.2 | **No loading skeleton** — Tabs (memory, tasks, swarm) show "Loading..." or empty. No skeleton. | Perceived slowness. | Add skeleton placeholders. | Low |
+| 22.3 | **Empty states vary** — Some tabs have helpful empty state; others are minimal. | Inconsistent UX. | Standardize empty state pattern. | Quick |
+| 22.4 | **Error recovery guidance** — When agent fails, message is technical. No "Try X" suggestion. | User frustration. | Add actionable suggestions for common failures. | Medium |
+
+---
+
+## 23. PERMISSIONS AUDIT
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 23.1 | **All permissions used** — sidePanel, tabs, activeTab, scripting, storage, unlimitedStorage, contextMenus, alarms, host_permissions. Verified in code. | OK. | Document each in store listing. | Quick |
+| 23.2 | **Optional permissions** — Could request `scripting` or `activeTab` optionally for sensitive sites. | Reduces initial permission ask. | Consider optional permission flow. | Strategic |
+
+---
+
+## 24. DOCUMENTATION
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 24.1 | **CONTRIBUTING.md exists** — Good. Setup, dev, branching, before submit. | OK. | — | — |
+| 24.2 | **No user-facing docs** — No setup guide, FAQ, troubleshooting for end users. | Support burden. | Add docs site or README user section. | Medium |
+| 24.3 | **DEVELOPER.md handoff** — Exists. Key files, pitfalls. | OK. | — | — |
+| 24.4 | **API docs** — No JSDoc or generated docs for shared modules. | Onboarding. | Add JSDoc to public APIs; consider TypeDoc. | Low |
+
+---
+
 ## Appendix: Files Audited
 
 | Area | Files |
@@ -572,9 +769,11 @@ Items discovered from alternative viewpoints: service worker lifecycle, cross-co
 | Entry points | background.ts, content.ts, sidepanel/main.ts, options/main.ts |
 | Shared | types.ts, config.ts, llmClient.ts, security.ts, input-sanitization.ts, safe-regex.ts, workflows.ts, snapshot-manager.ts, session.ts, billing.ts, voice-interface.ts, url-utils.ts, error-boundary.ts, stealth-engine.ts, metrics.ts, macros.ts, siteConfig.ts, contextManager.ts, memory.ts, memory-management.ts, persistent-autonomous.ts, scheduler-engine.ts, intelligent-clarification.ts, advanced-caching.ts, neuroplasticity-engine.ts, tiktok-moderator.ts, retry-circuit-breaker.ts, autonomous-intelligence.ts, tool-system.ts, swarm-intelligence.ts, global-learning.ts, failure-recovery.ts, reasoning-engine.ts |
 | Config | wxt.config.ts, package.json |
-| Docs | AGENTS.md, DEVELOPER.md, ARCHITECTURE.md, AUDIT.md |
+| Docs | AGENTS.md, DEVELOPER.md, ARCHITECTURE.md, AUDIT.md, CONTRIBUTING.md |
 | UI | sidepanel/index.html, sidepanel/style.css, options/index.html |
+| Tests | extension.spec.ts, extension-basic.spec.ts, extension-mock.spec.ts, unit/config.test.ts, unit/billing.test.ts, unit/intent.test.ts |
+| CI/Build | playwright.config.ts, vitest.config.ts (no .github/workflows) |
 
 ---
 
-*End of audit. Total items: 120+ across 13 categories. Fix order ensures blocking issues (including service worker compatibility) are resolved first.*
+*End of audit. Total items: 170+ across 24 categories. Fix order ensures blocking issues (including service worker compatibility) are resolved first. Research areas: Testing, Dependencies, LLM/API, Data, Browser, Legal, CI/CD, DOM, UX, Permissions, Documentation.*
