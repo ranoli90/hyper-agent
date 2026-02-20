@@ -7,7 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-MV3-orange.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
 
-**Current Version:** 3.2.0 | **Last Updated:** 2026-02-20
+**Current Version:** 3.0.0 | **Last Updated:** 2026-02-20
 
 ---
 
@@ -25,8 +25,14 @@ npm run dev
 # Production build
 npm run build
 
-# Run tests
+# Run integration tests (Playwright)
 npm test
+
+# Run unit tests (Vitest)
+npm run test:unit
+
+# Run all tests
+npm run test:all
 ```
 
 ### Configure
