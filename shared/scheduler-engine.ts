@@ -185,7 +185,7 @@ class SchedulerEngineImpl {
   schedule(task: Omit<ScheduledTask, 'id' | 'createdAt' | 'nextRun'>): ScheduledTask {
     const newTask: ScheduledTask = {
       ...task,
-      id: `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       createdAt: Date.now(),
       nextRun: undefined,
     };

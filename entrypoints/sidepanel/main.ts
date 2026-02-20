@@ -511,10 +511,11 @@ async function saveHistoryImmediate() {
 }
 const saveHistory = debounce(saveHistoryImmediate, 500);
 
-// Flush pending save on close/hide to prevent data loss
-document.addEventListener('visibilitychange', () => {
+// Flush pending save on close/hide to prevent data loss (single handler)
+const flushHistoryOnHide = () => {
   if (document.visibilityState === 'hidden') saveHistoryImmediate();
-});
+};
+document.addEventListener('visibilitychange', flushHistoryOnHide);
 window.addEventListener('beforeunload', () => saveHistoryImmediate());
 
 async function loadHistory() {
@@ -534,14 +535,7 @@ async function loadHistory() {
   }
 }
 
-// Save on close to prevent data loss from debounce
-window.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    try {
-      chrome.storage.local.set({ chat_history_backup: components.chatHistory.innerHTML });
-    } catch {}
-  }
-});
+// (visibilitychange handled above via flushHistoryOnHide)
 
 // ─── Command History ──────────────────────────────────────────────
 async function loadCommandHistory() {

@@ -1,6 +1,6 @@
 import { loadSettings, saveSettings, DEFAULTS } from '../../shared/config';
 import type { Settings } from '../../shared/config';
-import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig, getUserSiteConfigs } from '../../shared/siteConfig';
+import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
 
 // ─── DOM references ─────────────────────────────────────────────

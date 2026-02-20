@@ -465,13 +465,13 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 4.11 Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
-- [ ] 3.1 Duplicate visibilitychange handler
+- [x] 3.1 Duplicate visibilitychange handler
 - [ ] 3.2 Ask modal backdrop resolve
 - [ ] 3.4 require-confirm default
 - [ ] 3.6 Dark mode system preference
 - [ ] 3.5 Add /think to help
 - [ ] 3.7 Duplicate font loading
-- [ ] 3.9 Remove dead import getUserSiteConfigs
+- [x] 3.9 Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Features
 - [ ] 5.1 Error reporting
@@ -494,7 +494,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 6.1 Content script overhead
 - [ ] 6.2 getPageContext cost
 - [ ] 6.9 Storage quota monitoring
-- [ ] 10.7 Replace substr
+- [x] 10.7 Replace substr
 - [ ] 10.8 Console.log in production
 
 ### Phase 9 — Technical Debt

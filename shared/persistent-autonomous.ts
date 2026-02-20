@@ -602,7 +602,7 @@ export class PersistentAutonomousEngine {
   // Public API methods
   createSession(userId: string): AutonomousSession {
     const session: AutonomousSession = {
-      id: `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       userId,
       startTime: Date.now(),
       lastActivity: Date.now(),

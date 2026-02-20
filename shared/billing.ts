@@ -287,7 +287,7 @@ export class BillingManager {
   async openCheckout(tier: 'premium' | 'unlimited', interval: BillingInterval = 'month'): Promise<void> {
     const url = this.getUpgradeUrl(tier, interval);
 
-    const clientReferenceId = `hyperagent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const clientReferenceId = `hyperagent_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
     await chrome.storage.local.set({
       stripe_pending_checkout: {
