@@ -894,11 +894,12 @@ export default defineContentScript({
             return { success: true };
           }
 
+          // navigate/goBack are handled by background executeAction; content never receives them.
+          // Kept for potential direct performAction flows (e.g. future workflow injection).
           case 'navigate': {
             window.location.href = action.url;
             return { success: true };
           }
-
           case 'goBack': {
             window.history.back();
             return { success: true };

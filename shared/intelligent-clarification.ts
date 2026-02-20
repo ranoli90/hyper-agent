@@ -69,10 +69,22 @@ export class IntelligentClarificationEngine {
     averageClarificationRounds: 0,
     commonMissingFields: new Map(),
   };
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
+  private operationLoopIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
-    // Clean up expired sessions every 5 minutes
-    setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000);
+    this.cleanupIntervalId = setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000);
+  }
+
+  destroy(): void {
+    if (this.cleanupIntervalId !== null) {
+      clearInterval(this.cleanupIntervalId);
+      this.cleanupIntervalId = null;
+    }
+    if (this.operationLoopIntervalId !== null) {
+      clearInterval(this.operationLoopIntervalId);
+      this.operationLoopIntervalId = null;
+    }
   }
 
   async clarifyAndExecute(
@@ -783,17 +795,25 @@ export class PersistentOperationEngine {
   private activeSessions: Map<string, SessionState> = new Map();
   private suggestionQueue: Suggestion[] = [];
   private backgroundTasks: BackgroundTask[] = [];
+  private operationLoopIntervalId: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     this.startPersistentOperationLoop();
   }
 
   private startPersistentOperationLoop(): void {
-    setInterval(() => {
+    this.operationLoopIntervalId = setInterval(() => {
       this.processAllSessions();
       this.generateGlobalSuggestions();
       this.processBackgroundTasks();
     }, 30000);
+  }
+
+  destroy(): void {
+    if (this.operationLoopIntervalId !== null) {
+      clearInterval(this.operationLoopIntervalId);
+      this.operationLoopIntervalId = null;
+    }
   }
 
   private processAllSessions(): void {

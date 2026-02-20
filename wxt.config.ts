@@ -4,6 +4,7 @@ export default defineConfig({
   manifest: {
     name: 'HyperAgent',
     minimum_chrome_version: '88',
+    author: 'HyperAgent',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
     version: '3.0.0',
     permissions: [

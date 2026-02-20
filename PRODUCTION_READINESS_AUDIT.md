@@ -499,7 +499,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 9 — Technical Debt
 - [x] 1.8 Duplicate getMemoryStats
-- [ ] 1.7 Dead content-script navigate/goBack
+- [x] 1.7 Dead content-script navigate/goBack
 - [ ] 1.9 buildFallbackPlan stub
 - [ ] 10.1 Reduce any types
 - [ ] 10.3 Storage key sprawl
@@ -509,8 +509,8 @@ Fix in this exact order to minimize rework and address blocking issues first:
 ### Phase 10 — Service Worker / Context Fixes
 - [x] 6.11 memory-management performance.memory guard
 - [x] 6.12 memory-management document guard
-- [ ] 13.1 intelligent-clarification interval cleanup
-- [ ] 13.2 persistent-autonomous window check
+- [x] 13.1 intelligent-clarification interval cleanup
+- [x] 13.2 persistent-autonomous window check
 - [x] 13.9 Remove withGracefulDegradation import
 
 ### Phase 11 — Edge Cases
@@ -521,7 +521,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 12 — Manifest & Build
 - [x] 13.13 minimum_chrome_version
-- [ ] 13.14 author/developer in manifest
+- [x] 13.14 author/developer in manifest
 - [ ] 13.15 Content script path verify
 
 ### Phase 13 — Testing & CI
