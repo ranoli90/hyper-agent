@@ -883,12 +883,6 @@ export default defineBackground(() => {
       // Initialize security settings
       await withErrorBoundary('security_initialization', async () => {
         await initializeSecuritySettings();
-        // Initialize Long-Term Memory
-        const { memoryManager } = await import('../shared/memory-system');
-        await memoryManager.initialize();
-        // Initialize Scheduler
-        const { schedulerEngine } = await import('../shared/scheduler-engine');
-        await schedulerEngine.initialize();
       });
     });
   });
