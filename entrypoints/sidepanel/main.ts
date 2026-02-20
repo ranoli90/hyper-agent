@@ -130,7 +130,9 @@ function updateCharCounter(value: string) {
 function switchTab(tabId: string) {
   state.activeTab = tabId;
   components.tabs.forEach(btn => {
-    btn.classList.toggle('active', (btn as HTMLElement).dataset.tab === tabId);
+    const isSelected = (btn as HTMLElement).dataset.tab === tabId;
+    btn.classList.toggle('active', isSelected);
+    btn.setAttribute('aria-selected', String(isSelected));
   });
   components.panes.forEach(pane => {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
@@ -281,6 +283,7 @@ const SLASH_COMMANDS = {
 - \`Arrow Up\`: Previous command in history
 - \`Arrow Down\`: Next command in history
 - \`Escape\`: Close modals/suggestions
+- \`Ctrl/Cmd+K\`: Focus command input
 - \`Ctrl/Cmd+L\`: Clear chat
 - \`Ctrl/Cmd+S\`: Open settings
     `,
@@ -413,7 +416,8 @@ function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
 }
 
 function scrollToBottom() {
@@ -1246,6 +1250,12 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     chrome.runtime.openOptionsPage();
   }
+  // Ctrl/Cmd + K: Focus command input
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    switchTab('chat');
+    components.commandInput.focus();
+  }
   // Escape: Close modals and suggestions
   if (e.key === 'Escape') {
     components.confirmModal.classList.add('hidden');
@@ -1576,7 +1586,13 @@ async function toggleDarkMode() {
 
 async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
-  if (data.dark_mode) {
+  const useDark =
+    data.dark_mode === true
+      ? true
+      : data.dark_mode === false
+        ? false
+        : typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
+  if (useDark) {
     document.body.classList.add('dark-mode');
     const btn = document.getElementById('btn-dark-mode');
     if (btn) btn.textContent = '☀️';

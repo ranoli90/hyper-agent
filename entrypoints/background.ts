@@ -61,12 +61,7 @@ import {
   MsgGetUsage,
   MsgGetUsageResponse,
 } from '../shared/types';
-import {
-  withErrorBoundary,
-  withGracefulDegradation,
-  errorBoundary,
-  gracefulDegradation,
-} from '../shared/error-boundary';
+import { withErrorBoundary } from '../shared/error-boundary';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
@@ -760,9 +755,11 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
 
   switch (type) {
     case 'executeCommand':
+      const cmd = (message as any).command;
       return (
-        typeof (message as any).command === 'string' &&
-        (message as any).command.trim().length > 0 &&
+        typeof cmd === 'string' &&
+        cmd.trim().length > 0 &&
+        cmd.length <= 10000 &&
         ((message as any).useAutonomous === undefined ||
           typeof (message as any).useAutonomous === 'boolean')
       );
@@ -1527,11 +1524,6 @@ export default defineBackground(() => {
           return { ok: true, invalidated: count };
         }
         return { ok: false, error: 'No tag provided' };
-      }
-
-      case 'getMemoryStats': {
-        const stats = memoryManager.getMemoryStats();
-        return { ok: true, stats };
       }
 
       case 'getMemoryLeaks': {

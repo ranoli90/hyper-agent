@@ -5,25 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>HyperAgent</title>
     <link rel="stylesheet" href="./style.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
     <div id="app">
       <!-- Header -->
       <header id="header">
         <div id="tabs-nav">
-          <button class="tab-btn active" data-tab="chat">Chat</button>
-          <button class="tab-btn" data-tab="swarm">Swarm</button>
-          <button class="tab-btn" data-tab="vision">Vision</button>
-          <button class="tab-btn" data-tab="tasks">Tasks</button>
-          <button class="tab-btn" data-tab="memory">Memory</button>
-          <button class="tab-btn" data-tab="marketplace">Marketplace</button>
-          <button class="tab-btn" data-tab="subscription">Subscription</button>
+          <button class="tab-btn active" data-tab="chat" aria-selected="true">Chat</button>
+          <button class="tab-btn" data-tab="swarm" aria-selected="false">Swarm</button>
+          <button class="tab-btn" data-tab="vision" aria-selected="false">Vision</button>
+          <button class="tab-btn" data-tab="tasks" aria-selected="false">Tasks</button>
+          <button class="tab-btn" data-tab="memory" aria-selected="false">Memory</button>
+          <button class="tab-btn" data-tab="marketplace" aria-selected="false">Marketplace</button>
+          <button class="tab-btn" data-tab="subscription" aria-selected="false">Subscription</button>
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
           <button id="btn-dark-mode" title="Toggle dark mode" aria-label="Toggle dark mode" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:4px;">🌙</button>
@@ -35,7 +29,7 @@
       <main id="main-content">
         <!-- Chat Tab -->
         <section id="tab-chat" class="tab-pane active">
-          <div id="chat-history"></div>
+          <div id="chat-history" aria-live="polite" aria-label="Chat messages"></div>
         </section>
 
         <!-- Swarm Tab -->
@@ -315,7 +309,7 @@
           <div class="step-line"></div>
           <div class="step" data-step="verify">Ver</div>
         </div>
-        <span id="status-text">Ready</span>
+        <span id="status-text" aria-live="polite">Ready</span>
       </div>
 
       <!-- Input Area -->
