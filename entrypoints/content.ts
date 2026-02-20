@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HyperAgent content script.
+ * Injected into web pages. Handles DOM extraction, element resolution, and action execution.
+ */
+
 import { DEFAULTS } from '../shared/config';
 import { saveActionOutcome } from '../shared/memory';
 import { getSiteConfig } from '../shared/siteConfig';

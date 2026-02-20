@@ -1,6 +1,6 @@
 /**
- * Safe regex utilities to prevent ReDoS (Regular Expression Denial of Service).
- * User-controlled regex patterns can cause catastrophic backtracking.
+ * @fileoverview Safe regex utilities.
+ * Prevents ReDoS from user-controlled workflow conditions.
  */
 
 const MAX_PATTERN_LENGTH = 256;

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Performance metrics.
+ * Tracks action counts, success rates, and domain-level stats.
+ */
+
 import { extractDomain } from './url-utils';
 
 // ─── Performance Metrics Types ───────────────────────────────────────────

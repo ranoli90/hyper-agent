@@ -1,5 +1,6 @@
 /**
- * Shared URL utilities - single source of truth to avoid duplication.
+ * @fileoverview Shared URL utilities.
+ * Single source of truth for extractDomain and related helpers.
  */
 
 /**

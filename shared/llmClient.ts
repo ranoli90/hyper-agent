@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HyperAgent LLM client.
+ * OpenRouter API integration, response parsing, caching, and fallback logic.
+ */
+
 import type {
   LLMResponse,
   PageContext,

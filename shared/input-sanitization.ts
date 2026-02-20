@@ -1,6 +1,7 @@
-// ─── Comprehensive Input Sanitization & XSS Protection System ──────────
-// Enterprise-grade security system for Chrome extensions handling user input,
-// web scraping, and dynamic content rendering
+/**
+ * @fileoverview Input sanitization and XSS protection.
+ * Sanitizes user input, URLs, and HTML for safe rendering.
+ */
 
 export interface SanitizationOptions {
   allowHtml?: boolean;

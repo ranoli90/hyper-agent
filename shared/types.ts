@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HyperAgent type definitions.
+ * Central type registry for actions, messages, page context, and extension APIs.
+ */
+
 // ─── Context Window Types ─────────────────────────────────────────────
 export interface ContextItem {
   type: 'action' | 'result' | 'error' | 'thought' | 'system';

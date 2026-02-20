@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Task state persistence.
+ * Saves agent snapshots for resume after browser restart or crash.
+ */
+
 import { Action, ActionResult } from './types';
 
 export interface AgentSnapshot {

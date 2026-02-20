@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Site strategy learning.
+ * Persists successful/failed locators per domain for adaptive element resolution.
+ */
+
 import { STORAGE_KEYS } from './config';
 import type { SiteStrategy, ActionLogEntry, Locator, Action } from './types';
 import { extractDomain } from './url-utils';

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HyperAgent configuration.
+ * Storage keys, defaults, validation, and settings load/save.
+ */
+
 // ─── Storage keys ───────────────────────────────────────────────────
 export const STORAGE_KEYS = {
   API_KEY: 'hyperagent_api_key',

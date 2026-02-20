@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Session management.
+ * Tracks active sessions, action history, and results. Uses mutex for concurrent safety.
+ */
+
 import { STORAGE_KEYS } from './config';
 import type { Session, ContextSnapshot, Action, ActionResult, CommandIntent } from './types';
 

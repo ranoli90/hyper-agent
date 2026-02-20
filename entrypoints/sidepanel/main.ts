@@ -1,3 +1,8 @@
+/**
+ * @fileoverview HyperAgent side panel UI.
+ * Chat, commands, tabs (Swarm, Vision, Tasks, Memory, Marketplace, Subscription).
+ */
+
 import type {
   ExtensionMessage,
   Action,

@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Workflow execution.
+ * Load, validate, and run workflows with conditions. Uses safe-regex for urlMatches.
+ */
+
 import type { Workflow, WorkflowStep, Condition, PageContext } from './types';
 import { isSafeRegex } from './safe-regex';
 
