@@ -30,18 +30,23 @@ export interface EmotionalPattern {
 }
 
 export interface CognitiveStyle {
-  learningPreference: 'visual' | 'verbal' | 'kinesthetic';
-  decisionSpeed: number;
-  riskTolerance: number;
-  attentionSpan: number;
-  abstractionLevel: number;
+  visualLearner: number;
+  auditoryLearner: number;
+  kinestheticLearner: number;
+  analytical: number;
+  holistic: number;
+  sequential: number;
+  random: number;
 }
 
 export interface EmotionalEvent {
   timestamp: number;
-  trigger: string;
-  response: MoodState;
-  intensity: number;
+  trigger?: string;
+  response?: MoodState;
+  intensity?: number;
+  valence?: number;
+  arousal?: number;
+  context?: string;
 }
 
 export interface StressIndicator {
@@ -1100,9 +1105,10 @@ export class NeuroplasticityEngine {
       } else {
         this.cognitiveMap.behavioralPatterns.set(pattern.type, {
           id: `pattern_${Date.now()}`,
-          ...pattern,
+          type: (pattern.type as PatternType) || PatternType.BEHAVIORAL,
           frequency: 1,
           lastOccurrence: Date.now(),
+          confidence: pattern.confidence || 0.5,
           predictivePower: pattern.confidence || 0.5,
           contextualFactors: [],
         });
@@ -1194,7 +1200,7 @@ export class NeuroplasticityEngine {
     // Predict user satisfaction based on emotional and success patterns
     const recentEmotions = this.cognitiveMap.emotionalLandscape.emotionalHistory
       .slice(-5)
-      .map(e => e.valence);
+      .map(e => e.valence ?? 0);
 
     const avgEmotionalValence = recentEmotions.length > 0
       ? recentEmotions.reduce((a, b) => a + b, 0) / recentEmotions.length

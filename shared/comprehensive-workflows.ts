@@ -3,7 +3,6 @@
 // real estate listings, and other valuable services that users will pay for.
 
 import { TaskType } from './intelligent-clarification';
-import { type CarListingInfo } from './platform-integrations';
 
 export interface WorkflowMetrics {
   totalWorkflows: number;
@@ -141,7 +140,8 @@ export class ComprehensiveWorkflowExecutor {
   private validateCarListingInfo(carInfo: CarListingInfo): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
 
-    if (!carInfo.year || carInfo.year < 1900 || carInfo.year > new Date().getFullYear() + 1) {
+    const yearNum = parseInt(String(carInfo.year), 10);
+    if (!carInfo.year || isNaN(yearNum) || yearNum < 1900 || yearNum > new Date().getFullYear() + 1) {
       errors.push('Invalid year');
     }
     if (!carInfo.make || carInfo.make.trim().length === 0) {
@@ -156,7 +156,7 @@ export class ComprehensiveWorkflowExecutor {
     if (!carInfo.location || carInfo.location.trim().length === 0) {
       errors.push('Location is required');
     }
-    if (!carInfo.contactPhone && !carInfo.contactEmail) {
+    if (!carInfo.contactInfo || (!carInfo.contactInfo.phone && !carInfo.contactInfo.email)) {
       errors.push('Contact information is required');
     }
 
