@@ -25,7 +25,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md).
 | `shared/llmClient.ts` | LLM API, caching |
 | `shared/config.ts` | Settings, defaults |
 
-## Common Pitfalls
+## Security & Storage
+
+**API key storage** — API keys are stored in `chrome.storage.local` (extension storage), unencrypted. Only the extension can access them. Do not share exported settings files.
 
 **localStorage in service worker** — Use `chrome.storage.local` instead.
 

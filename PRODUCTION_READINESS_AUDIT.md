@@ -448,7 +448,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 3 — Security
 - [x] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
-- [ ] 2.1 API key storage (document or encrypt)
+- [x] 2.1 API key storage (document or encrypt)
 - [x] 1.6 ReDoS in findTabByUrl + workflow urlMatches
 - [x] 2.5 validateExtensionMessage — reject unknown types
 
@@ -480,7 +480,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 5.4 Offline handling
 - [ ] 5.5 Rate limit feedback
 - [x] 5.6 Keyboard shortcut focus input
-- [ ] 5.9 Export settings warning
+- [x] 5.9 Export settings warning
 - [ ] 5.10 Changelog on update
 
 ### Phase 7 — Accessibility

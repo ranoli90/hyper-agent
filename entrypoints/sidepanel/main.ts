@@ -1637,6 +1637,10 @@ function setLoadingText(text: string) {
 
 // ─── Export/Import Settings ─────────────────────────────────────────
 async function exportSettings() {
+  const warned = confirm(
+    'Export includes chat history and preferences. Do not share this file if it contains sensitive data. Continue?'
+  );
+  if (!warned) return;
   try {
     const data = await chrome.storage.local.get(null);
     const exportData = {
