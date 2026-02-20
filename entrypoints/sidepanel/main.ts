@@ -532,15 +532,94 @@ function navigateHistory(direction: 'up' | 'down'): string | null {
   return state.commandHistory[state.historyIndex] || null;
 }
 
+let selectedBillingInterval: 'month' | 'year' = 'month';
+
 function updateUsageDisplay() {
   chrome.runtime.sendMessage({ type: 'getUsage' }, response => {
-    if (response?.usage) {
-      const { actions, sessions, sessionTime } = response.usage;
-      const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
+    if (!response?.usage) return;
+    const { actions, sessions } = response.usage;
+    const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
 
-      components.usageActions.textContent = `${actions} / ${limitActions === -1 ? '∞' : limitActions}`;
-      components.usageSessions.textContent = `${sessions} / ${limitSessions === -1 ? '∞' : limitSessions}`;
-      components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+    // Update text
+    const actionsLabel = limitActions === -1 ? `${actions} / ∞` : `${actions} / ${limitActions}`;
+    const sessionsLabel = limitSessions === -1 ? `${sessions} / ∞` : `${sessions} / ${limitSessions}`;
+    components.usageActions.textContent = actionsLabel;
+    components.usageSessions.textContent = sessionsLabel;
+    components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+
+    // Update progress bars
+    const actionsProgress = document.getElementById('actions-progress');
+    const sessionsProgress = document.getElementById('sessions-progress');
+    if (actionsProgress) {
+      const pct = limitActions === -1 ? 0 : Math.min(100, (actions / limitActions) * 100);
+      actionsProgress.style.width = `${pct}%`;
+      actionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
+    }
+    if (sessionsProgress) {
+      const pct = limitSessions === -1 ? 0 : Math.min(100, (sessions / limitSessions) * 100);
+      sessionsProgress.style.width = `${pct}%`;
+      sessionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
+    }
+
+    // Update banner
+    const banner = document.getElementById('current-plan-banner');
+    const bannerTier = document.getElementById('banner-tier');
+    const bannerBadge = document.getElementById('banner-badge');
+    if (banner) {
+      banner.className = `plan-banner ${tier}`;
+    }
+    if (bannerTier) {
+      bannerTier.textContent = `${tier.charAt(0).toUpperCase() + tier.slice(1)} Plan`;
+    }
+    if (bannerBadge) {
+      bannerBadge.textContent = 'Active';
+    }
+
+    // Update plan card buttons based on current tier
+    const freePlanBtn = document.getElementById('btn-plan-free') as HTMLButtonElement;
+    const premiumBtn = document.getElementById('btn-upgrade-premium') as HTMLButtonElement;
+    const unlimitedBtn = document.getElementById('btn-upgrade-unlimited') as HTMLButtonElement;
+    const cancelBtn = document.getElementById('btn-cancel-subscription');
+
+    if (freePlanBtn) {
+      if (tier === 'free') {
+        freePlanBtn.textContent = 'Current Plan';
+        freePlanBtn.className = 'plan-btn current';
+        freePlanBtn.disabled = true;
+      } else {
+        freePlanBtn.textContent = 'Downgrade';
+        freePlanBtn.className = 'plan-btn manage';
+        freePlanBtn.disabled = false;
+      }
+    }
+    if (premiumBtn) {
+      if (tier === 'premium') {
+        premiumBtn.textContent = 'Current Plan';
+        premiumBtn.className = 'plan-btn current';
+        premiumBtn.disabled = true;
+      } else if (tier === 'unlimited') {
+        premiumBtn.textContent = 'Downgrade';
+        premiumBtn.className = 'plan-btn manage';
+        premiumBtn.disabled = false;
+      } else {
+        premiumBtn.textContent = 'Upgrade to Premium';
+        premiumBtn.className = 'plan-btn upgrade';
+        premiumBtn.disabled = false;
+      }
+    }
+    if (unlimitedBtn) {
+      if (tier === 'unlimited') {
+        unlimitedBtn.textContent = 'Current Plan';
+        unlimitedBtn.className = 'plan-btn current';
+        unlimitedBtn.disabled = true;
+      } else {
+        unlimitedBtn.textContent = 'Upgrade to Unlimited';
+        unlimitedBtn.className = 'plan-btn upgrade';
+        unlimitedBtn.disabled = false;
+      }
+    }
+    if (cancelBtn) {
+      cancelBtn.classList.toggle('hidden', tier === 'free');
     }
   });
 }
@@ -1106,14 +1185,90 @@ let voiceInterface = new VoiceInterface({
 });
 
 components.btnUpgradePremium.addEventListener('click', async () => {
-  await billingManager.openCheckout('premium');
-  addMessage('Redirecting to Stripe checkout for Premium plan...', 'status');
+  await billingManager.openCheckout('premium', selectedBillingInterval);
+  addMessage(`Redirecting to Stripe checkout for Premium (${selectedBillingInterval}ly)...`, 'status');
+  showToast('Opening Stripe checkout...', 'info');
 });
 
 components.btnUpgradeUnlimited.addEventListener('click', async () => {
-  await billingManager.openCheckout('unlimited');
-  addMessage('Redirecting to Stripe checkout for Unlimited plan...', 'status');
+  await billingManager.openCheckout('unlimited', selectedBillingInterval);
+  addMessage(`Redirecting to Stripe checkout for Unlimited (${selectedBillingInterval}ly)...`, 'status');
+  showToast('Opening Stripe checkout...', 'info');
 });
+
+// Billing interval toggle
+document.querySelectorAll('.interval-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedBillingInterval = (btn as HTMLElement).dataset.interval as 'month' | 'year';
+    updatePricingDisplay();
+  });
+});
+
+function updatePricingDisplay() {
+  const premiumPrice = document.getElementById('premium-price');
+  const premiumPeriod = document.getElementById('premium-period');
+  const unlimitedPrice = document.getElementById('unlimited-price');
+  const unlimitedPeriod = document.getElementById('unlimited-period');
+
+  if (selectedBillingInterval === 'year') {
+    if (premiumPrice) premiumPrice.textContent = '$190';
+    if (premiumPeriod) premiumPeriod.textContent = '/year';
+    if (unlimitedPrice) unlimitedPrice.textContent = '$490';
+    if (unlimitedPeriod) unlimitedPeriod.textContent = '/year';
+  } else {
+    if (premiumPrice) premiumPrice.textContent = '$19';
+    if (premiumPeriod) premiumPeriod.textContent = '/month';
+    if (unlimitedPrice) unlimitedPrice.textContent = '$49';
+    if (unlimitedPeriod) unlimitedPeriod.textContent = '/month';
+  }
+}
+
+// License key activation
+const licenseInput = document.getElementById('license-key-input') as HTMLInputElement;
+const licenseBtn = document.getElementById('btn-activate-license');
+const licenseStatus = document.getElementById('license-status');
+
+if (licenseBtn && licenseInput) {
+  licenseBtn.addEventListener('click', async () => {
+    const key = licenseInput.value.trim();
+    if (!key) {
+      if (licenseStatus) {
+        licenseStatus.textContent = 'Please enter a license key';
+        licenseStatus.className = 'license-status error';
+        licenseStatus.classList.remove('hidden');
+      }
+      return;
+    }
+
+    const result = await billingManager.activateWithLicenseKey(key);
+    if (licenseStatus) {
+      if (result.success) {
+        licenseStatus.textContent = 'License activated successfully! Refreshing...';
+        licenseStatus.className = 'license-status success';
+        showToast('License activated!', 'success');
+        setTimeout(() => updateUsageDisplay(), 500);
+      } else {
+        licenseStatus.textContent = result.error || 'Activation failed';
+        licenseStatus.className = 'license-status error';
+      }
+      licenseStatus.classList.remove('hidden');
+    }
+  });
+}
+
+// Cancel subscription
+const cancelSubBtn = document.getElementById('btn-cancel-subscription');
+if (cancelSubBtn) {
+  cancelSubBtn.addEventListener('click', async () => {
+    if (confirm('Are you sure you want to cancel? You will keep access until the end of your billing period.')) {
+      await billingManager.cancelSubscription();
+      showToast('Subscription will be canceled at end of period', 'info');
+      updateUsageDisplay();
+    }
+  });
+}
 
 // Init
 addMessage('**HyperAgent Dashboard Initialized.** Ready for commands.', 'agent');
@@ -1124,13 +1279,16 @@ updateSubscriptionBadge();
 // ─── Subscription Badge ───────────────────────────────────────────
 async function updateSubscriptionBadge() {
   try {
+    await billingManager.initialize();
     const status = billingManager.getState();
-    if (status.tier !== 'free') {
-      components.subscriptionBadge.textContent =
-        status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
-      components.subscriptionBadge.classList.remove('hidden');
-    } else {
-      components.subscriptionBadge.classList.add('hidden');
+    const badge = components.subscriptionBadge;
+    if (!badge) return;
+
+    badge.textContent = status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
+    badge.className = `subscription-badge ${status.tier}`;
+
+    if (status.tier === 'free') {
+      badge.classList.add('free');
     }
   } catch (err) {
     console.warn('[HyperAgent] Failed to update subscription badge:', err);

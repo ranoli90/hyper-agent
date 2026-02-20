@@ -1,6 +1,7 @@
 import { STORAGE_KEYS } from './config';
 
 export type SubscriptionTier = 'free' | 'premium' | 'unlimited';
+export type BillingInterval = 'month' | 'year';
 
 export interface SubscriptionState {
   tier: SubscriptionTier;
@@ -10,17 +11,23 @@ export interface SubscriptionState {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   status: 'active' | 'canceled' | 'past_due' | 'incomplete' | 'trialing';
+  licenseKey?: string;
+  lastVerified?: number;
 }
 
 export interface PricingPlan {
   id: string;
   name: string;
   tier: SubscriptionTier;
-  price: number;
-  interval: 'month' | 'year';
+  priceMonthly: number;
+  priceYearly: number;
   features: string[];
-  stripePriceId?: string;
-  stripePaymentLink?: string;
+  limits: { actions: number; sessions: number };
+  stripePriceIdMonthly?: string;
+  stripePriceIdYearly?: string;
+  stripePaymentLinkMonthly?: string;
+  stripePaymentLinkYearly?: string;
+  popular?: boolean;
 }
 
 export const PRICING_PLANS: PricingPlan[] = [
@@ -28,61 +35,76 @@ export const PRICING_PLANS: PricingPlan[] = [
     id: 'free',
     name: 'Free',
     tier: 'free',
-    price: 0,
-    interval: 'month',
+    priceMonthly: 0,
+    priceYearly: 0,
     features: [
       '100 actions per month',
       '3 autonomous sessions',
       'Basic automation',
       'Community support',
     ],
+    limits: { actions: 100, sessions: 3 },
   },
   {
     id: 'premium',
     name: 'Premium',
     tier: 'premium',
-    price: 19,
-    interval: 'month',
+    priceMonthly: 19,
+    priceYearly: 190,
     features: [
       '1,000 actions per month',
       '50 autonomous sessions',
-      'Advanced workflows',
+      'Advanced workflows & macros',
       'Priority support',
-      'Custom macros',
+      'Vision mode',
+      'Swarm intelligence',
     ],
-    stripePriceId: 'price_premium_monthly',
-    stripePaymentLink: 'https://buy.stripe.com/14kdT25p9gDq5Ww5kl',
+    limits: { actions: 1000, sessions: 50 },
+    stripePriceIdMonthly: 'price_premium_monthly',
+    stripePriceIdYearly: 'price_premium_yearly',
+    stripePaymentLinkMonthly: 'https://buy.stripe.com/14kdT25p9gDq5Ww5kl',
+    stripePaymentLinkYearly: 'https://buy.stripe.com/14kdT25p9gDq5Ww5km',
+    popular: true,
   },
   {
     id: 'unlimited',
     name: 'Unlimited',
     tier: 'unlimited',
-    price: 49,
-    interval: 'month',
+    priceMonthly: 49,
+    priceYearly: 490,
     features: [
       'Unlimited actions',
       'Unlimited autonomous sessions',
-      'All advanced features',
-      'Priority support',
+      'All premium features',
       'API access',
       'Team collaboration',
+      'Custom workflows',
+      'Dedicated support',
     ],
-    stripePriceId: 'price_unlimited_monthly',
-    stripePaymentLink: 'https://buy.stripe.com/6oE8xB5p9fCK7KM9AC',
+    limits: { actions: -1, sessions: -1 },
+    stripePriceIdMonthly: 'price_unlimited_monthly',
+    stripePriceIdYearly: 'price_unlimited_yearly',
+    stripePaymentLinkMonthly: 'https://buy.stripe.com/6oE8xB5p9fCK7KM9AC',
+    stripePaymentLinkYearly: 'https://buy.stripe.com/6oE8xB5p9fCK7KM9AD',
   },
 ];
 
 const SUBSCRIPTION_STORAGE_KEY = 'hyperagent_subscription';
+const LICENSE_VERIFICATION_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
 export class BillingManager {
   private state: SubscriptionState = {
     tier: 'free',
     status: 'active',
   };
+  private initialized = false;
 
   async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
     await this.loadState();
     await this.checkForPaymentSuccess();
+    await this.verifySubscriptionIfNeeded();
   }
 
   private async loadState(): Promise<void> {
@@ -117,6 +139,69 @@ export class BillingManager {
     }
   }
 
+  private async verifySubscriptionIfNeeded(): Promise<void> {
+    if (this.state.tier === 'free') return;
+    if (!this.state.lastVerified) return;
+
+    const timeSinceVerification = Date.now() - this.state.lastVerified;
+    if (timeSinceVerification > LICENSE_VERIFICATION_INTERVAL) {
+      await this.verifySubscription();
+    }
+  }
+
+  async verifySubscription(): Promise<boolean> {
+    if (this.state.tier === 'free') return true;
+
+    // Check if the current period has expired
+    if (this.state.currentPeriodEnd && Date.now() > this.state.currentPeriodEnd) {
+      if (this.state.cancelAtPeriodEnd) {
+        await this.downgradeToFree();
+        return false;
+      }
+    }
+
+    // Verify via license key if available
+    if (this.state.licenseKey) {
+      try {
+        const isValid = await this.verifyLicenseKey(this.state.licenseKey);
+        if (!isValid) {
+          await this.downgradeToFree();
+          return false;
+        }
+        this.state.lastVerified = Date.now();
+        await this.saveState();
+        return true;
+      } catch {
+        // Network error during verification - grace period
+        return true;
+      }
+    }
+
+    this.state.lastVerified = Date.now();
+    await this.saveState();
+    return true;
+  }
+
+  private async verifyLicenseKey(key: string): Promise<boolean> {
+    // License key format: HA-TIER-XXXXXXXX-XXXXXXXX
+    const parts = key.split('-');
+    if (parts.length < 4 || parts[0] !== 'HA') return false;
+
+    const tier = parts[1].toLowerCase();
+    if (tier !== 'premium' && tier !== 'unlimited') return false;
+
+    return true;
+  }
+
+  private async downgradeToFree(): Promise<void> {
+    this.state = {
+      tier: 'free',
+      status: 'active',
+    };
+    await this.saveState();
+    console.log('[Billing] Subscription expired, downgraded to free tier');
+  }
+
   getTier(): SubscriptionTier {
     return this.state.tier;
   }
@@ -126,7 +211,35 @@ export class BillingManager {
   }
 
   isActive(): boolean {
-    return this.state.status === 'active';
+    return this.state.status === 'active' || this.state.status === 'trialing';
+  }
+
+  async activateWithLicenseKey(key: string): Promise<{ success: boolean; error?: string }> {
+    const parts = key.trim().split('-');
+    if (parts.length < 4 || parts[0] !== 'HA') {
+      return { success: false, error: 'Invalid license key format' };
+    }
+
+    const tier = parts[1].toLowerCase() as SubscriptionTier;
+    if (tier !== 'premium' && tier !== 'unlimited') {
+      return { success: false, error: 'Invalid tier in license key' };
+    }
+
+    const isValid = await this.verifyLicenseKey(key);
+    if (!isValid) {
+      return { success: false, error: 'License key verification failed' };
+    }
+
+    this.state = {
+      tier,
+      status: 'active',
+      licenseKey: key,
+      currentPeriodStart: Date.now(),
+      currentPeriodEnd: Date.now() + 365 * 24 * 60 * 60 * 1000, // 1 year
+      lastVerified: Date.now(),
+    };
+    await this.saveState();
+    return { success: true };
   }
 
   async updateSubscription(
@@ -142,6 +255,7 @@ export class BillingManager {
       status: 'active',
       currentPeriodStart: Date.now(),
       currentPeriodEnd: Date.now() + 30 * 24 * 60 * 60 * 1000,
+      lastVerified: Date.now(),
     };
     await this.saveState();
   }
@@ -162,19 +276,23 @@ export class BillingManager {
     return PRICING_PLANS;
   }
 
-  getUpgradeUrl(tier: 'premium' | 'unlimited'): string {
+  getUpgradeUrl(tier: 'premium' | 'unlimited', interval: BillingInterval = 'month'): string {
     const plan = this.getPlan(tier);
-    return plan?.stripePaymentLink || `https://hyperagent.ai/pricing`;
+    if (!plan) return 'https://hyperagent.ai/pricing';
+    return interval === 'year'
+      ? plan.stripePaymentLinkYearly || plan.stripePaymentLinkMonthly || 'https://hyperagent.ai/pricing'
+      : plan.stripePaymentLinkMonthly || 'https://hyperagent.ai/pricing';
   }
 
-  async openCheckout(tier: 'premium' | 'unlimited'): Promise<void> {
-    const url = this.getUpgradeUrl(tier);
+  async openCheckout(tier: 'premium' | 'unlimited', interval: BillingInterval = 'month'): Promise<void> {
+    const url = this.getUpgradeUrl(tier, interval);
 
     const clientReferenceId = `hyperagent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     await chrome.storage.local.set({
       stripe_pending_checkout: {
         tier,
+        interval,
         clientReferenceId,
         timestamp: Date.now(),
       },
@@ -185,12 +303,14 @@ export class BillingManager {
 
   isFeatureAllowed(feature: string): boolean {
     const featureTiers: Record<string, SubscriptionTier[]> = {
-      autonomous_mode: ['premium', 'unlimited'],
+      autonomous_mode: ['free', 'premium', 'unlimited'],
       unlimited_actions: ['unlimited'],
       advanced_workflows: ['premium', 'unlimited'],
       custom_macros: ['premium', 'unlimited'],
       api_access: ['unlimited'],
       team_collaboration: ['unlimited'],
+      vision_mode: ['premium', 'unlimited'],
+      swarm_intelligence: ['premium', 'unlimited'],
     };
 
     const allowedTiers = featureTiers[feature] || ['free', 'premium', 'unlimited'];
@@ -198,12 +318,42 @@ export class BillingManager {
   }
 
   getUsageLimit(): { actions: number; sessions: number } {
-    const limits: Record<SubscriptionTier, { actions: number; sessions: number }> = {
-      free: { actions: 100, sessions: 3 },
-      premium: { actions: 1000, sessions: 50 },
-      unlimited: { actions: -1, sessions: -1 },
+    const plan = this.getPlan(this.state.tier);
+    return plan?.limits || { actions: 100, sessions: 3 };
+  }
+
+  isWithinLimits(currentActions: number, currentSessions: number): { allowed: boolean; reason?: string } {
+    const limits = this.getUsageLimit();
+
+    if (limits.actions !== -1 && currentActions >= limits.actions) {
+      return {
+        allowed: false,
+        reason: `Monthly action limit reached (${currentActions}/${limits.actions}). Upgrade to continue.`,
+      };
+    }
+
+    if (limits.sessions !== -1 && currentSessions >= limits.sessions) {
+      return {
+        allowed: false,
+        reason: `Monthly session limit reached (${currentSessions}/${limits.sessions}). Upgrade to continue.`,
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  getUsagePercentage(currentActions: number, currentSessions: number): { actions: number; sessions: number } {
+    const limits = this.getUsageLimit();
+    return {
+      actions: limits.actions === -1 ? 0 : Math.min(100, (currentActions / limits.actions) * 100),
+      sessions: limits.sessions === -1 ? 0 : Math.min(100, (currentSessions / limits.sessions) * 100),
     };
-    return limits[this.state.tier];
+  }
+
+  getDaysRemaining(): number {
+    if (!this.state.currentPeriodEnd) return -1;
+    const remaining = this.state.currentPeriodEnd - Date.now();
+    return Math.max(0, Math.ceil(remaining / (24 * 60 * 60 * 1000)));
   }
 }
 

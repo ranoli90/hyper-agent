@@ -177,59 +177,114 @@
         <!-- Subscription Tab -->
         <section id="tab-subscription" class="tab-pane">
           <div class="panel-inner">
-            <h3>Subscription</h3>
+            <h3>Subscription &amp; Usage</h3>
+
+            <!-- Current Plan Banner -->
+            <div id="current-plan-banner" class="plan-banner free">
+              <div class="plan-banner-info">
+                <span class="plan-banner-tier" id="banner-tier">Free Plan</span>
+                <span class="plan-banner-period" id="banner-period"></span>
+              </div>
+              <span class="plan-banner-badge" id="banner-badge">Active</span>
+            </div>
+
+            <!-- Usage Meters -->
             <div id="usage-display" class="usage-card">
-              <h4>Current Usage</h4>
-              <div class="usage-stats">
-                <div class="stat">
-                  <span class="label">Actions:</span>
-                  <span id="usage-actions">0 / 100</span>
+              <h4>This Month's Usage</h4>
+              <div class="usage-meter-group">
+                <div class="usage-meter">
+                  <div class="usage-meter-header">
+                    <span class="label">Actions</span>
+                    <span id="usage-actions" class="usage-count">0 / 100</span>
+                  </div>
+                  <div class="progress-track">
+                    <div id="actions-progress" class="progress-bar-fill" style="width: 0%"></div>
+                  </div>
                 </div>
-                <div class="stat">
-                  <span class="label">Sessions:</span>
-                  <span id="usage-sessions">0 / 3</span>
-                </div>
-                <div class="stat">
-                  <span class="label">Tier:</span>
-                  <span id="usage-tier">Free</span>
+                <div class="usage-meter">
+                  <div class="usage-meter-header">
+                    <span class="label">Autonomous Sessions</span>
+                    <span id="usage-sessions" class="usage-count">0 / 3</span>
+                  </div>
+                  <div class="progress-track">
+                    <div id="sessions-progress" class="progress-bar-fill" style="width: 0%"></div>
+                  </div>
                 </div>
               </div>
+              <div class="usage-footer">
+                <span id="usage-tier" class="tier-label">Free</span>
+                <span id="usage-reset">Resets in 30 days</span>
+              </div>
             </div>
+
+            <!-- License Key Input -->
+            <div class="license-section">
+              <h4>Have a License Key?</h4>
+              <div class="license-input-row">
+                <input id="license-key-input" type="text" placeholder="HA-PREMIUM-XXXXXXXX-XXXXXXXX" />
+                <button id="btn-activate-license">Activate</button>
+              </div>
+              <div id="license-status" class="license-status hidden"></div>
+            </div>
+
+            <!-- Billing Interval Toggle -->
+            <div class="billing-toggle">
+              <button class="interval-btn active" data-interval="month">Monthly</button>
+              <button class="interval-btn" data-interval="year">Yearly <span class="save-badge">Save 17%</span></button>
+            </div>
+
+            <!-- Plan Cards -->
             <div class="subscription-options">
-              <div class="plan-card free">
+              <div class="plan-card" data-plan="free">
                 <h4>Free</h4>
-                <p>Basic features</p>
+                <div class="plan-price"><span class="price-amount">$0</span><span class="price-period">/month</span></div>
                 <ul>
                   <li>100 actions/month</li>
                   <li>3 autonomous sessions</li>
-                  <li>Basic workflows</li>
+                  <li>Basic automation</li>
+                  <li>Community support</li>
                 </ul>
-                <span class="current">Current</span>
+                <button id="btn-plan-free" class="plan-btn current" disabled>Current Plan</button>
               </div>
-              <div class="plan-card premium">
+              <div class="plan-card popular" data-plan="premium">
+                <div class="popular-badge">Most Popular</div>
                 <h4>Premium</h4>
-                <p>$19/month</p>
+                <div class="plan-price">
+                  <span class="price-amount" id="premium-price">$19</span>
+                  <span class="price-period" id="premium-period">/month</span>
+                </div>
                 <ul>
-                  <li>1000 actions/month</li>
+                  <li>1,000 actions/month</li>
                   <li>50 autonomous sessions</li>
-                  <li>Advanced workflows</li>
+                  <li>Advanced workflows &amp; macros</li>
+                  <li>Vision mode</li>
+                  <li>Swarm intelligence</li>
                   <li>Priority support</li>
-                  <li>Custom macros</li>
                 </ul>
-                <button id="btn-upgrade-premium">Upgrade</button>
+                <button id="btn-upgrade-premium" class="plan-btn upgrade">Upgrade to Premium</button>
               </div>
-              <div class="plan-card unlimited">
+              <div class="plan-card" data-plan="unlimited">
                 <h4>Unlimited</h4>
-                <p>$49/month</p>
+                <div class="plan-price">
+                  <span class="price-amount" id="unlimited-price">$49</span>
+                  <span class="price-period" id="unlimited-period">/month</span>
+                </div>
                 <ul>
                   <li>Unlimited actions</li>
                   <li>Unlimited sessions</li>
-                  <li>All premium features</li>
+                  <li>All Premium features</li>
                   <li>API access</li>
                   <li>Team collaboration</li>
+                  <li>Custom workflows</li>
+                  <li>Dedicated support</li>
                 </ul>
-                <button id="btn-upgrade-unlimited">Upgrade</button>
+                <button id="btn-upgrade-unlimited" class="plan-btn upgrade">Upgrade to Unlimited</button>
               </div>
+            </div>
+
+            <div class="subscription-footer">
+              <p>Payments processed securely by Stripe. Cancel anytime.</p>
+              <button id="btn-cancel-subscription" class="btn-link hidden">Cancel Subscription</button>
             </div>
           </div>
         </section>
