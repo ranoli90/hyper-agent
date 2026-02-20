@@ -13,6 +13,79 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 
 ---
 
+## PRIORITIZED FIX ORDER (Correct Implementation Sequence)
+
+Fix in this exact order to minimize rework and address blocking issues first:
+
+### Phase 1 — Blocking (Extension Won't Work)
+1. **1.2** Add icon assets (extension may fail to load)
+2. **1.1** Message handler sendResponse on error (callers hang on any error)
+
+### Phase 2 — Critical Crashes & Data Loss
+3. **2.2** Import settings validation (malicious import corrupts state)
+4. **1.3** Fix "built-in key" misleading UX (users think configured when not)
+5. **4.9** Snapshot Resume/Delete buttons — no click handlers (completely broken)
+6. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
+
+### Phase 3 — Security Critical
+7. **2.1** API key storage (document or encrypt)
+8. **1.6** ReDoS in findTabByUrl + workflow urlMatches
+9. **2.5** validateExtensionMessage default: return true
+
+### Phase 4 — User-Facing Broken Features
+10. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
+11. **1.4** verifyActionWithVision fail-open
+12. **1.5** Screenshot format consistency
+13. **4.12** visionUpdate screenshot format
+14. **4.3** Tasks "New" button — no handler
+15. **4.5** Vision "Analyze Page" — no handler
+16. **4.2** Stripe checkout return flow
+17. **4.1** Marketplace workflows (implement or label)
+18. **4.11** Scheduler "once" task validation
+
+### Phase 5 — UX Inconsistencies
+19. **3.1** Duplicate visibilitychange handler
+20. **3.2** Ask modal backdrop — doesn't resolve
+21. **3.4** require-confirm default mismatch
+22. **3.6** Dark mode — no system preference
+23. **3.5** Add /think to help
+24. **3.7** Duplicate font loading
+25. **3.9** Remove dead import getUserSiteConfigs
+
+### Phase 6 — Missing Industry Standard
+26. **5.1** Error reporting (Sentry)
+27. **7.3** Privacy policy
+28. **5.3** Onboarding
+29. **5.4** Offline handling
+30. **5.5** Rate limit feedback in UI
+31. **5.9** Export settings warning
+32. **5.10** Changelog on update
+
+### Phase 7 — Accessibility
+33. **8.1** Chat aria-live
+34. **8.2** Modal focus trap
+35. **8.3** Status aria-live
+36. **8.4** Tab aria-selected
+37. **8.9** visionSnapshot null check
+
+### Phase 8 — Performance & Polish
+38. **6.1** Content script overhead
+39. **6.2** getPageContext cost
+40. **6.9** Storage quota monitoring
+41. **10.7** Replace deprecated substr
+42. **10.8** Console.log in production
+
+### Phase 9 — Technical Debt
+43. **1.8** Duplicate getMemoryStats handler
+44. **1.7** Dead content-script navigate/goBack
+45. **1.9** buildFallbackPlan stub
+46. **10.1** Reduce any types
+47. **10.3** Storage key sprawl
+48. **10.9** Scheduler scheduled flag
+49. **4.13** TikTok Moderator selectors
+
+---
+
 ## Severity Legend
 
 | Level | Description |
@@ -47,8 +120,9 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 
 | # | Issue | Why It Matters | Fix | Effort |
 |---|-------|----------------|-----|--------|
-| 1.6 | **`findTabByUrl` uses user-controlled regex** — `pattern` comes from `action.urlPattern` (LLM or workflow). `isSafeRegex` checks length and syntax but not ReDoS. A crafted pattern like `(a+)+$` could cause catastrophic backtracking. | ReDoS can freeze the extension or browser tab. | Use `safe-regex` npm package or implement ReDoS detection (e.g., `regexp-tree` or timeout-wrapped `RegExp.test`). | Medium |
+| 1.6 | **`findTabByUrl` and workflow `urlMatches` use user-controlled regex** — `pattern` comes from `action.urlPattern` or `condition.value`. `isSafeRegex` checks length and syntax but NOT ReDoS. A crafted pattern like `(a+)+$` could cause catastrophic backtracking. Both code paths affected. | ReDoS can freeze the extension or browser tab. | Use `safe-regex` npm package or implement ReDoS detection (e.g., `regexp-tree` or timeout-wrapped `RegExp.test`). | Medium |
 | 1.7 | **Content script `performAction` for `navigate`/`goBack`** — Content script handles `navigate` and `goBack` by setting `window.location.href` and `window.history.back()`. Background also handles these for `executeAction`. The content script path is dead code for `executeActionOnPage` because background routes `navigate`/`goBack` before sending to content. Inconsistent routing could cause confusion. | Dead code and potential future bugs if someone adds content-script-only flows. | Document or remove content-script handling for navigate/goBack; ensure single source of truth. | Quick |
+| 1.11 | **LLM system prompt locator strategy mismatch** — Prompt says `"ariaLabel"|"id"` but `LocatorStrategy` type and content script only support `css|text|aria|role|xpath|index`. LLM may return `ariaLabel` or `id`; content script will hit `default: return null` and fail to find element. | Elements not found when LLM uses "ariaLabel" or "id". | Align prompt: use "aria" or add "ariaLabel"/"id" handling in content script. | Quick |
 | 1.8 | **`handleExtendedMessage` duplicate `getMemoryStats`** — Both `handleExtensionMessage` and `handleExtendedMessage` have `getMemoryStats` cases. Extended handler returns `memoryManager.getMemoryStats()`; main handler returns `getMemoryStatsUtil()` + strategies. Different semantics; extended runs first and returns, so main handler's `getMemoryStats` is never reached for that message type. | Confusing behavior; one code path may be dead. | Consolidate into one handler with clear semantics. | Quick |
 
 ### Low
@@ -68,6 +142,7 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 |---|-------|----------------|-----|--------|
 | 2.1 | **API key stored in plain text** — `chrome.storage.local` holds API key unencrypted. Malicious extension or compromised machine can read it. | API keys are sensitive; exposure enables abuse and cost. | Encrypt at rest using Web Crypto API with a key derived from a user secret or use Chrome's `identity` API if applicable. Document that keys are stored in extension storage. | Significant |
 | 2.2 | **Import settings overwrites storage without validation** — `importSettings` does `chrome.storage.local.set(data.settings)`. A crafted JSON could inject arbitrary keys (e.g., `hyperagent_api_key` with a malicious value, or keys that break the extension). | Malicious import could hijack API key or corrupt state. | Validate schema of imported data; allowlist keys that can be imported; reject unknown keys. | Medium |
+| 2.2b | **Reset settings clears ALL storage** — Options "Reset All Settings" calls `storageClear()`. Wipes API key, sessions, chat history, everything. Confirm dialog says "API key and preferences" but doesn't mention sessions/history. | User may not realize full wipe. | Expand confirm text: "This will clear API key, chat history, sessions, and all preferences." | Quick |
 
 ### High
 
@@ -109,15 +184,17 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 | # | Issue | Why It Matters | Fix | Effort |
 |---|-------|----------------|-----|--------|
 | 3.4 | **`require-confirm` default mismatch** — Config default is `REQUIRE_CONFIRM: false`; options HTML has `checked` on the toggle. Options load from storage, so first-time users get `false` from config. If options HTML is the source of truth for "first load", they'd get `true`. | Inconsistent first-run experience. | Align defaults: config, options UI, and docs. | Quick |
-| 3.5 | **Slash commands `/export` and `/import`** — Listed in `/help` but implementation exists. Good. `/think` uses autonomous mode; ensure it's discoverable. | UX completeness. | Consider adding `/think` to help text if not already. | Quick |
+| 3.5 | **Slash command `/think` not in help** — `/help` lists `/memory`, `/schedule`, `/tools`, etc. but not `/think` (autonomous mode). Users may not discover it. | Discoverability. | Add `/think` to help: "Advanced autonomous reasoning". | Quick |
 | 3.6 | **Dark mode** — Toggle exists; `initDarkMode` loads from storage. No system preference detection (`prefers-color-scheme`). | Users expect dark mode to follow system. | Add `matchMedia('(prefers-color-scheme: dark)')` for default. | Quick |
 
 ### Low
 
 | # | Issue | Why It Matters | Fix | Effort |
 |---|-------|----------------|-----|--------|
-| 3.7 | **Inter font from Google** — Side panel loads Inter from Google Fonts. Adds network dependency and privacy consideration. | Some users block Google; slight delay. | Consider bundling font or using system font stack. | Medium |
-| 3.8 | **Emoji for dark mode toggle** — Uses 🌙/☀️. Works but may not render consistently. | Minor. | Consider SVG icons for consistency. | Quick |
+| 3.7 | **Duplicate font loading** — `index.html` loads Inter from Google Fonts; `style.css` loads Inter, Space Grotesk, JetBrains Mono. Inter loaded twice from different URLs. | Redundant network requests; potential FOUT. | Use single font import; remove duplicate. | Quick |
+| 3.8 | **Emoji for dark mode toggle** — Uses 🌙/☀️. Works but may not render consistently across OS/browsers. | Minor. | Consider SVG icons for consistency. | Quick |
+| 3.9 | **Options page dead import** — `getUserSiteConfigs` is imported but never used. `renderSiteConfigs` uses `getAllSiteConfigs` and filters with `isDefaultConfig`. | Dead code; lint noise. | Remove unused import. | Quick |
+| 3.10 | **Subscription tab `btn-plan-free`** — `updateUsageDisplay` references `btn-plan-free` but HTML has it. Free plan card exists. Ensure all plan buttons (free, premium, unlimited) are in HTML. | Verify DOM matches. | Audit HTML vs JS references. | Quick |
 
 ---
 
@@ -130,6 +207,8 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 | 4.1 | **Marketplace workflows are static** — `MARKETPLACE_WORKFLOWS` is a hardcoded array. "Install" adds to `hyperagent_installed_workflows` but doesn't fetch or load actual workflow definitions. Installed workflows don't appear to do anything beyond being marked installed. | Users expect workflows to run; current behavior is misleading. | Implement workflow fetch/load, or clearly label as "Coming soon". | Significant |
 | 4.2 | **Stripe checkout return flow** — `checkForPaymentSuccess` reads `stripe_payment_success` from storage. No code sets this; Stripe redirect would need to land on a page that injects it (e.g., web page + content script). Unclear if return URL is configured. | Payments may not complete correctly. | Implement Stripe success redirect handler (e.g., options page with hash params). | Significant |
 | 4.3 | **Tasks tab "New" button** — `btn-add-task-ui` exists but no handler attached. Tasks are created via natural language ("schedule daily search"); no UI to add. | Incomplete feature. | Add handler or remove button. | Quick |
+| 4.9 | **Snapshot Resume and Delete buttons have no click handlers** — Swarm tab creates snapshot items with Resume/Delete buttons via innerHTML, but never attaches event listeners. Both buttons are completely non-functional. Tasks tab attaches handlers with `querySelectorAll('.btn-small')`; swarm tab does not. | Critical broken feature; users cannot resume or delete saved missions. | Add `snapshotsList.querySelectorAll('.btn-small').forEach(btn => {...})` with handlers for Resume (need new backend) and Delete (clearSnapshot with taskId). | Quick |
+| 4.10 | **Snapshot Resume has no backend support** — Background has `getSnapshot`, `listSnapshots`, `clearSnapshot` but no `resumeSnapshot` or equivalent. Resume would need to restore command, history, and continue agent loop. | Resume button cannot work without backend. | Add `resumeSnapshot` message type; load snapshot, restore state, continue runAgentLoop from saved step. | Significant |
 
 ### Medium
 
@@ -138,6 +217,9 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 | 4.4 | **Swarm tab** — Shows "8" agents, all "Ready". Data comes from `getSwarmStatus` and `getGlobalLearningStats`. Swarm coordinator is initialized but `getSwarmStatus` returns `{ initialized: true, agents: [] }`. UI shows static list. | Misleading; suggests more than is implemented. | Sync UI with actual swarm state or add "Preview" label. | Medium |
 | 4.5 | **Vision tab "Analyze Page"** — Button `btn-analyze-vision` is created in `loadVisionTab` but only `btn-capture-vision` has a click handler. "Analyze" does nothing. | Dead UI. | Implement or remove. | Quick |
 | 4.6 | **Workflow `checkCondition` in `runWorkflow`** — Condition is never evaluated; step condition is skipped. Workflow execution doesn't use conditional branching. | Workflows with conditions won't behave as expected. | Implement condition check before executing step. | Medium |
+| 4.11 | **Scheduler "once" task with undefined time** — When `schedule.type === 'once'` and `task.schedule.time` is undefined or in the past, no alarm is created. Task stays enabled forever, never runs, never disables. | Orphaned one-time tasks. | Validate schedule; if time invalid, disable task and log. | Quick |
+| 4.12 | **visionUpdate message screenshot format** — Side panel sets `components.visionSnapshot.src = message.screenshot`. Background sends `screenshot` as base64 (stripped of data URL prefix). Agent progress sends `visionUpdate` with `screenshot` from `captureScreenshot()` which returns raw base64. So `src` gets raw base64 without `data:image/jpeg;base64,` prefix — invalid. | Vision snapshot may not display. | Ensure visionUpdate sends full data URL or side panel prefixes before setting src. | Quick |
+| 4.13 | **TikTok Moderator placeholder selectors** — Uses `.tiktok-chat-messages`, `.tiktok-chat-item`, `.unique-id`. Real TikTok DOM may differ; feature may not work. | Niche feature may be broken. | Verify selectors against live TikTok; update or document. | Medium |
 
 ### Low
 
@@ -172,6 +254,8 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 |---|-------|----------------|-----|--------|
 | 5.7 | **No export of chat history** — Chat can be cleared; history is in storage. No export to file. | Users may want to save conversations. | Add export chat to JSON/MD. | Medium |
 | 5.8 | **No A/B testing** — No framework for experiments. | Hard to optimize conversion. | Consider feature flags or simple A/B. | Strategic |
+| 5.9 | **Export settings includes chat history** — `exportSettings` exports `chat_history_backup` which may contain sensitive user data. No warning. | Privacy when sharing export file. | Add warning or option to exclude sensitive data. | Quick |
+| 5.10 | **No "What's New" or changelog** — Users updating see no release notes. | Missed engagement opportunity. | Add changelog modal on update (chrome.runtime.onInstalled reason=update). | Medium |
 
 ---
 
@@ -199,6 +283,8 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 |---|-------|----------------|-----|--------|
 | 6.7 | **`debounce` for saveHistory** — 500ms. Good. `visibilitychange` triggers immediate save. Good. | — | — | — |
 | 6.8 | **`UsageTracker` debounce** — 500ms. Prevents write storm. Good. | — | — | — |
+| 6.9 | **Storage quota** — `chrome.storage.local` has 5MB default; 10MB with `unlimitedStorage`. Chat history, snapshots, metrics, sessions can grow. No eviction policy for old snapshots. | Could hit quota; extension may fail to save. | Add storage usage monitoring; evict old snapshots; cap chat history size. | Medium |
+| 6.10 | **ContextManager compressOldItems mutates in place** — Modifies `item.content` and `item.tokens` on existing items. If items are shared elsewhere, could cause bugs. | Low risk; items are internal. | Document; ensure no external references. | Quick |
 
 ---
 
@@ -245,6 +331,8 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 |---|-------|----------------|-----|--------|
 | 8.7 | **Color contrast** — Not audited. Dark mode and light mode need WCAG AA. | Compliance. | Run contrast checker. | Quick |
 | 8.8 | **Keyboard navigation** — Tabs, modals, marketplace need full keyboard support. | Power users and a11y. | Audit tab order and Enter/Space. | Medium |
+| 8.9 | **visionSnapshot optional but used without null check** — `safeGetElement('vision-snapshot', true)` returns optional. When setting `components.visionSnapshot.src`, could throw if element missing. | Edge case when vision disabled. | Add null check before setting src. | Quick |
+| 8.10 | **Loading overlay progress** — `updateProgress` and `progressFill`/`progressPercent` — if elements missing, no-op. Fine. | OK. | — | — |
 
 ---
 
@@ -283,7 +371,11 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 | # | Issue | Why It Matters | Fix | Effort |
 |---|-------|----------------|-----|--------|
 | 10.7 | **Deprecated `substr`** — `billing.ts` uses `Math.random().toString(36).substr(2, 9)`. `substr` is deprecated. | Linter may warn. | Use `substring` or `slice`. | Quick |
-| 10.8 | **Console.log in production** — Many `console.log`/`console.warn` calls. | Log noise; possible info leak. | Use logger with level; strip in production build. | Medium |
+| 10.8 | **Console.log in production** — Many `console.log`/`console.warn` calls across 30+ files. | Log noise; possible info leak. | Use logger with level; strip in production build. | Medium |
+| 10.9 | **Scheduler sends `scheduled: true`** — `executeCommand` message includes `scheduled: true` but handler doesn't use it. No differentiation for scheduled vs manual. | Minor; could be useful for analytics. | Use or remove. | Quick |
+| 10.10 | **Metrics storage uses callback style** — `saveToStorage` and `loadFromStorage` wrap chrome.storage callbacks in Promises. Works but inconsistent with rest of codebase (async/await). | Style inconsistency. | Consider migrating to async chrome.storage API. | Quick |
+| 10.11 | **Macro runMacro stops on first failure** — Returns immediately when any action fails. No option to continue. | By design; document. | Document behavior in macro docs. | Quick |
+| 10.12 | **Site config wildcard `*.shopify.com`** — `domain.endsWith('.shopify.com')` — `shopify.com` doesn't match (no subdomain). Defaults include both. Good. | OK. | — | — |
 
 ---
 
@@ -302,39 +394,104 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 
 ---
 
-## 12. SUMMARY CHECKLIST
+## 12. COMPREHENSIVE CHECKLIST (All Items in Fix Order)
 
-### Must Fix Before Launch (Critical + High)
-
-- [ ] 1.1 Message handler sendResponse on error
+### Phase 1 — Blocking
 - [ ] 1.2 Add icon assets
-- [ ] 1.3 Fix "built-in key" misleading UX
-- [ ] 2.1 Document API key storage (or encrypt)
+- [ ] 1.1 Message handler sendResponse on error
+
+### Phase 2 — Critical Crashes & Data Loss
 - [ ] 2.2 Validate import settings schema
-- [ ] 5.1 Add error reporting
-- [ ] 7.3 Privacy policy
-- [ ] 8.1 Chat aria-live
-- [ ] 8.2 Modal focus trap
+- [ ] 2.2b Reset settings confirm text
+- [ ] 1.3 Fix "built-in key" misleading UX
+- [ ] 4.9 Snapshot Resume/Delete — add click handlers
+- [ ] 4.10 Snapshot Resume — add backend support
 
-### Should Fix Soon (High)
+### Phase 3 — Security
+- [ ] 2.1 API key storage (document or encrypt)
+- [ ] 1.6 ReDoS in findTabByUrl + workflow urlMatches
+- [ ] 2.5 validateExtensionMessage — reject unknown types
 
+### Phase 4 — Broken Features
+- [ ] 1.11 LLM locator strategy mismatch
 - [ ] 1.4 verifyActionWithVision fail-open
 - [ ] 1.5 Screenshot format consistency
-- [ ] 4.1 Marketplace workflows (implement or label)
-- [ ] 4.2 Stripe return flow
-- [ ] 5.2 Analytics (opt-in)
+- [ ] 4.12 visionUpdate screenshot format
+- [ ] 4.3 Tasks "New" button handler
+- [ ] 4.5 Vision "Analyze Page" handler
+- [ ] 4.2 Stripe checkout return flow
+- [ ] 4.1 Marketplace workflows
+- [ ] 4.11 Scheduler "once" task validation
+
+### Phase 5 — UX Inconsistencies
+- [ ] 3.1 Duplicate visibilitychange handler
+- [ ] 3.2 Ask modal backdrop resolve
+- [ ] 3.4 require-confirm default
+- [ ] 3.6 Dark mode system preference
+- [ ] 3.5 Add /think to help
+- [ ] 3.7 Duplicate font loading
+- [ ] 3.9 Remove dead import getUserSiteConfigs
+
+### Phase 6 — Missing Features
+- [ ] 5.1 Error reporting
+- [ ] 7.3 Privacy policy
 - [ ] 5.3 Onboarding
-- [ ] 6.1 Content script performance
+- [ ] 5.4 Offline handling
+- [ ] 5.5 Rate limit feedback
+- [ ] 5.6 Keyboard shortcut focus input
+- [ ] 5.9 Export settings warning
+- [ ] 5.10 Changelog on update
+
+### Phase 7 — Accessibility
+- [ ] 8.1 Chat aria-live
+- [ ] 8.2 Modal focus trap
 - [ ] 8.3 Status aria-live
+- [ ] 8.4 Tab aria-selected
+- [ ] 8.9 visionSnapshot null check
 
-### Nice to Have (Medium / Low)
-
-- [ ] 1.6 ReDoS for findTabByUrl
-- [ ] 3.6 System dark mode
-- [ ] 4.5 Vision Analyze button
-- [ ] 5.5 Rate limit feedback in UI
-- [ ] 10.1 Reduce `any` types
+### Phase 8 — Performance & Polish
+- [ ] 6.1 Content script overhead
+- [ ] 6.2 getPageContext cost
+- [ ] 6.9 Storage quota monitoring
 - [ ] 10.7 Replace substr
+- [ ] 10.8 Console.log in production
+
+### Phase 9 — Technical Debt
+- [ ] 1.8 Duplicate getMemoryStats
+- [ ] 1.7 Dead content-script navigate/goBack
+- [ ] 1.9 buildFallbackPlan stub
+- [ ] 10.1 Reduce any types
+- [ ] 10.3 Storage key sprawl
+- [ ] 10.9 Scheduler scheduled flag
+- [ ] 4.13 TikTok Moderator selectors
+
+### Phase 10 — Low Priority
+- [ ] 1.10 Condition.value sanitization
+- [ ] 2.4 InputSanitizer allowedDomains
+- [ ] 2.6 redact patterns
+- [ ] 2.1 Stripe env config
+- [ ] 3.3 Confirm modal reject
+- [ ] 3.8 Emoji → SVG icons
+- [ ] 3.10 btn-plan-free audit
+- [ ] 4.4 Swarm tab sync
+- [ ] 4.6 Workflow condition check
+- [ ] 5.2 Analytics
+- [ ] 5.7 Export chat
+- [ ] 6.4 StructuredLogger persistence
+- [ ] 6.5 Cache TTL audit
+- [ ] 6.6 loadHistory lazy
+- [ ] 7.1 Single purpose
+- [ ] 7.2 Permission justification
+- [ ] 7.4 Screenshots
+- [ ] 7.5 Data usage disclosure
+- [ ] 8.6 Dynamic Type
+- [ ] 8.7 Color contrast
+- [ ] 8.8 Keyboard nav
+- [ ] 10.4 ExtensionMessage helpers
+- [ ] 10.5 Background split
+- [ ] 10.6 Side panel split
+- [ ] 10.10 Metrics storage style
+- [ ] 10.11 Macro behavior doc
 
 ---
 
@@ -343,11 +500,11 @@ HyperAgent is a Chrome MV3 extension implementing an AI-powered browser automati
 | Area | Files |
 |------|-------|
 | Entry points | background.ts, content.ts, sidepanel/main.ts, options/main.ts |
-| Shared | types.ts, config.ts, llmClient.ts, security.ts, input-sanitization.ts, safe-regex.ts, workflows.ts, snapshot-manager.ts, session.ts, billing.ts, voice-interface.ts, url-utils.ts, error-boundary.ts, stealth-engine.ts |
+| Shared | types.ts, config.ts, llmClient.ts, security.ts, input-sanitization.ts, safe-regex.ts, workflows.ts, snapshot-manager.ts, session.ts, billing.ts, voice-interface.ts, url-utils.ts, error-boundary.ts, stealth-engine.ts, metrics.ts, macros.ts, siteConfig.ts, contextManager.ts, memory.ts, memory-management.ts, persistent-autonomous.ts, scheduler-engine.ts, intelligent-clarification.ts, advanced-caching.ts, neuroplasticity-engine.ts, tiktok-moderator.ts, retry-circuit-breaker.ts, autonomous-intelligence.ts, tool-system.ts, swarm-intelligence.ts, global-learning.ts, failure-recovery.ts, reasoning-engine.ts |
 | Config | wxt.config.ts, package.json |
 | Docs | AGENTS.md, DEVELOPER.md, ARCHITECTURE.md, AUDIT.md |
-| UI | sidepanel/index.html, options/index.html |
+| UI | sidepanel/index.html, sidepanel/style.css, options/index.html |
 
 ---
 
-*End of audit.*
+*End of audit. Total items: 100+ across 12 categories. Fix order ensures blocking issues are resolved first.*
