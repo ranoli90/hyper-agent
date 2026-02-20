@@ -19,7 +19,8 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 1 — Blocking (Extension Won't Work)
 1. **1.2** Add icon assets (extension may fail to load)
-2. **1.1** Message handler sendResponse on error (callers hang on any error)
+2. **1.13** window.setInterval in service worker — advanced-caching & memory-management use `window.setInterval`; service workers have no `window`, will throw ReferenceError on load
+3. **1.1** Message handler sendResponse on error (callers hang on any error)
 
 ### Phase 2 — Critical Crashes & Data Loss
 3. **2.2** Import settings validation (malicious import corrupts state)
@@ -28,61 +29,63 @@ Fix in this exact order to minimize rework and address blocking issues first:
 6. **4.10** Snapshot Resume — no backend support (need resumeSnapshot message)
 
 ### Phase 3 — Security Critical
-7. **2.1** API key storage (document or encrypt)
-8. **1.6** ReDoS in findTabByUrl + workflow urlMatches
-9. **2.5** validateExtensionMessage default: return true
+7. **2.11** Security module not integrated — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported but NEVER called. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor) are completely ignored during agent execution
+8. **2.1** API key storage (document or encrypt)
+9. **1.6** ReDoS in findTabByUrl + workflow urlMatches
+10. **2.5** validateExtensionMessage default: return true
 
 ### Phase 4 — User-Facing Broken Features
-10. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
-11. **1.4** verifyActionWithVision fail-open
-12. **1.5** Screenshot format consistency
-13. **4.12** visionUpdate screenshot format
-14. **4.3** Tasks "New" button — no handler
-15. **4.5** Vision "Analyze Page" — no handler
-16. **4.2** Stripe checkout return flow
-17. **4.1** Marketplace workflows (implement or label)
-18. **4.11** Scheduler "once" task validation
+11. **1.11** LLM locator strategy mismatch (ariaLabel/id vs aria)
+12. **1.4** verifyActionWithVision fail-open
+13. **1.5** Screenshot format consistency
+14. **4.12** visionUpdate screenshot format
+15. **1.12** Empty command not rejected — validateExtensionMessage accepts `command === ''`; agent would run with empty command (wasted LLM call)
+16. **4.3** Tasks "New" button — no handler
+17. **4.5** Vision "Analyze Page" — no handler
+18. **4.2** Stripe checkout return flow
+19. **4.1** Marketplace workflows (implement or label)
+20. **4.11** Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
-19. **3.1** Duplicate visibilitychange handler
-20. **3.2** Ask modal backdrop — doesn't resolve
-21. **3.4** require-confirm default mismatch
-22. **3.6** Dark mode — no system preference
-23. **3.5** Add /think to help
-24. **3.7** Duplicate font loading
-25. **3.9** Remove dead import getUserSiteConfigs
+21. **3.1** Duplicate visibilitychange handler
+22. **3.2** Ask modal backdrop — doesn't resolve
+23. **3.4** require-confirm default mismatch
+24. **3.6** Dark mode — no system preference
+25. **3.5** Add /think to help
+26. **3.7** Duplicate font loading
+27. **3.9** Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Industry Standard
-26. **5.1** Error reporting (Sentry)
-27. **7.3** Privacy policy
-28. **5.3** Onboarding
-29. **5.4** Offline handling
-30. **5.5** Rate limit feedback in UI
-31. **5.9** Export settings warning
-32. **5.10** Changelog on update
+28. **5.1** Error reporting (Sentry)
+29. **7.3** Privacy policy
+30. **5.3** Onboarding
+31. **5.4** Offline handling
+32. **5.5** Rate limit feedback in UI
+33. **5.9** Export settings warning
+34. **5.10** Changelog on update
 
 ### Phase 7 — Accessibility
-33. **8.1** Chat aria-live
-34. **8.2** Modal focus trap
-35. **8.3** Status aria-live
-36. **8.4** Tab aria-selected
-37. **8.9** visionSnapshot null check
+35. **8.1** Chat aria-live
+36. **8.2** Modal focus trap
+37. **8.3** Status aria-live
+38. **8.4** Tab aria-selected
+39. **8.9** visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
-38. **6.1** Content script overhead
-39. **6.2** getPageContext cost
-40. **6.9** Storage quota monitoring
-41. **10.7** Replace deprecated substr
-42. **10.8** Console.log in production
+40. **6.1** Content script overhead
+41. **6.2** getPageContext cost
+42. **6.9** Storage quota monitoring
+43. **10.7** Replace deprecated substr
+44. **10.8** Console.log in production
 
 ### Phase 9 — Technical Debt
-43. **1.8** Duplicate getMemoryStats handler
-44. **1.7** Dead content-script navigate/goBack
-45. **1.9** buildFallbackPlan stub
-46. **10.1** Reduce any types
-47. **10.3** Storage key sprawl
-48. **10.9** Scheduler scheduled flag
-49. **4.13** TikTok Moderator selectors
+45. **1.8** Duplicate getMemoryStats handler
+46. **1.7** Dead content-script navigate/goBack
+47. **1.9** buildFallbackPlan stub
+48. **10.1** Reduce any types
+49. **10.3** Storage key sprawl
+50. **10.9** Scheduler scheduled flag
+51. **4.13** TikTok Moderator selectors
 
 ---
 
@@ -107,6 +110,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 |---|-------|----------------|-----|--------|
 | 1.1 | **Message handler never calls `sendResponse` on error** — `chrome.runtime.onMessage` listener uses `withErrorBoundary` which re-throws; the async IIFE has no catch, so when any handler throws, `sendResponse` is never invoked. Chrome keeps the port open until timeout; callers may hang or receive no feedback. | Callers (side panel, content script) expect a response. Unhandled errors leave them in limbo; retries can compound. | Wrap the async handler in try/catch and call `sendResponse({ ok: false, error: err?.message })` in the catch block. | Quick |
 | 1.2 | **Missing icon assets** — `wxt.config.ts` references `icon/16.png`, `icon/32.png`, `icon/48.png`, `icon/128.png` but no icon files exist in the repo. Extension will fail to load or show broken icons. | Chrome Web Store and extension UX require valid icons. | Add icon assets (16, 32, 48, 128 px) or configure WXT to generate placeholders. | Quick |
+| 1.13 | **`window.setInterval` in service worker** — `advanced-caching.ts` and `memory-management.ts` use `window.setInterval`. Service workers have no `window` global; `window` is undefined. Will throw `ReferenceError` when background loads and cache/memory modules initialize. | Extension crashes on load. | Use `globalThis.setInterval` or `setInterval` (global) instead of `window.setInterval`. Same for `clearInterval`. | Quick |
 
 ### High
 
@@ -123,6 +127,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 | 1.6 | **`findTabByUrl` and workflow `urlMatches` use user-controlled regex** — `pattern` comes from `action.urlPattern` or `condition.value`. `isSafeRegex` checks length and syntax but NOT ReDoS. A crafted pattern like `(a+)+$` could cause catastrophic backtracking. Both code paths affected. | ReDoS can freeze the extension or browser tab. | Use `safe-regex` npm package or implement ReDoS detection (e.g., `regexp-tree` or timeout-wrapped `RegExp.test`). | Medium |
 | 1.7 | **Content script `performAction` for `navigate`/`goBack`** — Content script handles `navigate` and `goBack` by setting `window.location.href` and `window.history.back()`. Background also handles these for `executeAction`. The content script path is dead code for `executeActionOnPage` because background routes `navigate`/`goBack` before sending to content. Inconsistent routing could cause confusion. | Dead code and potential future bugs if someone adds content-script-only flows. | Document or remove content-script handling for navigate/goBack; ensure single source of truth. | Quick |
 | 1.11 | **LLM system prompt locator strategy mismatch** — Prompt says `"ariaLabel"|"id"` but `LocatorStrategy` type and content script only support `css|text|aria|role|xpath|index`. LLM may return `ariaLabel` or `id`; content script will hit `default: return null` and fail to find element. | Elements not found when LLM uses "ariaLabel" or "id". | Align prompt: use "aria" or add "ariaLabel"/"id" handling in content script. | Quick |
+| 1.12 | **Empty command not rejected** — `validateExtensionMessage` accepts `typeof command === 'string'`; empty string `''` passes. Scheduler or direct message could trigger agent with empty command. Wastes LLM call; confusing UX. | Wasted API cost; confusing behavior. | Add `command.trim().length > 0` check in executeCommand validation. | Quick |
 | 1.8 | **`handleExtendedMessage` duplicate `getMemoryStats`** — Both `handleExtensionMessage` and `handleExtendedMessage` have `getMemoryStats` cases. Extended handler returns `memoryManager.getMemoryStats()`; main handler returns `getMemoryStatsUtil()` + strategies. Different semantics; extended runs first and returns, so main handler's `getMemoryStats` is never reached for that message type. | Confusing behavior; one code path may be dead. | Consolidate into one handler with clear semantics. | Quick |
 
 ### Low
@@ -148,6 +153,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 | # | Issue | Why It Matters | Fix | Effort |
 |---|-------|----------------|-----|--------|
+| 2.11 | **Security module not integrated** — `checkDomainAllowed`, `checkActionAllowed`, `checkRateLimit` are imported in background.ts but NEVER called anywhere. Privacy settings (allowedDomains, blockedDomains) and security policy (maxActionsPerMinute, requireConfirmationFor, allowExternalUrls) are completely ignored. Agent executes on any domain, any action rate, no confirmation checks. | Critical privacy/security bypass; user settings have no effect. | Call `checkDomainAllowed(url)` before runAgentLoop; call `checkActionAllowed(action, url)` before each action; call `checkRateLimit(actionType)` in action flow. | Significant |
 | 2.3 | **`<all_urls>` host permission** — Extension requests access to all URLs. Required for automation but increases attack surface. | Overly broad permission can concern users and reviewers. | Document why it's needed; consider optional permission flow for sensitive sites. | Strategic |
 | 2.4 | **InputSanitizer `allowedDomains`** — Global instance has `allowedDomains: ['*.craigslist.org', ...]`. These are used for `sanitizeUrl`; unclear if they restrict which URLs the agent can navigate to. May be vestigial. | Confusion; possible unintended restrictions. | Audit usage; remove or document. | Quick |
 | 2.5 | **`validateExtensionMessage` default: return true** — For unknown `message.type`, validation returns `true`. New message types are implicitly allowed. | Could allow unexpected message types if types are extended without full validation. | Explicitly list allowed types; return false for unknown. | Quick |
@@ -285,6 +291,8 @@ Fix in this exact order to minimize rework and address blocking issues first:
 | 6.8 | **`UsageTracker` debounce** — 500ms. Prevents write storm. Good. | — | — | — |
 | 6.9 | **Storage quota** — `chrome.storage.local` has 5MB default; 10MB with `unlimitedStorage`. Chat history, snapshots, metrics, sessions can grow. No eviction policy for old snapshots. | Could hit quota; extension may fail to save. | Add storage usage monitoring; evict old snapshots; cap chat history size. | Medium |
 | 6.10 | **ContextManager compressOldItems mutates in place** — Modifies `item.content` and `item.tokens` on existing items. If items are shared elsewhere, could cause bugs. | Low risk; items are internal. | Document; ensure no external references. | Quick |
+| 6.11 | **memory-management uses `performance.memory`** — `takeMemorySnapshot()` uses `(performance as any).memory` (Chrome-only, non-standard). This API does NOT exist in service workers. MemoryManager runs in background; `takeMemorySnapshot` would get undefined, causing `usedJSHeapSize` of undefined errors. | Potential crash or NaN in memory stats. | Guard: `if (typeof performance?.memory !== 'undefined')` before using; or disable monitoring in service worker context. | Quick |
+| 6.12 | **memory-management uses `document.querySelectorAll`** — `clearUnusedCaches()` uses `document.querySelectorAll('img[data-cache]')`. Service workers have no `document`. Would throw. | Crash when cleanup runs in SW. | MemoryManager should not run DOM-dependent code in SW; use `typeof document !== 'undefined'` guard. | Quick |
 
 ---
 
@@ -398,6 +406,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 1 — Blocking
 - [ ] 1.2 Add icon assets
+- [ ] 1.13 window.setInterval → globalThis in SW (advanced-caching, memory-management)
 - [ ] 1.1 Message handler sendResponse on error
 
 ### Phase 2 — Critical Crashes & Data Loss
@@ -408,6 +417,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 4.10 Snapshot Resume — add backend support
 
 ### Phase 3 — Security
+- [ ] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
 - [ ] 2.1 API key storage (document or encrypt)
 - [ ] 1.6 ReDoS in findTabByUrl + workflow urlMatches
 - [ ] 2.5 validateExtensionMessage — reject unknown types
@@ -417,6 +427,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 1.4 verifyActionWithVision fail-open
 - [ ] 1.5 Screenshot format consistency
 - [ ] 4.12 visionUpdate screenshot format
+- [ ] 1.12 Empty command validation
 - [ ] 4.3 Tasks "New" button handler
 - [ ] 4.5 Vision "Analyze Page" handler
 - [ ] 4.2 Stripe checkout return flow
@@ -465,7 +476,25 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 10.9 Scheduler scheduled flag
 - [ ] 4.13 TikTok Moderator selectors
 
-### Phase 10 — Low Priority
+### Phase 10 — Service Worker / Context Fixes
+- [ ] 6.11 memory-management performance.memory guard
+- [ ] 6.12 memory-management document guard
+- [ ] 13.1 intelligent-clarification interval cleanup
+- [ ] 13.2 persistent-autonomous window check
+- [ ] 13.9 Remove withGracefulDegradation import
+
+### Phase 11 — Edge Cases
+- [ ] 13.5 Command length validation
+- [ ] 13.6 Tab closed during agent
+- [ ] 13.8 Content script path verify
+- [ ] 13.12 escapeHtml single quote
+
+### Phase 12 — Manifest & Build
+- [ ] 13.13 minimum_chrome_version
+- [ ] 13.14 author/developer in manifest
+- [ ] 13.15 Content script path verify
+
+### Phase 13 — Low Priority
 - [ ] 1.10 Condition.value sanitization
 - [ ] 2.4 InputSanitizer allowedDomains
 - [ ] 2.6 redact patterns
@@ -495,6 +524,47 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ---
 
+## 13. ADDITIONAL PERSPECTIVES (Deep Sweep)
+
+Items discovered from alternative viewpoints: service worker lifecycle, cross-context assumptions, edge cases.
+
+### Service Worker / Context Assumptions
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 13.1 | **intelligent-clarification setInterval** — `setInterval(() => this.cleanupExpiredSessions(), 5 * 60 * 1000)` and another setInterval at line 792. No cleanup on destroy. If module is re-initialized, intervals accumulate. | Potential memory leak; duplicate timers. | Store interval IDs; clear on teardown. Check if this module runs in SW (uses setInterval — SW has it). | Quick |
+| 13.2 | **persistent-autonomous continuousOperationInterval** — Uses setInterval. Has clearInterval in stop. Good. But uses `window`? Check. | Verify SW compatibility. | Use globalThis/setInterval. | Quick |
+| 13.3 | **BroadcastChannel in advanced-caching** — `new BroadcastChannel('hyperagent-cache-sync')`. BroadcastChannel exists in service workers. Good. | OK. | — | — |
+| 13.4 | **globalLearning fetchGlobalWisdom/publishPatterns** — No external network call; just local storage. "Publish" is misleading name. | Naming clarity. | Rename or document. | Quick |
+
+### Edge Cases & Boundary Conditions
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 13.5 | **Command length** — MAX_COMMAND_LENGTH 2000 in side panel. Background validateExtensionMessage doesn't check length. Very long command could cause token overflow. | LLM cost; possible API rejection. | Add length check in validation: `command.length <= 10000`. | Quick |
+| 13.6 | **Tab closed during agent run** — If user closes the active tab while agent is running, `chrome.tabs.sendMessage(tabId, ...)` will fail. Error is caught but agent may continue in broken state. | Confusing failure mode. | Detect tab closure; abort agent; notify user. | Medium |
+| 13.7 | **Multiple side panel instances** — Chrome allows one side panel per window. But if user has multiple windows, each could have panel. All would send messages. Rate limiter uses sender; could hit limits. | Edge case. | Document or handle. | Low |
+| 13.8 | **Content script not yet injected** — getPageContext injects script if direct message fails. Uses `chrome.scripting.executeScript` with path `/content-scripts/content.js`. WXT outputs to different path? Verify. | Injection could fail. | Audit WXT output paths. | Quick |
+
+### Code Quality & Maintainability
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 13.9 | **withGracefulDegradation imported but unused** — background.ts imports it; no usage. | Dead import. | Remove. | Quick |
+| 13.10 | **AutonomousIntelligence JSON.parse** — `JSON.parse(llmResponse)` at line 89. Wrapped in try/catch; returns createEmptyPlan on error. Good. | OK. | — | — |
+| 13.11 | **input-sanitization protectAgainstXss** — Replaces all tags with attribute content. Aggressive; may mangle valid HTML. Used for chat history load with allowHtml. | Could strip wanted formatting. | Review; consider DOMPurify for HTML. | Medium |
+| 13.12 | **escapeHtml doesn't escape single quote** — `escapeHtml` replaces & < > " but not '. In `title='${x}'` context, `x` containing `'` could break. Most uses are textContent or safe contexts. | Low risk. | Add `'` → `&#x27` for completeness. | Quick |
+
+### Manifest & Build
+
+| # | Issue | Why It Matters | Fix | Effort |
+|---|-------|----------------|-----|--------|
+| 13.13 | **Manifest minimum_chrome_version** — Not specified. MV3 requires Chrome 88+. | Compatibility. | Add `minimum_chrome_version: "88"` if targeting older. | Quick |
+| 13.14 | **Manifest author/developer** — Not in wxt.config. Store listing needs. | Store requirement. | Add to manifest. | Quick |
+| 13.15 | **Content script path** — `content-scripts/content.js` in manifest. WXT may output differently. | Verify build output. | Audit .output/chrome-mv3 structure. | Quick |
+
+---
+
 ## Appendix: Files Audited
 
 | Area | Files |
@@ -507,4 +577,4 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ---
 
-*End of audit. Total items: 100+ across 12 categories. Fix order ensures blocking issues are resolved first.*
+*End of audit. Total items: 120+ across 13 categories. Fix order ensures blocking issues (including service worker compatibility) are resolved first.*
