@@ -247,10 +247,40 @@ const SLASH_COMMANDS = {
 - \`/schedule\`: Manage background tasks
 - \`/tools\`: List agent capabilities
 - \`/clear\`: Clear chat history
+- \`/shortcuts\`: Show keyboard shortcuts
+- \`/export\`: Export settings
+- \`/import\`: Import settings
 - \`/help\`: Show this message
+
+**Keyboard Shortcuts:**
+- \`Enter\`: Send command
+- \`Shift+Enter\`: New line
+- \`Arrow Up/Down\`: Navigate history
+- \`Escape\`: Close modals/suggestions
     `,
       'agent'
     );
+  },
+  '/shortcuts': () => {
+    addMessage(
+      `
+**Keyboard Shortcuts:**
+- \`Enter\`: Send command
+- \`Shift+Enter\`: New line in input
+- \`Arrow Up\`: Previous command in history
+- \`Arrow Down\`: Next command in history
+- \`Escape\`: Close modals/suggestions
+- \`Ctrl/Cmd+L\`: Clear chat
+- \`Ctrl/Cmd+S\`: Open settings
+    `,
+      'agent'
+    );
+  },
+  '/export': () => {
+    exportSettings();
+  },
+  '/import': () => {
+    importSettings();
   },
 };
 
@@ -831,6 +861,30 @@ components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+// Global keyboard shortcuts
+document.addEventListener('keydown', e => {
+  // Ctrl/Cmd + L: Clear chat
+  if ((e.ctrlKey || e.metaKey) && e.key === 'l') {
+    e.preventDefault();
+    SLASH_COMMANDS['/clear']();
+  }
+  // Ctrl/Cmd + S: Open settings
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    chrome.runtime.openOptionsPage();
+  }
+  // Escape: Close modals and suggestions
+  if (e.key === 'Escape') {
+    components.confirmModal.classList.add('hidden');
+    components.askModal.classList.add('hidden');
+    components.suggestions.classList.add('hidden');
+    if (state.confirmResolve) {
+      state.confirmResolve(false);
+      state.confirmResolve = null;
+    }
+  }
+});
+
 // ─── Message Handler ────────────────────────────────────────────
 chrome.runtime.onMessage.addListener((message: any) => {
   // Validate message structure
@@ -1072,4 +1126,65 @@ function updateProgress(percent: number) {
 
 function setLoadingText(text: string) {
   if (loadingText) loadingText.textContent = text;
+}
+
+// ─── Export/Import Settings ─────────────────────────────────────────
+async function exportSettings() {
+  try {
+    const data = await chrome.storage.local.get(null);
+    const exportData = {
+      version: '1.0',
+      timestamp: Date.now(),
+      settings: {
+        dark_mode: data.dark_mode,
+        command_history: data.command_history,
+        chat_history_backup: data.chat_history_backup,
+        hyperagent_site_strategies: data.hyperagent_site_strategies,
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hyperagent-settings-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('Settings exported successfully!', 'success');
+  } catch (err) {
+    showToast('Failed to export settings', 'error');
+    console.error('[HyperAgent] Export error:', err);
+  }
+}
+
+async function importSettings() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+
+  input.onchange = async e => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      if (!data.version || !data.settings) {
+        throw new Error('Invalid settings file format');
+      }
+
+      await chrome.storage.local.set(data.settings);
+      showToast('Settings imported successfully!', 'success');
+
+      // Reload to apply imported settings
+      setTimeout(() => location.reload(), 1000);
+    } catch (err) {
+      showToast('Failed to import settings: Invalid file', 'error');
+      console.error('[HyperAgent] Import error:', err);
+    }
+  };
+
+  input.click();
 }
