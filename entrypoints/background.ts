@@ -2578,7 +2578,7 @@ Return JSON:
       };
     } catch (err) {
       console.warn('[Reflex] Verification failed:', err);
-      return { success: true }; // Fail open (assume success if check fails)
+      return { success: false, reason: 'Verification parse error' };
     }
   }
 

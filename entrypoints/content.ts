@@ -325,6 +325,13 @@ export default defineContentScript({
             return null;
           }
         }
+        case 'ariaLabel':
+          // Alias for "aria" — LLM prompt may use ariaLabel
+          return resolveLocatorSingle({ strategy: 'aria', value, index });
+        case 'id': {
+          const el = document.getElementById(value);
+          return el && isVisible(el) ? el : null;
+        }
         default:
           return null;
       }

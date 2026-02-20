@@ -101,11 +101,16 @@ class SchedulerEngineImpl {
     const alarmName = `task_${task.id}`;
 
     switch (task.schedule.type) {
-      case 'once':
-        if (task.schedule.time && task.schedule.time > Date.now()) {
-          chrome.alarms.create(alarmName, { when: task.schedule.time });
+      case 'once': {
+        const time = task.schedule.time;
+        if (!time || time <= Date.now()) {
+          console.warn(`[Scheduler] Once task ${task.id} has invalid or past time; disabling`);
+          task.enabled = false;
+        } else {
+          chrome.alarms.create(alarmName, { when: time });
         }
         break;
+      }
 
       case 'interval':
         if (task.schedule.intervalMinutes) {

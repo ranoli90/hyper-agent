@@ -141,7 +141,7 @@ export interface PageContext {
 }
 
 // ─── Locator ────────────────────────────────────────────────────────
-export type LocatorStrategy = 'css' | 'text' | 'aria' | 'role' | 'xpath' | 'index';
+export type LocatorStrategy = 'css' | 'text' | 'aria' | 'ariaLabel' | 'id' | 'role' | 'xpath' | 'index';
 
 export type Locator =
   | string

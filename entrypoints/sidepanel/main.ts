@@ -873,9 +873,21 @@ async function loadMemoryTab() {
 }
 
 // ─── Tasks Tab ────────────────────────────────────────────────
+let tasksListenersAttached = false;
 async function loadTasksTab() {
   const tasksList = document.getElementById('tasks-list');
   if (!tasksList) return;
+
+  const addTaskBtn = document.getElementById('btn-add-task-ui');
+  if (addTaskBtn && !tasksListenersAttached) {
+    tasksListenersAttached = true;
+    addTaskBtn.addEventListener('click', () => {
+      switchTab('chat');
+      components.commandInput.value = '';
+      components.commandInput.placeholder = 'e.g. schedule daily search for news';
+      components.commandInput.focus();
+    });
+  }
 
   try {
     const response = await chrome.runtime.sendMessage({ type: 'getScheduledTasks' });
@@ -983,7 +995,7 @@ function loadVisionTab() {
     captureBtn.addEventListener('click', async () => {
       try {
         const response = await chrome.runtime.sendMessage({ type: 'captureScreenshot' });
-        if (response?.dataUrl) {
+        if (response?.dataUrl && components.visionSnapshot) {
           components.visionSnapshot.src = `data:image/jpeg;base64,${response.dataUrl}`;
           components.visionSnapshot.classList.remove('hidden');
           components.visionPlaceholder.classList.add('hidden');
@@ -992,6 +1004,14 @@ function loadVisionTab() {
       } catch (err) {
         addMessage('Failed to capture screenshot.', 'error');
       }
+    });
+  }
+  const analyzeBtn = document.getElementById('btn-analyze-vision');
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener('click', () => {
+      switchTab('chat');
+      components.commandInput.value = 'Analyze this page and describe what you see.';
+      components.commandInput.focus();
     });
   }
 }
@@ -1275,8 +1295,9 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'visionUpdate': {
-      if (typeof message.screenshot === 'string' && message.screenshot.length > 0) {
-        components.visionSnapshot.src = message.screenshot;
+      if (typeof message.screenshot === 'string' && message.screenshot.length > 0 && components.visionSnapshot) {
+        const s = message.screenshot;
+        components.visionSnapshot.src = s.startsWith('data:') ? s : `data:image/jpeg;base64,${s}`;
         components.visionSnapshot.classList.remove('hidden');
         components.visionPlaceholder.classList.add('hidden');
       }

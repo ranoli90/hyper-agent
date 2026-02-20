@@ -453,16 +453,16 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 2.5 validateExtensionMessage — reject unknown types
 
 ### Phase 4 — Broken Features
-- [ ] 1.11 LLM locator strategy mismatch
-- [ ] 1.4 verifyActionWithVision fail-open
-- [ ] 1.5 Screenshot format consistency
-- [ ] 4.12 visionUpdate screenshot format
+- [x] 1.11 LLM locator strategy mismatch
+- [x] 1.4 verifyActionWithVision fail-open
+- [x] 1.5 Screenshot format consistency
+- [x] 4.12 visionUpdate screenshot format
 - [x] 1.12 Empty command validation
-- [ ] 4.3 Tasks "New" button handler
-- [ ] 4.5 Vision "Analyze Page" handler
+- [x] 4.3 Tasks "New" button handler
+- [x] 4.5 Vision "Analyze Page" handler
 - [ ] 4.2 Stripe checkout return flow
 - [ ] 4.1 Marketplace workflows
-- [ ] 4.11 Scheduler "once" task validation
+- [x] 4.11 Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
 - [x] 3.1 Duplicate visibilitychange handler
@@ -488,7 +488,7 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [ ] 8.2 Modal focus trap
 - [ ] 8.3 Status aria-live
 - [ ] 8.4 Tab aria-selected
-- [ ] 8.9 visionSnapshot null check
+- [x] 8.9 visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
 - [ ] 6.1 Content script overhead
