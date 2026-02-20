@@ -66,7 +66,10 @@ export class MemoryManager {
       ...config,
     };
 
-    if (this.config.monitoringEnabled) {
+    // Only start monitoring in browser/service-worker environments to avoid
+    // keeping the Node.js process alive during bundling.
+    if (this.config.monitoringEnabled &&
+        (typeof globalThis.document !== 'undefined' || typeof globalThis.ServiceWorkerGlobalScope !== 'undefined')) {
       this.startMonitoring();
     }
   }

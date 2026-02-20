@@ -95,10 +95,18 @@ export class PersistentAutonomousEngine {
   private globalSuggestionQueue: ProactiveSuggestion[] = [];
   private backgroundTaskPool: BackgroundTask[] = [];
   private continuousOperationInterval: ReturnType<typeof setInterval> | null = null;
+  private initialized = false;
 
   constructor() {
+    // Defer initialization to avoid starting timers during module evaluation (build time).
+    // Call initialize() explicitly from the background script after load.
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+    this.initialized = true;
     this.startContinuousOperation();
-    this.loadPersistedSessions().catch(() => {});
+    await this.loadPersistedSessions().catch(() => {});
   }
 
   private startContinuousOperation(): void {

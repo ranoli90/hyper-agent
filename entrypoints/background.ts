@@ -710,9 +710,10 @@ function initializeReasoning(): void {
   }
 }
 
-function initializePersistentAutonomous(): void {
+async function initializePersistentAutonomous(): Promise<void> {
   if (!persistentAutonomousEngine) {
     persistentAutonomousEngine = new PersistentAutonomousEngine();
+    await persistentAutonomousEngine.initialize();
     console.log('[Background] Persistent autonomous engine initialized');
   }
 }
