@@ -105,6 +105,8 @@ const state = {
   askResolve: null as ((reply: string) => void) | null,
   activeTab: 'chat',
   lastCommandTime: 0,
+  commandHistory: [] as string[],
+  historyIndex: -1,
 };
 
 const MAX_COMMAND_LENGTH = 2000;
@@ -405,6 +407,8 @@ function handleCommand(text: string) {
   if (state.isRunning) return;
 
   state.lastCommandTime = now;
+  saveCommandToHistory(cmd);
+  state.historyIndex = -1;
   addMessage(cmd, 'user');
   components.commandInput.value = '';
   components.commandInput.style.height = '';
@@ -460,6 +464,40 @@ async function loadHistory() {
     components.chatHistory.innerHTML = data.chat_history_backup;
     scrollToBottom();
   }
+}
+
+// ─── Command History ──────────────────────────────────────────────
+async function loadCommandHistory() {
+  const data = await chrome.storage.local.get('command_history');
+  if (data.command_history && Array.isArray(data.command_history)) {
+    state.commandHistory = data.command_history;
+  }
+}
+
+async function saveCommandToHistory(command: string) {
+  if (!command.trim()) return;
+
+  // Avoid duplicates - remove if exists, then add to front
+  state.commandHistory = state.commandHistory.filter(c => c !== command);
+  state.commandHistory.unshift(command);
+
+  // Keep only last 50 commands
+  state.commandHistory = state.commandHistory.slice(0, 50);
+
+  await chrome.storage.local.set({ command_history: state.commandHistory });
+}
+
+function navigateHistory(direction: 'up' | 'down'): string | null {
+  if (state.commandHistory.length === 0) return null;
+
+  if (direction === 'up') {
+    state.historyIndex = Math.min(state.historyIndex + 1, state.commandHistory.length - 1);
+  } else {
+    state.historyIndex = Math.max(state.historyIndex - 1, -1);
+    if (state.historyIndex === -1) return '';
+  }
+
+  return state.commandHistory[state.historyIndex] || null;
 }
 
 function updateUsageDisplay() {
@@ -766,8 +804,28 @@ components.commandInput.addEventListener('input', e => {
   handleInput(e);
 });
 
+// Keyboard navigation for command history
+components.commandInput.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const historyCmd = navigateHistory('up');
+    if (historyCmd !== null) {
+      components.commandInput.value = historyCmd;
+      updateCharCounter(historyCmd);
+    }
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const historyCmd = navigateHistory('down');
+    if (historyCmd !== null) {
+      components.commandInput.value = historyCmd;
+      updateCharCounter(historyCmd);
+    }
+  }
+});
+
 // Load history on start
 loadHistory();
+loadCommandHistory();
 
 components.btnSettings.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
