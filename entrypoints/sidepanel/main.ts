@@ -12,6 +12,7 @@ import type {
   MsgAskUser,
 } from '../../shared/types';
 import { billingManager, PRICING_PLANS } from '../../shared/billing';
+import { validateAndFilterImportData } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 
 function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
@@ -1047,11 +1048,41 @@ async function loadSwarmTab() {
               <span>${escapeHtml(timeStr)}</span>
             </div>
             <div class="snapshot-actions">
-              <button class="btn-small" data-task-id="${safeTaskId}">Resume</button>
-              <button class="btn-small btn-danger" data-task-id="${safeTaskId}" data-action="delete">Delete</button>
+              <button class="btn-small btn-resume" data-task-id="${safeTaskId}">Resume</button>
+              <button class="btn-small btn-danger btn-delete-snapshot" data-task-id="${safeTaskId}">Delete</button>
             </div>
           `;
           snapshotsList.appendChild(item);
+        });
+
+        // Attach click handlers for Resume and Delete
+        snapshotsList.querySelectorAll('.btn-resume').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+            if (taskId) {
+              const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
+              if (resp?.ok) {
+                showToast('Resuming mission...', 'success');
+                loadSwarmTab();
+              } else {
+                showToast(resp?.error || 'Failed to resume', 'error');
+              }
+            }
+          });
+        });
+        snapshotsList.querySelectorAll('.btn-delete-snapshot').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+            if (taskId) {
+              const resp = await chrome.runtime.sendMessage({ type: 'clearSnapshot', taskId });
+              if (resp?.ok) {
+                showToast('Mission deleted', 'success');
+                loadSwarmTab();
+              } else {
+                showToast(resp?.error || 'Failed to delete', 'error');
+              }
+            }
+          });
         });
 
         // Count recovered tasks
@@ -1619,7 +1650,14 @@ async function importSettings() {
         throw new Error('Invalid settings file format');
       }
 
-      await chrome.storage.local.set(data.settings);
+      const { filtered, errors } = validateAndFilterImportData(data.settings);
+      if (Object.keys(filtered).length === 0) {
+        throw new Error('No valid settings to import');
+      }
+      if (errors.length > 0) {
+        console.warn('[HyperAgent] Import validation warnings:', errors);
+      }
+      await chrome.storage.local.set(filtered);
       showToast('Settings imported successfully!', 'success');
 
       // Reload to apply imported settings

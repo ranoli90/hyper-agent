@@ -243,6 +243,85 @@ export async function saveSettings(settings: Settings): Promise<{ success: boole
   }
 }
 
+/** Keys allowed in imported settings; reject unknown keys to prevent injection */
+export const IMPORT_ALLOWLIST = new Set([
+  STORAGE_KEYS.API_KEY,
+  STORAGE_KEYS.BASE_URL,
+  STORAGE_KEYS.MODEL_NAME,
+  STORAGE_KEYS.BACKUP_MODEL,
+  STORAGE_KEYS.MAX_STEPS,
+  STORAGE_KEYS.REQUIRE_CONFIRM,
+  STORAGE_KEYS.DRY_RUN,
+  STORAGE_KEYS.ENABLE_VISION,
+  STORAGE_KEYS.AUTO_RETRY,
+  STORAGE_KEYS.SITE_BLACKLIST,
+  STORAGE_KEYS.SITE_STRATEGIES,
+  STORAGE_KEYS.SITE_CONFIGS,
+  STORAGE_KEYS.PRIVACY_SETTINGS,
+  STORAGE_KEYS.SECURITY_POLICY,
+  STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE,
+  STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE,
+  STORAGE_KEYS.LEARNING_ENABLED,
+  'dark_mode',
+  'command_history',
+  'chat_history_backup',
+  'hyperagent_installed_workflows',
+] as const);
+
+export function validateAndFilterImportData(settings: unknown): {
+  valid: boolean;
+  filtered: Record<string, unknown>;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return { valid: false, filtered: {}, errors: ['Settings must be a plain object'] };
+  }
+  const raw = settings as Record<string, unknown>;
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (!IMPORT_ALLOWLIST.has(key as any)) {
+      errors.push(`Rejected unknown key: ${key}`);
+      continue;
+    }
+    filtered[key] = value;
+  }
+  // Validate critical keys
+  if (STORAGE_KEYS.API_KEY in filtered) {
+    const v = filtered[STORAGE_KEYS.API_KEY];
+    if (v !== undefined && typeof v !== 'string') {
+      errors.push('API key must be a string');
+      delete filtered[STORAGE_KEYS.API_KEY];
+    }
+  }
+  if (STORAGE_KEYS.MAX_STEPS in filtered) {
+    const v = filtered[STORAGE_KEYS.MAX_STEPS];
+    const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+    if (isNaN(n) || n < VALIDATION.MAX_STEPS.MIN || n > VALIDATION.MAX_STEPS.MAX) {
+      errors.push(`maxSteps must be ${VALIDATION.MAX_STEPS.MIN}-${VALIDATION.MAX_STEPS.MAX}`);
+      delete filtered[STORAGE_KEYS.MAX_STEPS];
+    } else {
+      filtered[STORAGE_KEYS.MAX_STEPS] = n;
+    }
+  }
+  if (STORAGE_KEYS.BASE_URL in filtered) {
+    const v = filtered[STORAGE_KEYS.BASE_URL];
+    if (v !== undefined && typeof v === 'string') {
+      try {
+        new URL(v);
+      } catch {
+        errors.push('baseUrl must be a valid URL');
+        delete filtered[STORAGE_KEYS.BASE_URL];
+      }
+    }
+  }
+  return {
+    valid: errors.length === 0 || Object.keys(filtered).length > 0,
+    filtered,
+    errors,
+  };
+}
+
 export function isSiteBlacklisted(url: string, blacklist: string): boolean {
   if (!blacklist.trim()) return false;
   const patterns = blacklist.split('\n').map((s) => s.trim()).filter(Boolean);

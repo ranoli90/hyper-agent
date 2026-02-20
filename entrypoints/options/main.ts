@@ -117,10 +117,10 @@ async function loadCurrentSettings() {
   const usingDefaultKey = settings.apiKey === DEFAULTS.DEFAULT_API_KEY;
   const hasCustomKey = Boolean(settings.apiKey && !usingDefaultKey);
   apiKeyInput.value = hasCustomKey ? settings.apiKey : '';
-  apiKeyInput.placeholder = usingDefaultKey ? 'Using built-in OpenRouter key (auto-managed)' : 'sk-or-v1-...';
+  apiKeyInput.placeholder = hasCustomKey ? 'sk-or-v1-...' : 'Enter your API key...';
 
   updateApiUiState({
-    status: hasCustomKey ? 'custom' : usingDefaultKey ? 'builtin' : 'missing',
+    status: hasCustomKey ? 'custom' : 'missing',
   });
 
   modelStatusText.textContent = `Model: ${DEFAULTS.MODEL_NAME}`;
@@ -218,18 +218,13 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
   }
 }
 
-type ApiStatusState = 'custom' | 'builtin' | 'missing' | 'error' | 'connecting';
+type ApiStatusState = 'custom' | 'missing' | 'error' | 'connecting';
 
 function updateApiUiState({ status, error }: { status: ApiStatusState; error?: string }) {
   switch (status) {
     case 'custom':
       apiStatusDot.className = 'status-dot connected';
-      apiStatusText.textContent = 'API: ✅ Custom key detected';
-      apiKeyInput.style.borderColor = '#10b981';
-      break;
-    case 'builtin':
-      apiStatusDot.className = 'status-dot connected';
-      apiStatusText.textContent = 'API: ✅ Using built-in key';
+      apiStatusText.textContent = 'API: ✅ Configured';
       apiKeyInput.style.borderColor = '#10b981';
       break;
     case 'connecting':
@@ -266,8 +261,8 @@ async function validateCurrentSettings() {
     return;
   }
 
-  if (settings.apiKey === DEFAULTS.DEFAULT_API_KEY) {
-    updateApiUiState({ status: 'builtin' });
+  if (settings.apiKey === DEFAULTS.DEFAULT_API_KEY || !settings.apiKey.trim()) {
+    updateApiUiState({ status: 'missing' });
     return;
   }
 
@@ -465,7 +460,7 @@ function attachDangerZoneHandlers() {
   dangerZoneHandlersAttached = true;
 
   resetSettings?.addEventListener('click', async () => {
-    if (!confirm('Reset all settings to defaults? This will clear your API key and preferences.')) return;
+    if (!confirm('Reset all settings to defaults? This will clear your API key, chat history, sessions, and all preferences.')) return;
     await storageClear();
     cachedSettings = null;
     await loadCurrentSettings();

@@ -1385,6 +1385,31 @@ export default defineBackground(() => {
         return { ok: true };
       }
 
+      case 'resumeSnapshot': {
+        if (agentState.isRunning) {
+          return { ok: false, error: 'Agent is already running' };
+        }
+        const taskId = message.taskId;
+        if (!taskId) {
+          return { ok: false, error: 'No taskId provided' };
+        }
+        const snapshot = await SnapshotManager.load(taskId);
+        if (!snapshot?.command) {
+          return { ok: false, error: 'Snapshot not found or invalid' };
+        }
+        runAgentLoop(snapshot.command).catch(err => {
+          logger.log('error', 'Resume agent loop error', err);
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: `Resume failed: ${err.message || String(err)}`,
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+        });
+        return { ok: true };
+      }
+
       case 'parseIntent': {
         if (message.command) {
           const intents = parseIntent(message.command);

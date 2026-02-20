@@ -440,11 +440,11 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 1.1 Message handler sendResponse on error
 
 ### Phase 2 — Critical Crashes & Data Loss
-- [ ] 2.2 Validate import settings schema
-- [ ] 2.2b Reset settings confirm text
-- [ ] 1.3 Fix "built-in key" misleading UX
-- [ ] 4.9 Snapshot Resume/Delete — add click handlers
-- [ ] 4.10 Snapshot Resume — add backend support
+- [x] 2.2 Validate import settings schema
+- [x] 2.2b Reset settings confirm text
+- [x] 1.3 Fix "built-in key" misleading UX
+- [x] 4.9 Snapshot Resume/Delete — add click handlers
+- [x] 4.10 Snapshot Resume — add backend support
 
 ### Phase 3 — Security
 - [ ] 2.11 Integrate security module (checkDomainAllowed, checkActionAllowed, checkRateLimit)
