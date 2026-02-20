@@ -438,7 +438,10 @@ function setRunning(running: boolean) {
   components.btnStop.classList.toggle('hidden', !running);
   components.commandInput.disabled = running;
 
-  if (!running) {
+  if (running) {
+    showLoading('Processing your command...');
+  } else {
+    hideLoading();
     updateStatus('Ready', 'success');
     updateStepper('');
     setTimeout(() => updateStatus('', 'hidden'), 3000);
@@ -777,9 +780,13 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
   switch (message.type) {
     case 'agentProgress': {
-      if (typeof message.status === 'string') updateStatus(message.status, 'active');
+      if (typeof message.status === 'string') {
+        updateStatus(message.status, 'active');
+        setLoadingText(message.status);
+      }
       if (typeof message.step === 'string') updateStepper(message.step);
       if (typeof message.summary === 'string') addMessage(message.summary, 'thinking');
+      if (typeof message.progress === 'number') updateProgress(message.progress);
 
       // Live Trace: Display the physical actions the agent is taking
       if (Array.isArray(message.actionDescriptions) && message.actionDescriptions.length > 0) {
@@ -974,3 +981,37 @@ async function initDarkMode() {
 }
 
 initDarkMode();
+
+// ─── Loading Overlay ──────────────────────────────────────────────
+const loadingOverlay = document.getElementById('loading-overlay');
+const progressFill = document.getElementById('progress-fill');
+const progressPercent = document.getElementById('progress-percent');
+const loadingText = document.querySelector('.loading-text');
+
+function showLoading(text: string = 'Processing...') {
+  if (loadingOverlay) {
+    loadingOverlay.classList.remove('hidden');
+    if (loadingText) loadingText.textContent = text;
+    updateProgress(0);
+  }
+}
+
+function hideLoading() {
+  if (loadingOverlay) {
+    loadingOverlay.classList.add('hidden');
+  }
+}
+
+function updateProgress(percent: number) {
+  const clampedPercent = Math.min(100, Math.max(0, percent));
+  if (progressFill) {
+    progressFill.style.width = `${clampedPercent}%`;
+  }
+  if (progressPercent) {
+    progressPercent.textContent = `${Math.round(clampedPercent)}%`;
+  }
+}
+
+function setLoadingText(text: string) {
+  if (loadingText) loadingText.textContent = text;
+}
