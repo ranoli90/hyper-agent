@@ -253,6 +253,7 @@ const SLASH_COMMANDS = {
     addMessage(
       `
 **Hyper-Commands:**
+- \`/think\`: Advanced autonomous reasoning
 - \`/memory\`: View stored knowledge
 - \`/schedule\`: Manage background tasks
 - \`/tools\`: List agent capabilities

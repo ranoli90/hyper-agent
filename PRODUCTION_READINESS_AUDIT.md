@@ -467,9 +467,9 @@ Fix in this exact order to minimize rework and address blocking issues first:
 ### Phase 5 — UX Inconsistencies
 - [x] 3.1 Duplicate visibilitychange handler
 - [ ] 3.2 Ask modal backdrop resolve
-- [ ] 3.4 require-confirm default
+- [x] 3.4 require-confirm default
 - [ ] 3.6 Dark mode system preference
-- [ ] 3.5 Add /think to help
+- [x] 3.5 Add /think to help
 - [ ] 3.7 Duplicate font loading
 - [x] 3.9 Remove dead import getUserSiteConfigs
 
