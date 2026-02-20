@@ -719,7 +719,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           'X-Title': 'HyperAgent',
         },
         body: JSON.stringify(requestBody),
-        signal: signal || AbortSignal.timeout(45000),
+        signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
       });
 
       if (!response.ok) {

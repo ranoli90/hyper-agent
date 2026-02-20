@@ -101,6 +101,8 @@ interface UsageMetrics {
   };
 }
 
+const SAVE_DEBOUNCE_MS = 500;
+
 class UsageTracker {
   private metrics: UsageMetrics = {
     actionsExecuted: 0,
@@ -114,6 +116,8 @@ class UsageTracker {
       resetDate: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 days
     },
   };
+
+  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async loadMetrics(): Promise<void> {
     try {
@@ -135,9 +139,17 @@ class UsageTracker {
     }
   }
 
+  private scheduleSave(): void {
+    if (this.saveTimeout) clearTimeout(this.saveTimeout);
+    this.saveTimeout = setTimeout(() => {
+      this.saveTimeout = null;
+      this.saveMetrics();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
   private checkMonthlyReset(): void {
     if (Date.now() > this.metrics.monthlyUsage.resetDate) {
-      // Reset monthly counters
+      // Reset monthly counters - save immediately for critical state
       this.metrics.monthlyUsage = {
         actions: 0,
         sessions: 0,
@@ -151,7 +163,7 @@ class UsageTracker {
     this.metrics.actionsExecuted++;
     this.metrics.monthlyUsage.actions++;
     this.metrics.lastActivity = Date.now();
-    this.saveMetrics();
+    this.scheduleSave();
   }
 
   trackAutonomousSession(duration: number): void {
@@ -159,12 +171,12 @@ class UsageTracker {
     this.metrics.totalSessionTime += duration;
     this.metrics.monthlyUsage.sessions++;
     this.metrics.lastActivity = Date.now();
-    this.saveMetrics();
+    this.scheduleSave();
   }
 
   setSubscriptionTier(tier: 'free' | 'premium' | 'unlimited'): void {
     this.metrics.subscriptionTier = tier;
-    this.saveMetrics();
+    this.scheduleSave();
   }
 
   isPremiumFeatureAllowed(feature: string): boolean {
@@ -2130,8 +2142,9 @@ export default defineBackground(() => {
         });
         let llmResponse: any;
         const llmCallPromise = llmClient.callLLM({ command, history, context });
+        const llmTimeoutMs = DEFAULTS.LLM_TIMEOUT_MS ?? 45000;
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('LLM call timed out after 45 seconds')), 45000)
+          setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
         );
         try {
           llmResponse = await Promise.race([llmCallPromise, timeoutPromise]);

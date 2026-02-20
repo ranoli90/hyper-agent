@@ -63,6 +63,7 @@ export const DEFAULTS = {
   VISION_MIN_ELEMENTS: 5,        // Minimum elements to consider DOM complete
   // Timing constants
   CONFIRM_TIMEOUT_MS: 60000,     // 60 seconds timeout for user confirmation
+  LLM_TIMEOUT_MS: 45000,         // LLM API call timeout (configurable via VALIDATION.TIMEOUTS)
   ACTION_DELAY_MS: 350,          // Delay between sequential actions
   BODY_TEXT_LIMIT: 15000,        // Max body text to extract
   MAX_SEMANTIC_ELEMENTS: 250,    // Max semantic elements to index

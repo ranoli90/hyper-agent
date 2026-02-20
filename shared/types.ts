@@ -664,7 +664,13 @@ export type ExtensionMessage =
   | MsgGetScheduledTasksResponse
   | MsgToggleScheduledTask
   | MsgDeleteScheduledTask
-  | MsgInstallWorkflow;
+  | MsgInstallWorkflow
+  | MsgGetInstalledWorkflows
+  | MsgGetSubscriptionState
+  | MsgActivateLicenseKey
+  | MsgOpenCheckout
+  | MsgCancelSubscription
+  | MsgVerifySubscription;
 
 export interface MsgStartModerator {
   type: 'startModerator';
@@ -751,4 +757,31 @@ export interface MsgDeleteScheduledTask {
 export interface MsgInstallWorkflow {
   type: 'installWorkflow';
   workflowId: string;
+}
+
+export interface MsgGetInstalledWorkflows {
+  type: 'getInstalledWorkflows';
+}
+
+export interface MsgGetSubscriptionState {
+  type: 'getSubscriptionState';
+}
+
+export interface MsgActivateLicenseKey {
+  type: 'activateLicenseKey';
+  key: string;
+}
+
+export interface MsgOpenCheckout {
+  type: 'openCheckout';
+  tier: 'premium' | 'unlimited';
+  interval?: 'month' | 'year';
+}
+
+export interface MsgCancelSubscription {
+  type: 'cancelSubscription';
+}
+
+export interface MsgVerifySubscription {
+  type: 'verifySubscription';
 }
