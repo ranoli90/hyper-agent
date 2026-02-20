@@ -896,7 +896,9 @@ export default defineBackground(() => {
 
   // ─── On install: configure side panel ───────────────────────────
   chrome.runtime.onInstalled.addListener(async (details) => {
-    if (details.reason === 'update') {
+    if (details.reason === 'install') {
+      await chrome.storage.local.set({ hyperagent_show_onboarding: true });
+    } else if (details.reason === 'update') {
       await chrome.storage.local.set({ hyperagent_show_changelog: true });
     }
     await withErrorBoundary('extension_installation', async () => {

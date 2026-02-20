@@ -361,6 +361,41 @@
         <div id="progress-percent" class="progress-percent">0%</div>
       </div>
     </div>
+n    <!-- Onboarding Modal -->
+    <div id="onboarding-modal" class="modal hidden">
+      <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+          <h3>👋 Welcome to HyperAgent!</h3>
+        </div>
+        <div class="onboarding-steps">
+          <div class="onboarding-step">
+            <span class="step-icon">🔑</span>
+            <div class="step-content">
+              <strong>1. Add your API Key</strong>
+              <p>Open Settings and add your OpenRouter API key to get started.</p>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <span class="step-icon">💬</span>
+            <div class="step-content">
+              <strong>2. Type a command</strong>
+              <p>Tell HyperAgent what you want to do. Example: "Go to amazon.com and search for headphones"</p>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <span class="step-icon">⚡</span>
+            <div class="step-content">
+              <strong>3. Watch it work</strong>
+              <p>HyperAgent will navigate, click, fill forms, and extract data for you.</p>
+            </div>
+          </div>
+        </div>
+        <div class="modal-buttons">
+          <button id="btn-onboarding-settings" class="btn-secondary">Open Settings</button>
+          <button id="btn-onboarding-close" class="btn-primary">Get Started</button>
+        </div>
+      </div>
+    </div>
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
     <script type="module" src="./main.ts"></script>

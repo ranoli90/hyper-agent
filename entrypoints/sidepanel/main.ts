@@ -1233,6 +1233,23 @@ loadCommandHistory();
 chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
   if (data.hyperagent_show_changelog) {
     chrome.storage.local.remove('hyperagent_show_changelog');
+n// Show onboarding for new installs
+chrome.storage.local.get('hyperagent_show_onboarding').then((data) => {
+  if (data.hyperagent_show_onboarding) {
+    chrome.storage.local.remove('hyperagent_show_onboarding');
+    const modal = document.getElementById('onboarding-modal');
+    if (modal) modal.classList.remove('hidden');
+  }
+});
+
+// Onboarding modal handlers
+document.getElementById('btn-onboarding-close')?.addEventListener('click', () => {
+  document.getElementById('onboarding-modal')?.classList.add('hidden');
+});
+document.getElementById('btn-onboarding-settings')?.addEventListener('click', () => {
+  document.getElementById('onboarding-modal')?.classList.add('hidden');
+  chrome.runtime.openOptionsPage();
+});
     showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
   }
 });
