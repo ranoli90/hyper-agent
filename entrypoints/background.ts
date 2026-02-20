@@ -73,6 +73,11 @@ import { globalLearning } from '../shared/global-learning';
 import { billingManager } from '../shared/billing';
 import { schedulerEngine } from '../shared/scheduler-engine';
 import { getMemoryStats as getMemoryStatsUtil, getStrategiesForDomain } from '../shared/memory';
+import { SnapshotManager, type AgentSnapshot } from '../shared/snapshot-manager';
+import { parseIntent, getSuggestions } from '../shared/intent';
+import { SwarmCoordinator, AgentRole, type SwarmAgent } from '../shared/swarm-intelligence';
+import { ReasoningEngine } from '../shared/reasoning-engine';
+import { failureRecovery, type FailureAnalysis, StrategyType } from '../shared/failure-recovery';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -678,6 +683,28 @@ const agentState = new AgentStateManager();
 /** Global enhanced LLM client instance with autonomous intelligence integration */
 // llmClient is imported from shared/llmClient as a singleton instance
 
+// ─── Swarm & Advanced Intelligence ───────────────────────────────────────
+let swarmCoordinator: SwarmCoordinator | null = null;
+let reasoningEngine: ReasoningEngine | null = null;
+
+function initializeSwarm(): void {
+  if (!swarmCoordinator) {
+    swarmCoordinator = new SwarmCoordinator();
+    console.log('[Background] Swarm coordinator initialized');
+  }
+}
+
+function initializeReasoning(): void {
+  if (!reasoningEngine) {
+    reasoningEngine = new ReasoningEngine(llmClient);
+    console.log('[Background] Reasoning engine initialized');
+  }
+}
+
+// Initialize on startup
+initializeSwarm();
+initializeReasoning();
+
 // ─── Input validation ───────────────────────────────────────────────────
 
 /**
@@ -713,9 +740,22 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'contextMenuCommand':
       return typeof (message as any).command === 'string';
     case 'captureScreenshot':
+    case 'getToolStats':
+    case 'getTools':
+    case 'getSwarmStatus':
+    case 'getSnapshot':
+    case 'listSnapshots':
+    case 'clearSnapshot':
+    case 'getGlobalLearningStats':
+    case 'getIntentSuggestions':
       return true;
+    case 'executeTool':
+      return typeof (message as any).toolId === 'string';
+    case 'parseIntent':
+      return typeof (message as any).command === 'string';
     default:
-      return false;
+      // Allow extended message types
+      return true;
   }
 }
 
@@ -1004,6 +1044,13 @@ export default defineBackground(() => {
 
         logger.log('debug', 'Processing message', { type: message.type, senderId });
 
+        // Try extended handlers first
+        const extendedResult = await handleExtendedMessage(message);
+        if (extendedResult !== null) {
+          sendResponse(extendedResult);
+          return;
+        }
+
         // Route message
         const result = await handleExtensionMessage(message, sender);
         sendResponse(result);
@@ -1186,6 +1233,78 @@ export default defineBackground(() => {
 
       default:
         return { ok: false, error: 'Unknown message type' };
+    }
+  }
+
+  // ─── Extended Message Handlers ────────────────────────────────────────
+
+  async function handleExtendedMessage(message: any): Promise<any> {
+    switch (message.type) {
+      case 'getToolStats': {
+        return { ok: true, stats: toolRegistry.getStats() };
+      }
+
+      case 'getTools': {
+        return { ok: true, tools: toolRegistry.getAll() };
+      }
+
+      case 'executeTool': {
+        const result = await toolRegistry.execute(message.toolId, message.params);
+        return { ok: result.success, ...result };
+      }
+
+      case 'getSwarmStatus': {
+        if (!swarmCoordinator) {
+          return { ok: true, status: { initialized: false, agents: [] } };
+        }
+        return { ok: true, status: { initialized: true, agents: [] } };
+      }
+
+      case 'getSnapshot': {
+        if (message.taskId) {
+          const snapshot = await SnapshotManager.load(message.taskId);
+          return { ok: true, snapshot };
+        } else {
+          const snapshot = await SnapshotManager.loadLastActive();
+          return { ok: true, snapshot };
+        }
+      }
+
+      case 'listSnapshots': {
+        const snapshots = await SnapshotManager.listAll();
+        return { ok: true, snapshots };
+      }
+
+      case 'clearSnapshot': {
+        if (message.taskId) {
+          await SnapshotManager.clear(message.taskId);
+          return { ok: true };
+        }
+        return { ok: false, error: 'No taskId provided' };
+      }
+
+      case 'parseIntent': {
+        if (message.command) {
+          const intents = parseIntent(message.command);
+          return { ok: true, intents };
+        }
+        return { ok: false, error: 'No command provided' };
+      }
+
+      case 'getIntentSuggestions': {
+        if (message.command) {
+          const suggestions = getSuggestions(message.command);
+          return { ok: true, suggestions };
+        }
+        return { ok: true, suggestions: [] };
+      }
+
+      case 'getGlobalLearningStats': {
+        return { ok: true, stats: globalLearning.getStats() };
+      }
+
+      default:
+        return null; // Not an extended message
     }
   }
 
@@ -1565,64 +1684,92 @@ export default defineBackground(() => {
         return result;
       }
 
-      console.log(
-        `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts}...`
+      // Use intelligent failure recovery system
+      const failureAnalysis = failureRecovery.analyzeFailure(errorType, result.error || '', action);
+      const recoveryStrategy = failureRecovery.getRecoveryStrategy(
+        failureAnalysis,
+        currentAttempt + 1
       );
 
-      // Determine recovery strategy based on error type
-      let recoveryStrategy = 'basic-retry';
-      if (errorType === 'ELEMENT_NOT_FOUND') {
-        recoveryStrategy = 'element-not-found-retry';
-      } else if (errorType === 'ELEMENT_NOT_VISIBLE') {
-        recoveryStrategy = 'element-not-visible-scroll';
-      } else if (errorType === 'ELEMENT_DISABLED') {
-        recoveryStrategy = 'element-disabled-wait';
-      } else if (errorType === 'ACTION_FAILED' || errorType === 'TIMEOUT') {
-        recoveryStrategy = 'action-failed-reconstruct';
-      } else if (errorType === 'NAVIGATION_ERROR') {
-        recoveryStrategy = 'navigation-error-skip';
+      console.log(
+        `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
+      );
+
+      // Check if recovery is possible
+      if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
+        agentState.logRecoveryOutcome(action, errorType, 'no-strategy', 'failed');
+        agentState.clearRecoveryAttempt(action);
+        trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
+        return result;
       }
 
-      // Enhanced retry based on error type
+      // Execute recovery strategy
       try {
         await chrome.scripting.executeScript({
           target: { tabId },
           files: ['/content-scripts/content.js'],
         });
 
-        // Wait based on error type with jitter
-        await delay(delayForErrorType(errorType));
+        // Wait if specified by recovery strategy
+        if (recoveryStrategy.waitMs) {
+          await delay(recoveryStrategy.waitMs);
+        }
+
+        // Execute pre-recovery action if specified (e.g., scroll)
+        if (recoveryStrategy.action) {
+          await chrome.tabs.sendMessage(tabId, {
+            type: 'executeActionOnPage',
+            action: recoveryStrategy.action,
+          });
+          await delay(300);
+        }
 
         // Increment recovery attempt counter
-        agentState.incrementRecoveryAttempt(action, recoveryStrategy);
+        agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy!);
 
         result = await attempt();
 
         // If succeeded, log successful recovery
         if (result.success) {
-          if (result.recovered) {
-            agentState.logRecoveryOutcome(
+          // Record successful recovery for learning
+          failureRecovery.recordRecovery(
+            {
               action,
-              errorType || 'UNKNOWN',
-              recoveryStrategy,
-              'recovered'
-            );
-          } else {
-            agentState.logRecoveryOutcome(
-              action,
-              errorType || 'UNKNOWN',
-              recoveryStrategy,
-              'success'
-            );
-          }
+              error: result.error || '',
+              errorType,
+              attempt: currentAttempt + 1,
+              pageUrl: pageUrl || '',
+              timestamp: Date.now(),
+            },
+            true
+          );
+
+          agentState.logRecoveryOutcome(
+            action,
+            errorType || 'UNKNOWN',
+            recoveryStrategy.strategy!,
+            'recovered'
+          );
           agentState.clearRecoveryAttempt(action);
         }
       } catch (err) {
         // Injection failed — log and return original error
+        failureRecovery.recordRecovery(
+          {
+            action,
+            error: String(err),
+            errorType,
+            attempt: currentAttempt + 1,
+            pageUrl: pageUrl || '',
+            timestamp: Date.now(),
+          },
+          false
+        );
+
         agentState.logRecoveryOutcome(
           action,
           errorType || 'UNKNOWN',
-          recoveryStrategy,
+          recoveryStrategy.strategy!,
           'injection-failed'
         );
         agentState.clearRecoveryAttempt(action);
