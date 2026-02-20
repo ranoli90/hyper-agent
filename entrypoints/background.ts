@@ -993,23 +993,17 @@ export default defineBackground(() => {
       });
 
       logger.log('info', 'Starting autonomous reasoning for task', { command: redact(command) });
-      sendToSidePanel({ type: 'agentProgress', status: 'Thinking (Advanced)...', step: 'plan' });
+      sendToSidePanel({ type: 'agentProgress', status: 'Deep reasoning...', step: 'plan' });
 
       const pageCtx = await getPageContext(tabId);
-      const plan = await autonomousIntelligence.understandAndPlan(command, {
+
+      const intelligenceContext = {
         taskDescription: command,
         availableTools: [
-          'navigate',
-          'click',
-          'fill',
-          'extract',
-          'scroll',
-          'wait',
-          'hover',
-          'focus',
-          'select',
+          'navigate', 'click', 'fill', 'extract', 'scroll',
+          'wait', 'hover', 'focus', 'select',
         ],
-        previousAttempts: [],
+        previousAttempts: [] as any[],
         environmentalData: {
           url: tab.url,
           html: pageCtx.bodyText.slice(0, 5000),
@@ -1017,8 +1011,30 @@ export default defineBackground(() => {
         },
         userPreferences: {},
         domainKnowledge: {},
-        successPatterns: [],
-      });
+        successPatterns: [] as any[],
+      };
+
+      // Phase 1: Tree-of-Thoughts reasoning (if reasoning engine is available)
+      if (reasoningEngine) {
+        try {
+          sendToSidePanel({ type: 'agentProgress', status: 'Tree-of-Thoughts analysis...', step: 'plan' });
+          const reasoning = await reasoningEngine.analyzeTask(intelligenceContext);
+          logger.log('info', 'Reasoning engine analysis', { steps: reasoning.length });
+          // Feed reasoning insights into the planning context
+          intelligenceContext.domainKnowledge = { reasoningInsights: reasoning };
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Planning with insights...',
+            step: 'plan',
+            summary: reasoning.slice(0, 3).join(' | '),
+          });
+        } catch (err: any) {
+          logger.log('warn', 'Reasoning engine failed, continuing without', { error: err.message });
+        }
+      }
+
+      // Phase 2: Generate autonomous plan
+      const plan = await autonomousIntelligence.understandAndPlan(command, intelligenceContext);
 
       logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
 
@@ -1235,33 +1251,29 @@ export default defineBackground(() => {
 
       case 'installWorkflow': {
         const msg = message as any;
-        const workflows: Record<string, any> = {
-          'web-scraper': {
-            id: 'web-scraper',
-            name: 'Web Scraper',
-            actions: [{ type: 'extract', description: 'Extract data from page' }],
-          },
-          'email-automation': {
-            id: 'email-automation',
-            name: 'Email Automation',
-            actions: [{ type: 'fill', description: 'Fill email form' }],
-          },
-          'social-media-poster': {
-            id: 'social-media-poster',
-            name: 'Social Media Poster',
-            actions: [{ type: 'click', description: 'Post to social media' }],
-          },
-          'invoice-processor': {
-            id: 'invoice-processor',
-            name: 'Invoice Processor',
-            actions: [{ type: 'extract', description: 'Extract invoice data' }],
-          },
-        };
-        const workflow = workflows[msg.workflowId];
-        if (workflow) {
-          return { ok: true, workflow };
+        if (!msg.workflowId) return { ok: false, error: 'No workflowId provided' };
+
+        try {
+          // Track installed marketplace workflows
+          const installed = await chrome.storage.local.get('hyperagent_installed_workflows');
+          const list: string[] = installed.hyperagent_installed_workflows || [];
+          if (!list.includes(msg.workflowId)) {
+            list.push(msg.workflowId);
+            await chrome.storage.local.set({ hyperagent_installed_workflows: list });
+          }
+          return { ok: true, workflowId: msg.workflowId };
+        } catch (err: any) {
+          return { ok: false, error: err.message };
         }
-        return { ok: false, error: 'Workflow not found' };
+      }
+
+      case 'getInstalledWorkflows': {
+        try {
+          const installed = await chrome.storage.local.get('hyperagent_installed_workflows');
+          return { ok: true, workflows: installed.hyperagent_installed_workflows || [] };
+        } catch {
+          return { ok: true, workflows: [] };
+        }
       }
 
       case 'getSubscriptionState': {

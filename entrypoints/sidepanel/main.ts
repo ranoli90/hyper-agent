@@ -686,8 +686,17 @@ const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
 let activeCategory = 'all';
 let searchQuery = '';
 let marketplaceListenersAttached = false;
+let installedWorkflowIds: Set<string> = new Set();
 
-function loadMarketplace() {
+async function loadMarketplace() {
+  // Load installed workflows from background
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'getInstalledWorkflows' });
+    if (resp?.ok && Array.isArray(resp.workflows)) {
+      installedWorkflowIds = new Set(resp.workflows);
+    }
+  } catch {}
+
   renderMarketplaceWorkflows();
 
   if (marketplaceListenersAttached) return;
@@ -735,10 +744,26 @@ function renderMarketplaceWorkflows() {
     const currentTier = billingManager.getTier();
     const tierOrder = { free: 0, premium: 1, unlimited: 2 };
     const canInstall = tierOrder[currentTier] >= tierOrder[workflow.tier];
+    const isInstalled = installedWorkflowIds.has(workflow.id);
     const stars = '★'.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
 
+    let btnLabel: string;
+    let btnClass: string;
+    let btnDisabled = '';
+    if (isInstalled) {
+      btnLabel = '✓ Installed';
+      btnClass = 'install-btn installed';
+      btnDisabled = 'disabled';
+    } else if (!canInstall) {
+      btnLabel = '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
+      btnClass = 'install-btn locked';
+    } else {
+      btnLabel = 'Install';
+      btnClass = 'install-btn';
+    }
+
     const card = document.createElement('div');
-    card.className = `workflow-card${!canInstall ? ' locked' : ''}`;
+    card.className = `workflow-card${!canInstall && !isInstalled ? ' locked' : ''}`;
     card.innerHTML = `
       <div class="workflow-card-header">
         <span class="workflow-icon">${workflow.icon}</span>
@@ -752,8 +777,8 @@ function renderMarketplaceWorkflows() {
         <span class="workflow-rating" title="${workflow.rating}/5">${stars} ${workflow.rating}</span>
         <span class="workflow-installs">${workflow.installs} installs</span>
       </div>
-      <button class="install-btn${!canInstall ? ' locked' : ''}" data-workflow-id="${workflow.id}" ${!canInstall ? 'title="Requires ' + workflow.tier + ' plan"' : ''}>
-        ${!canInstall ? '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1) : 'Install'}
+      <button class="${btnClass}" data-workflow-id="${workflow.id}" ${btnDisabled}>
+        ${btnLabel}
       </button>
     `;
     components.marketplaceList.appendChild(card);
@@ -782,8 +807,10 @@ async function installWorkflow(workflowId: string) {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId });
     if (response?.ok) {
+      installedWorkflowIds.add(workflowId);
       addMessage(`Workflow "${escapeHtml(workflowId)}" installed successfully!`, 'agent');
       showToast('Workflow installed', 'success');
+      renderMarketplaceWorkflows();
     } else {
       addMessage(`Failed to install workflow: ${escapeHtml(response?.error || 'Unknown error')}`, 'error');
     }
@@ -1246,8 +1273,13 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
       components.confirmModal.classList.remove('hidden');
 
+      // Resolve any orphaned previous confirmation before creating a new one
+      if (state.confirmResolve) {
+        state.confirmResolve(false);
+        state.confirmResolve = null;
+      }
+
       new Promise<boolean>(resolve => {
-        // Store resolve function in state so buttons can call it
         state.confirmResolve = (val: boolean) => {
           resolve(val);
           state.confirmResolve = null;
@@ -1308,12 +1340,15 @@ let voiceInterface = new VoiceInterface({
   },
   onEnd: () => {
     components.btnMic.classList.remove('active');
-    components.commandInput.placeholder = 'Ask HyperAgent...';
+    components.commandInput.placeholder = 'Type a command...';
     const text = components.commandInput.value.trim();
     if (text) handleCommand(text);
   },
-  onResult: text => {
+  onResult: (text, isFinal) => {
     components.commandInput.value = text;
+    if (isFinal) {
+      updateCharCounter(text);
+    }
   },
 });
 

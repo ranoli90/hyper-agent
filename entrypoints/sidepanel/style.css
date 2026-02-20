@@ -2220,3 +2220,5 @@ body {
 .install-btn:hover { background: var(--accent-light); }
 .install-btn.locked { background: var(--surface-tertiary); color: var(--text-tertiary); }
 .install-btn.locked:hover { background: var(--surface-tertiary); color: var(--text-secondary); }
+.install-btn.installed { background: #10b981; color: white; cursor: default; opacity: 0.8; }
+.install-btn.installed:hover { background: #10b981; transform: none; }

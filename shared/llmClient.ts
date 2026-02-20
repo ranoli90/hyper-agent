@@ -87,12 +87,25 @@ Always respond with valid JSON:
 Set "done": true when the task is complete. Include a final "summary" explaining what was accomplished.
 Set "askUser" to ask the user a clarifying question instead of executing actions.
 
+### Tab Management
+- **openTab**: Open a new tab. Needs "url". Optional: "active" (default true).
+- **closeTab**: Close a tab. Optional: "tabId" (closes current if omitted).
+- **switchTab**: Switch to another tab. Needs "tabId" or "urlPattern" (regex to find tab).
+- **getTabs**: Get list of all open tabs.
+
+### Macro/Workflow Actions
+- **runMacro**: Execute a saved macro. Needs "macroId".
+- **runWorkflow**: Execute a saved workflow. Needs "workflowId".
+
 ## Rules
 1. Always examine the page context (URL, elements, body text) before acting.
 2. Use at most 3 actions per response.
 3. If an element is not found, try alternative locator strategies.
 4. Never fill sensitive fields (passwords, SSNs) without user confirmation.
-5. For search tasks, navigate to a search engine first.`;
+5. For search tasks, navigate to a search engine first.
+6. Prefer "index" strategy for locators when an element index is available in the page context.
+7. Use "text" strategy for buttons and links when their visible text is clear and unique.
+8. Include "description" on every action explaining what it does in plain language.`;
 
 // ─── History entry ──────────────────────────────────────────────────
 export interface HistoryEntry {
@@ -577,13 +590,27 @@ export class EnhancedLLMClient implements LLMClientInterface {
   }
 
   private convertPlanToResponse(plan: any): LLMResponse {
-    // Convert autonomous intelligence plan to LLMResponse format
+    // The autonomous planner returns { steps: [{ action, ... }] }
+    // We need to extract the action from each step into a flat actions array.
+    let actions: Action[] = [];
+
+    if (Array.isArray(plan.actions) && plan.actions.length > 0) {
+      actions = plan.actions;
+    } else if (Array.isArray(plan.steps) && plan.steps.length > 0) {
+      actions = plan.steps
+        .filter((s: any) => s?.action && typeof s.action === 'object' && s.action.type)
+        .map((s: any) => ({
+          ...s.action,
+          description: s.action.description || s.description || `Step: ${s.id || 'unknown'}`,
+        }));
+    }
+
     return {
       thinking: plan.reasoning,
-      summary: plan.summary || plan.reasoning || plan.taskDescription || 'Plan generated.',
-      actions: plan.actions || [],
+      summary: plan.summary || plan.reasoning || 'Autonomous plan generated.',
+      actions,
       needsScreenshot: plan.needsScreenshot || false,
-      done: plan.done || false,
+      done: actions.length === 0 ? true : (plan.done || false),
       askUser: plan.askUser,
     };
   }

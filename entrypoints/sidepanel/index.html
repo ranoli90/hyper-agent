@@ -26,8 +26,8 @@
           <button class="tab-btn" data-tab="subscription">Subscription</button>
         </div>
         <div style="display:flex;align-items:center;gap:6px;">
-          <button id="btn-dark-mode" title="Toggle dark mode" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:4px;">🌙</button>
-          <button id="btn-settings" title="Settings">⚙️</button>
+          <button id="btn-dark-mode" title="Toggle dark mode" aria-label="Toggle dark mode" style="background:none;border:none;cursor:pointer;font-size:1rem;padding:4px;">🌙</button>
+          <button id="btn-settings" title="Settings" aria-label="Open settings">⚙️</button>
           <span id="subscription-badge" class="subscription-badge free">Free</span>
         </div>
       </header>
@@ -326,9 +326,9 @@
           <div id="char-counter" aria-live="polite">0 / 2000</div>
         </div>
         <div class="input-actions">
-          <button id="btn-mic" title="Voice Input">🎤</button>
-          <button id="btn-stop" class="hidden">Stop</button>
-          <button id="btn-execute">Run</button>
+          <button id="btn-mic" title="Voice Input" aria-label="Voice input">🎤</button>
+          <button id="btn-stop" class="hidden" aria-label="Stop agent">Stop</button>
+          <button id="btn-execute" aria-label="Run command">Run</button>
         </div>
       </div>
 
