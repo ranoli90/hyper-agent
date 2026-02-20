@@ -77,3 +77,14 @@ Side Panel ←→ Background ←→ Content Script
 
 - [WXT](https://wxt.dev/)
 - [Chrome Extensions](https://developer.chrome.com/docs/extensions/)
+## Known Issue: LLM Retry Integration
+
+The retry infrastructure (retryWithBackoff, networkRetryPolicy) exists in
+shared/retry-circuit-breaker.ts but is not yet integrated into llmClient.ts.
+
+This requires careful refactoring to:
+1. Wrap fetch calls in retryWithBackoff
+2. Handle retryable vs non-retryable errors appropriately
+3. Preserve existing error handling for 429, auth errors, etc.
+
+Marked as future work.
