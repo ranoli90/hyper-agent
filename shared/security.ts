@@ -240,6 +240,16 @@ export function redact(value: any): string {
   const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
   const REDACTION_TOKEN = '***REDACTED***';
   const patterns: RegExp[] = [
+    // OpenRouter/OpenAI-style API keys
+    /sk-[a-zA-Z0-9]{20,}/g,
+    // Anthropic API keys
+    /sk-ant-[a-zA-Z0-9-]{20,}/g,
+    // Google AI keys
+    /AIza[a-zA-Z0-9_-]{35}/g,
+    // Stripe keys
+    /(sk_live|sk_test|pk_live|pk_test)_[a-zA-Z0-9]{24,}/g,
+    // AWS keys
+    /AKIA[A-Z0-9]{16}/g,
     /([a-zA-Z0-9_.+-]+)@([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)/g, // email
     /\b(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g, // phone (simple)
     /\b(?:\d[ -]*?){13,19}\b/g, // cc-like numbers
