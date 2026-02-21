@@ -9,7 +9,7 @@
 ## Build Status
 
 - [x] TypeScript compiles without errors
-- [x] Unit tests passing (80 tests)
+- [x] Unit tests passing (94 tests)
 - [x] E2E tests configured
 - [x] Chrome MV3 compatible
 
@@ -23,7 +23,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for full history.
 
 - 78 audit items completed
 - New modules: error-reporter, storage-monitor, debug
-- 80 unit tests (up from 68)
+- 94 unit tests (up from 68)
 - Enhanced security (redaction, sanitization)
 - User experience improvements (onboarding, offline handling)
 - Documentation updated
@@ -36,6 +36,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for full history.
 |-----|---------|
 | [docs/DEVELOPER.md](docs/DEVELOPER.md) | Developer handoff guide |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture |
+| [docs/FIRST_USER_READINESS.md](docs/FIRST_USER_READINESS.md) | First user acceptance checklist |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Contribution guide |
 | [public/PRIVACY_POLICY.md](public/PRIVACY_POLICY.md) | Privacy policy |
 | [public/PERMISSIONS.md](public/PERMISSIONS.md) | Permission justifications |
@@ -45,8 +46,7 @@ See [CHANGELOG.md](./CHANGELOG.md) for full history.
 ## Known Limitations
 
 1. **LLM Retry Integration** - Retry infrastructure exists but not integrated into llmClient
-2. **Workflow Condition Execution** - Conditions not evaluated during workflow execution
-3. **Marketplace Workflows** - Display only, no actual workflow definitions
+2. **Marketplace Workflows** - Display only, no actual workflow definitions
 
 ---
 
@@ -58,8 +58,9 @@ See [CHANGELOG.md](./CHANGELOG.md) for full history.
 | Intent | 18 | Passing |
 | Config | 16 | Passing |
 | Security | 10 | Passing |
-| Workflows | 2 | Passing |
-| **Total** | **80** | **Passing** |
+| Workflows | 3 | Passing |
+| Storage | 13 | Passing |
+| **Total** | **94** | **Passing** |
 
 ---
 

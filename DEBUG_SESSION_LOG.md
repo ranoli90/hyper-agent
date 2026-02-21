@@ -189,3 +189,25 @@ No new issues found in Pass 2. Catch blocks without params that don't reference 
 
 ---
 
+## Phase 7: Documentation & First User Readiness (2026-02-21)
+
+### Documentation Updates
+- **README.md**: Test count 80 → 94; added FIRST_USER_READINESS to doc table
+- **STATUS.md**: Test count, known limitations (removed workflow conditions — now fixed), doc links
+- **AGENTS.md**: Workflow conditions removed from limitations; test counts (workflows 3, storage 13, total 94)
+- **docs/DEVELOPER.md**: Workflow conditions now evaluated; test count 94
+
+### First User Readiness
+- **docs/FIRST_USER_READINESS.md**: New checklist — install, onboarding, API key, first command, docs
+- **Onboarding**: Added OpenRouter API key link (https://openrouter.ai/keys) in step 1
+- **sidepanel/index.html**: Fixed typo `n    <!--` → `    <!--`
+
+### Verification
+- type-check: ✅
+- test:unit: ✅ (94 tests)
+- lint: ✅
+
+**Status:** Ready for first user acceptance
+
+---
+

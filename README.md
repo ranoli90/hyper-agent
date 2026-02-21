@@ -5,7 +5,7 @@ A Chrome extension that acts as an autonomous AI agent for web automation. Uses 
 [![Build](https://img.shields.io/badge/build-passing-green.svg)](https://github.com/ranoli90/hyper-agent)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
 [![Chrome MV3](https://img.shields.io/badge/Chrome-MV3-orange.svg)](https://developer.chrome.com/docs/extensions/mv3/intro/)
-[![Tests](https://img.shields.io/badge/tests-80%20passing-brightgreen.svg)](./tests)
+[![Tests](https://img.shields.io/badge/tests-94%20passing-brightgreen.svg)](./tests)
 
 **Version:** 3.0.0
 
@@ -97,7 +97,7 @@ hyper-agent/
 |---------|-------------|
 | `npm run dev` | Development with hot reload |
 | `npm run build` | Production build |
-| `npm run test:unit` | Unit tests (Vitest) - 80 tests |
+| `npm run test:unit` | Unit tests (Vitest) - 94 tests |
 | `npm run test:e2e` | E2E tests (Playwright) |
 | `npm run type-check` | TypeScript check |
 
@@ -125,6 +125,7 @@ hyper-agent/
 |-----|---------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture and data flow |
 | [docs/DEVELOPER.md](docs/DEVELOPER.md) | Developer handoff and key patterns |
+| [docs/FIRST_USER_READINESS.md](docs/FIRST_USER_READINESS.md) | First user acceptance checklist |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | How to contribute |
 | [docs/SETUP.md](docs/SETUP.md) | Detailed setup instructions |
 | [shared/README.md](shared/README.md) | Shared module index |

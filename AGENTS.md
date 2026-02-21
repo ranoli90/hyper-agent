@@ -87,16 +87,16 @@ Condensed development history. Full iteration details archived.
 | `intent.test.ts` | 18 |
 | `config.test.ts` | 16 |
 | `security.test.ts` | 10 |
-| `workflows.test.ts` | 2 |
-| **Total** | **80** |
+| `workflows.test.ts` | 3 |
+| `storage.test.ts` | 13 |
+| **Total** | **94** |
 
 ---
 
 ## Known Limitations
 
 1. **LLM Retry** - Infrastructure exists, not integrated
-2. **Workflow Conditions** - Not evaluated during execution
-3. **Marketplace** - Display only, no definitions
+2. **Marketplace** - Display only, no definitions
 
 ---
 

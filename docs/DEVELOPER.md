@@ -75,7 +75,7 @@ Side Panel <-> Background <-> Content Script
 ## Testing
 
 ```bash
-npm run test:unit   # 80 tests (Vitest)
+npm run test:unit   # 94 tests (Vitest)
 npm run test:e2e    # Playwright
 ```
 
@@ -114,7 +114,7 @@ npm run test:e2e    # Playwright
 The retry infrastructure exists in shared/retry-circuit-breaker.ts but is not yet integrated into llmClient.ts. Requires wrapping fetch calls with retry logic.
 
 ### Workflow Condition Execution
-Workflow conditions are not evaluated during runWorkflow - checkCondition exists but lacks page context.
+Workflow conditions are now evaluated during runWorkflow. Background passes `getContextFn` to fetch page context from the content script; conditions use `checkCondition` with that context.
 
 ### Marketplace Workflows
 No actual workflow definitions - only display metadata. Labeled "Coming Soon".
