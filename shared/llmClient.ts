@@ -54,11 +54,41 @@ class RateLimiter {
 }
 
 class CostTracker {
+  private sessionTokens = 0;
+  private sessionCost = 0;
+  private warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
+
   trackCost(model: string, usage: any): void {
-    // Simple cost tracking - could be enhanced later
-    console.log(`[CostTracker] Tracked cost for ${model}`, usage);
+    if (usage?.total_tokens) {
+      this.sessionTokens += usage.total_tokens;
+    }
+    // Rough cost estimate (varies by model)
+    const costPer1kTokens = 0.001; // $0.001 per 1k tokens (approximate)
+    if (usage?.total_tokens) {
+      this.sessionCost += (usage.total_tokens / 1000) * costPer1kTokens;
+    }
+    if (this.sessionCost >= this.warningThreshold) {
+      console.warn(`[CostTracker] Session cost warning: $${this.sessionCost.toFixed(4)} (threshold: $${this.warningThreshold})`);
+    }
+    console.log(`[CostTracker] Session: ${this.sessionTokens} tokens, $${this.sessionCost.toFixed(4)}`);
+  }
+
+  getSessionStats() {
+    return { tokens: this.sessionTokens, cost: this.sessionCost };
+  }
+
+  resetSession() {
+    this.sessionTokens = 0;
+    this.sessionCost = 0;
+  }
+
+  isOverLimit(): boolean {
+    return this.sessionTokens >= (DEFAULTS.MAX_TOKENS_PER_SESSION ?? 100000);
   }
 }
+
+class CostTrackerLegacy {
+  }
 
 class TokenCounter {
   // Simple token counter - could be enhanced later
