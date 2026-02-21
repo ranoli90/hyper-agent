@@ -59,11 +59,11 @@
 
 | # | Issue | Source | Notes |
 |---|-------|--------|------|
-| O6 | Workflow conditions not evaluated | AGENTS, STATUS | checkCondition exists; not called during runWorkflow |
+| O6 | ~~Workflow conditions not evaluated~~ | AGENTS, STATUS | ✅ FIXED: runWorkflow now accepts getContextFn, evaluates conditions |
 | O7 | Marketplace workflows display only | AGENTS, STATUS | No actual workflow definitions |
 | O8 | LLM retry not integrated | AGENTS, STATUS | retry-circuit-breaker exists; not wired to llmClient |
 | O9 | TikTok Moderator selectors may be stale | PROD-4.13 | .tiktok-chat-messages etc. — verify against live DOM |
-| O10 | visionUpdate screenshot format | PROD-4.12 | Base64 vs data URL prefix inconsistency |
+| O10 | ~~visionUpdate screenshot format~~ | PROD-4.12 | ✅ FIXED: visionUpdate sends full data URL |
 
 ---
 
@@ -126,7 +126,7 @@
 | # | Issue | Source | Notes |
 |---|-------|--------|------|
 | O39 | No analytics | PROD-5.2 | Usage metrics, success rate |
-| O40 | Export chat history | PROD-5.7 | /export-chat exists; verify |
+| O40 | Export chat history | PROD-5.7 | ✅ /export-chat and exportChatHistory() exist |
 | O41 | Export settings warning | PROD-5.9 | Sensitive data in export |
 | O42 | Changelog on update | PROD-5.10 | chrome.runtime.onInstalled reason=update |
 | O43 | A/B testing | PROD-5.8 | Strategic |
