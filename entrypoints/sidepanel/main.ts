@@ -360,13 +360,13 @@ function showSuggestions(query: string) {
           components.commandInput.dispatchEvent(new Event('input'));
         });
         container.appendChild(div);
-      } catch {
+      } catch (err) {
         console.warn('[HyperAgent] Failed to create suggestion item:', err);
       }
     });
 
     container.classList.remove('hidden');
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] showSuggestions failed:', err);
     if (components.suggestions) {
       components.suggestions.classList.add('hidden');
@@ -413,7 +413,7 @@ function renderMarkdown(text: string): string {
       .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
       .join('');
     return html;
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] renderMarkdown failed', err);
     return escapeHtml(text);
   }
@@ -549,7 +549,7 @@ async function saveHistoryImmediate() {
   try {
     const historyHTML = components.chatHistory.innerHTML;
     await chrome.storage.local.set({ chat_history_backup: historyHTML });
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Failed to save chat history:', err);
   }
 }
@@ -574,7 +574,7 @@ async function loadHistory() {
       components.chatHistory.innerHTML = result.sanitizedValue;
       scrollToBottom();
     }
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Failed to load chat history:', err);
   }
 }
@@ -705,7 +705,7 @@ async function updateUsageDisplay() {
     if (cancelBtn) {
       cancelBtn.classList.toggle('hidden', tier === 'free');
     }
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Failed to update usage display:', err);
   }
 }
@@ -1161,7 +1161,7 @@ async function loadSwarmTab() {
     if (agentResponse?.ok && activeMissions) {
       activeMissions.textContent = agentResponse.status?.isRunning ? '1' : '0';
     }
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Failed to load swarm tab:', err);
   }
 
@@ -1526,7 +1526,7 @@ components.btnMic.addEventListener('click', () => {
     } else {
       voiceInterface.startListening();
     }
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Voice interface error:', err);
     showToast('Voice input not available in this browser', 'error');
   }
@@ -1638,7 +1638,7 @@ async function updateSubscriptionBadge() {
     if (status.tier === 'free') {
       badge.classList.add('free');
     }
-  } catch {
+  } catch (err) {
     console.warn('[HyperAgent] Failed to update subscription badge:', err);
   }
 }
@@ -1753,7 +1753,7 @@ async function exportSettings() {
     URL.revokeObjectURL(url);
 
     showToast('Settings exported successfully!', 'success');
-  } catch {
+  } catch (err) {
     showToast('Failed to export settings', 'error');
     console.error('[HyperAgent] Export error:', err);
   }
@@ -1788,7 +1788,7 @@ async function importSettings() {
       showToast('Settings imported successfully!', 'success');
 
       setTimeout(() => location.reload(), 1000);
-    } catch {
+    } catch (err) {
       showToast('Failed to import settings: Invalid file', 'error');
       console.error('[HyperAgent] Import error:', err);
     }
