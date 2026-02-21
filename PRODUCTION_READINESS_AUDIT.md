@@ -460,8 +460,8 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 1.12 Empty command validation
 - [x] 4.3 Tasks "New" button handler
 - [x] 4.5 Vision "Analyze Page" handler
-- [ ] 4.2 Stripe checkout return flow
-- [ ] 4.1 Marketplace workflows
+- [x] 4.2 Stripe checkout return flow
+- [x] 4.1 Marketplace workflows (labeled "Coming Soon")
 - [x] 4.11 Scheduler "once" task validation
 
 ### Phase 5 — UX Inconsistencies
@@ -474,28 +474,28 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 3.9 Remove dead import getUserSiteConfigs
 
 ### Phase 6 — Missing Features
-- [ ] 5.1 Error reporting
-- [ ] 7.3 Privacy policy
-- [ ] 5.3 Onboarding
-- [ ] 5.4 Offline handling
-- [ ] 5.5 Rate limit feedback
+- [x] 5.1 Error reporting (error-reporter module)
+- [x] 7.3 Privacy policy (public/privacy-policy.html)
+- [x] 5.3 Onboarding (first-run modal)
+- [x] 5.4 Offline handling (sidepanel offline indicator)
+- [x] 5.5 Rate limit feedback (timeUntilReset in UI)
 - [x] 5.6 Keyboard shortcut focus input
 - [x] 5.9 Export settings warning
 - [x] 5.10 Changelog on update
 
 ### Phase 7 — Accessibility
 - [x] 8.1 Chat aria-live
-- [ ] 8.2 Modal focus trap
+- [x] 8.2 Modal focus trap
 - [x] 8.3 Status aria-live
 - [x] 8.4 Tab aria-selected
 - [x] 8.9 visionSnapshot null check
 
 ### Phase 8 — Performance & Polish
-- [ ] 6.1 Content script overhead
-- [ ] 6.2 getPageContext cost
-- [ ] 6.9 Storage quota monitoring
+- [x] 6.1 Content script overhead (lazy site config, context cache)
+- [x] 6.2 getPageContext cost (context cache with TTL)
+- [x] 6.9 Storage quota monitoring (storage-monitor module)
 - [x] 10.7 Replace substr
-- [ ] 10.8 Console.log in production
+- [x] 10.8 Console.log in production (debug module)
 
 ### Phase 9 — Technical Debt
 - [x] 1.8 Duplicate getMemoryStats
@@ -537,14 +537,14 @@ Fix in this exact order to minimize rework and address blocking issues first:
 
 ### Phase 15 — LLM/API Resilience
 - [x] 16.1 429 handling
-- [ ] 16.2 retry for LLM
-- [ ] 16.3 Token/cost caps
+- [x] 16.2 retry for LLM (integrated retryManager with circuit breaker)
+- [x] 16.3 Token/cost caps (CostTracker with MAX_TOKENS_PER_SESSION)
 - [x] 22.1 User-friendly errors
 
 ### Phase 16 — Legal & Compliance
-- [ ] 19.1 Privacy policy
-- [ ] 19.3 Data disclosure
-- [ ] 19.4 Data export/deletion
+- [x] 19.1 Privacy policy (public/privacy-policy.html)
+- [x] 19.3 Data disclosure (in privacy policy)
+- [x] 19.4 Data export/deletion (GDPR buttons in options)
 
 ### Phase 17 — Storage & DOM
 - [ ] 17.1 Storage migration

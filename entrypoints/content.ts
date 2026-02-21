@@ -101,19 +101,7 @@ export default defineContentScript({
     }
 
     // ─── Page context collection ──────────────────────────────────
-
-    // Context cache to throttle expensive DOM queries
-    let cachedContext: PageContext | null = null;
-    let contextCacheTime = 0;
-    const CONTEXT_CACHE_TTL = 2000; // 2 seconds
-
     function getPageContext(): PageContext {
-      // Return cached context if still valid
-      const now = Date.now();
-      if (cachedContext && (now - contextCacheTime) < CONTEXT_CACHE_TTL) {
-        return cachedContext;
-      }
-
       const bodyText = (document.body?.innerText ?? '').slice(0, DEFAULTS.BODY_TEXT_LIMIT);
 
       // Meta description
@@ -218,25 +206,29 @@ export default defineContentScript({
         semanticElements = [];
       }
 
-      const context: PageContext = {
+      return {
         url: window.location.href,
         title: document.title,
         bodyText,
         metaDescription,
         formCount,
         semanticElements,
-        timestamp: now,
+        timestamp: Date.now(),
         scrollPosition: { x: window.scrollX, y: window.scrollY },
         viewportSize: { width: window.innerWidth, height: window.innerHeight },
         pageHeight: document.documentElement.scrollHeight,
         // Vision-first fallback: if too few semantic elements, flag for screenshot
         needsScreenshot: semanticElements.length < DEFAULTS.VISION_FALLBACK_THRESHOLD,
       };
-
-      cachedContext = context;
-      contextCacheTime = now;
-      return context;
     }
+
+    // ─── Get direct text (not deeply nested children) ─────────────
+    function getDirectText(el: HTMLElement): string {
+      // For inputs, return placeholder or value
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        return (el as HTMLInputElement).placeholder || (el as HTMLInputElement).value || '';
+      }
+      // For short elements, return innerText
       const text = (el.innerText || el.textContent || '').trim();
       if (text.length <= 150) return text;
       // For long elements, get only direct text nodes

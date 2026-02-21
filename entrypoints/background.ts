@@ -922,7 +922,7 @@ export default defineBackground(() => {
       ); // Every hour
 
       logger.log('info', 'HyperAgent background initialized');
-n      // Check storage quota on startup
+      // Check storage quota on startup
       const quotaCheck = await checkStorageQuota();
       if (!quotaCheck.ok || quotaCheck.message) {
         logger.log(quotaCheck.ok ? 'warn' : 'error', quotaCheck.message || 'Storage issue');

@@ -512,6 +512,69 @@ function attachDangerZoneHandlers() {
     await loadCurrentSettings();
     showNotification('Cache cleared successfully', 'success');
   });
+
+  const btnExportAll = document.getElementById('btn-export-all') as HTMLButtonElement;
+  btnExportAll?.addEventListener('click', async () => {
+    try {
+      const allData = await storageGet(null);
+      const exportData = {
+        version: '1.0',
+        exportedAt: new Date().toISOString(),
+        source: 'HyperAgent GDPR Export',
+        data: allData,
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hyperagent-gdpr-export-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showNotification('All data exported successfully', 'success');
+    } catch (err) {
+      showNotification('Failed to export data', 'error');
+      console.error('[HyperAgent] Export error:', err);
+    }
+  });
+
+  const btnDeleteAllData = document.getElementById('btn-delete-all-data') as HTMLButtonElement;
+  btnDeleteAllData?.addEventListener('click', async () => {
+    const confirmed = confirm(
+      'This will permanently delete ALL your data including:\n\n' +
+      '• API key and settings\n' +
+      '• Chat history\n' +
+      '• Scheduled tasks\n' +
+      '• Snapshots and sessions\n' +
+      '• Learning data\n\n' +
+      'This action cannot be undone. Continue?'
+    );
+
+    if (!confirmed) return;
+
+    const doubleConfirm = confirm(
+      'Are you absolutely sure? Type "DELETE" in the next prompt to confirm.'
+    );
+
+    if (!doubleConfirm) return;
+
+    const confirmation = prompt('Type DELETE to confirm permanent data deletion:');
+    if (confirmation !== 'DELETE') {
+      showNotification('Deletion cancelled', 'info');
+      return;
+    }
+
+    try {
+      await storageClear();
+      cachedSettings = null;
+      await loadCurrentSettings();
+      showNotification('All data has been permanently deleted', 'success');
+    } catch (err) {
+      showNotification('Failed to delete data', 'error');
+      console.error('[HyperAgent] Deletion error:', err);
+    }
+  });
 }
 
 // ─── UI Event Listeners ──────────────────────────────────────────

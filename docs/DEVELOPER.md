@@ -1,6 +1,8 @@
-# Developer Guide
+# HyperAgent Developer Guide
 
-Handoff documentation for developers working on HyperAgent.
+Complete handoff documentation for developers working on HyperAgent.
+
+---
 
 ## Quick Start
 
@@ -10,9 +12,16 @@ npm install && npm run dev
 # Set API key in Options
 ```
 
+---
+
 ## Architecture
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md).
+
+**Core Pattern: ReAct Loop**
+Observe -> Plan -> Act -> Re-observe
+
+---
 
 ## Key Files
 
@@ -23,108 +32,107 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md).
 | `entrypoints/sidepanel/main.ts` | Chat UI, commands, tabs |
 | `shared/types.ts` | All TypeScript interfaces |
 | `shared/llmClient.ts` | LLM API, caching |
-| `shared/config.ts` | Settings, defaults |
+| `shared/config.ts` | Settings, defaults, storage keys |
+| `shared/security.ts` | Domain policy, redaction |
+| `shared/error-reporter.ts` | Error tracking |
+| `shared/storage-monitor.ts` | Storage quota |
+
+---
 
 ## Security & Storage
 
-**API key storage** — API keys are stored in `chrome.storage.local` (extension storage), unencrypted. Only the extension can access them. Do not share exported settings files.
+**API key storage** - Stored in chrome.storage.local (extension storage), unencrypted. Only the extension can access. Do not share exported settings files.
 
-**localStorage in service worker** — Use `chrome.storage.local` instead.
+**Service worker constraints:**
+- Use `chrome.storage.local` instead of localStorage
+- Use `globalThis.setInterval` instead of window.setInterval
+- Guard `document` and `window` access
 
-**Synchronous storage** — All storage is async: `await chrome.storage.local.get(...)`.
-
-**Private in subclasses** — Use `protected` for properties accessed by subclasses.
+---
 
 ## LLM
 
-- **Model:** `google/gemini-2.0-flash-001` (config in `shared/config.ts`)
-- **Endpoint:** OpenRouter `https://openrouter.ai/api/v1`
-- **Timeout:** `DEFAULTS.LLM_TIMEOUT_MS` (45s default)
+| Setting | Value |
+|---------|-------|
+| Model | google/gemini-2.0-flash-001 |
+| Endpoint | https://openrouter.ai/api/v1 |
+| Timeout | 45s (configurable) |
+| Max Tokens | 4096 per request |
+| Session Limit | 100,000 tokens |
+
+---
 
 ## Message Flow
 
 ```
-Side Panel ←→ Background ←→ Content Script
-              ↓
-           LLM API
+Side Panel <-> Background <-> Content Script
+                |
+            LLM API
 ```
 
-## Build Output
+---
 
+## Testing
+
+```bash
+npm run test:unit   # 80 tests (Vitest)
+npm run test:e2e    # Playwright
 ```
-.output/chrome-mv3/
-├── manifest.json
-├── background.js
-├── content-scripts/content.js
-├── chunks/options-*.js, sidepanel-*.js
-└── assets/
-```
+
+---
 
 ## Production Fixes Applied (2026-02)
 
+### Security
 - ReDoS protection for workflow regex
 - XSS protection for chat history load
-- SnapshotManager full AgentSnapshot shape
-- saveHistory on visibilitychange/beforeunload
-- Voice: execute only on final transcription
-- extractDomain consolidated in url-utils
+- Import schema validation
+- API key redaction in logs
+- Condition value sanitization
+
+### Reliability
+- SnapshotManager full shape
+- saveHistory on visibilitychange
 - Session mutex for race conditions
-- UsageTracker save debouncing
-- TypeScript message type union complete
-- LLM timeout from config
+- Service worker compatibility
+
+### Performance
+- Lazy site config loading
+- Context caching for getPageContext
+- requestIdleCallback for history load
+
+### Infrastructure
+- Error reporting module
+- Storage quota monitoring
+- Token/cost tracking
+
+---
+
+## Known Limitations
+
+### LLM Retry Integration
+The retry infrastructure exists in shared/retry-circuit-breaker.ts but is not yet integrated into llmClient.ts. Requires wrapping fetch calls with retry logic.
+
+### Workflow Condition Execution
+Workflow conditions are not evaluated during runWorkflow - checkCondition exists but lacks page context.
+
+### Marketplace Workflows
+No actual workflow definitions - only display metadata. Labeled "Coming Soon".
+
+---
+
+## Cache TTL Settings
+
+| Cache | TTL | Purpose |
+|-------|-----|---------|
+| apiCache | 15 min | LLM responses |
+| generalCache | 30 min | General data |
+| assetCache | 60 min | Static assets |
+
+---
 
 ## Resources
 
 - [WXT](https://wxt.dev/)
 - [Chrome Extensions](https://developer.chrome.com/docs/extensions/)
-## Known Issue: LLM Retry Integration
-
-The retry infrastructure (retryWithBackoff, networkRetryPolicy) exists in
-shared/retry-circuit-breaker.ts but is not yet integrated into llmClient.ts.
-
-This requires careful refactoring to:
-1. Wrap fetch calls in retryWithBackoff
-2. Handle retryable vs non-retryable errors appropriately
-3. Preserve existing error handling for 429, auth errors, etc.
-
-Marked as future work.
-
-
-## Cache TTL Audit (Item 6.5)
-
-| Cache | TTL | Max Size | Purpose |
-|-------|-----|----------|---------|
-| apiCache | 15 min | 500 | LLM responses |
-| generalCache | 30 min | 1000 | General data |
-| assetCache | 60 min | 200 | Static assets |
-
-TTLs are appropriate for extension use case. No stale data concerns.
-
-
-## Workflow Condition Check (Item 4.6)
-
-Workflow conditions are currently **not evaluated** during runWorkflow execution.
-The checkCondition function exists and works, but runWorkflow does not have
-access to page context.
-
-**Current behavior:**
-- Conditions in workflow steps are skipped
-- Actions execute regardless of condition
-
-**Future improvement:**
-Add pageContext parameter to runWorkflow signature and call checkCondition
-before executing each step.
-
-
-## Confirm Modal Behavior (Item 3.3)
-
-The confirm modal Promise never rejects - it resolves with:
--  for user confirmation
--  for cancel or backdrop click
-
-This is intentional design:
-- Calling code checks boolean result
-- No exception handling needed
-- Consistent behavior for all dismissals
-
-No reject path is needed for this use case.
+- [OpenRouter](https://openrouter.ai/docs)

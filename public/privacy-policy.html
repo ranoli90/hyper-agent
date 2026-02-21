@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HyperAgent Privacy Policy</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      color: #1a1a2e;
+      background: #f8f9fa;
+      padding: 2rem;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 { color: #6366f1; margin-bottom: 0.5rem; }
+    h2 { color: #4f46e5; margin: 2rem 0 1rem; border-bottom: 2px solid #e0e7ff; padding-bottom: 0.5rem; }
+    h3 { color: #3730a3; margin: 1.5rem 0 0.75rem; }
+    p, li { margin-bottom: 0.75rem; }
+    ul { padding-left: 1.5rem; }
+    .last-updated { color: #6b7280; font-size: 0.9rem; margin-bottom: 2rem; }
+    .highlight { background: #fef3c7; padding: 1rem; border-radius: 8px; border-left: 4px solid #f59e0b; }
+    code { background: #e5e7eb; padding: 0.2rem 0.4rem; border-radius: 4px; font-size: 0.9em; }
+    a { color: #6366f1; }
+    a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <h1>HyperAgent Privacy Policy</h1>
+  <p class="last-updated">Last updated: February 21, 2026</p>
+
+  <div class="highlight">
+    <strong>TL;DR:</strong> Your data stays on your device. We don't sell your data. API keys are stored locally in your browser. Chat history is saved locally and never sent to our servers.
+  </div>
+
+  <h2>1. Data We Collect</h2>
+  
+  <h3>1.1 Data Stored Locally (On Your Device)</h3>
+  <p>HyperAgent stores the following data locally in your browser using Chrome's extension storage:</p>
+  <ul>
+    <li><strong>API Key:</strong> Your OpenRouter/OpenAI API key (stored in plain text - protect your browser access)</li>
+    <li><strong>Chat History:</strong> Your conversation history with the AI agent</li>
+    <li><strong>Command History:</strong> Previous commands you've entered</li>
+    <li><strong>Site Strategies:</strong> Learning data about successful actions on specific websites</li>
+    <li><strong>Settings & Preferences:</strong> Extension configuration options</li>
+    <li><strong>Scheduled Tasks:</strong> Any automation tasks you've set up</li>
+    <li><strong>Session Snapshots:</strong> Saved agent states for resumption</li>
+  </ul>
+
+  <h3>1.2 Data Sent to Third Parties</h3>
+  <p>When you use HyperAgent, the following data may be sent to third-party services:</p>
+  <ul>
+    <li><strong>LLM Provider (OpenRouter/OpenAI/Anthropic):</strong> Your commands and page context are sent to generate AI responses. This is governed by their respective privacy policies.</li>
+    <li><strong>Stripe:</strong> If you purchase a subscription, payment processing data is handled by Stripe. We receive only subscription status and customer ID.</li>
+  </ul>
+
+  <h3>1.3 Data We Do NOT Collect</h3>
+  <ul>
+    <li>We do not collect personal identification information</li>
+    <li>We do not track your browsing history beyond what's needed for agent operation</li>
+    <li>We do not sell or share your data with advertisers</li>
+    <li>We do not have access to your API keys or chat history</li>
+  </ul>
+
+  <h2>2. How We Use Your Data</h2>
+  <p>HyperAgent uses stored data exclusively for:</p>
+  <ul>
+    <li>Executing your commands and automating browser tasks</li>
+    <li>Improving agent performance through learned strategies</li>
+    <li>Resuming previous sessions and tasks</li>
+    <li>Displaying your chat history</li>
+    <li>Managing your subscription (if applicable)</li>
+  </ul>
+
+  <h2>3. Data Security</h2>
+  <ul>
+    <li><strong>API Keys:</strong> Stored locally using Chrome's extension storage. We recommend using API keys with usage limits. Never share your API key.</li>
+    <li><strong>Local Storage:</strong> Data is protected by your browser's security model. Clear extension data to remove all stored information.</li>
+    <li><strong>Transmission:</strong> All API calls use HTTPS encryption.</li>
+  </ul>
+
+  <h2>4. Data Retention</h2>
+  <ul>
+    <li>Chat history is retained until you clear it (<code>/clear</code> command) or uninstall the extension</li>
+    <li>Site strategies are retained indefinitely to improve performance</li>
+    <li>Session snapshots are retained until manually deleted</li>
+    <li>Subscription data is retained for billing purposes</li>
+  </ul>
+
+  <h2>5. Your Rights (GDPR/CCPA)</h2>
+  <h3>5.1 Right to Access</h3>
+  <p>You can view all stored data using the <code>/export</code> command in HyperAgent.</p>
+
+  <h3>5.2 Right to Delete</h3>
+  <p>You can delete your data by:</p>
+  <ul>
+    <li>Using Settings → Reset All Settings (clears all local data)</li>
+    <li>Uninstalling the extension (removes all extension data)</li>
+    <li>Contacting us at privacy@hyperagent.ai for subscription data deletion</li>
+  </ul>
+
+  <h3>5.3 Right to Portability</h3>
+  <p>Export your settings and chat history using <code>/export</code> and <code>/export-chat</code> commands.</p>
+
+  <h2>6. Third-Party Services</h2>
+  <h3>6.1 LLM Providers</h3>
+  <p>When you send commands, text and page context are sent to your configured LLM provider. Review their privacy policies:</p>
+  <ul>
+    <li><a href="https://openrouter.ai/privacy" target="_blank" rel="noopener">OpenRouter Privacy Policy</a></li>
+    <li><a href="https://openai.com/privacy" target="_blank" rel="noopener">OpenAI Privacy Policy</a></li>
+    <li><a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Anthropic Privacy Policy</a></li>
+  </ul>
+
+  <h3>6.2 Payment Processing</h3>
+  <p>Stripe handles all payment processing. See <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's Privacy Policy</a>.</p>
+
+  <h2>7. Children's Privacy</h2>
+  <p>HyperAgent is not intended for children under 13. We do not knowingly collect data from children under 13.</p>
+
+  <h2>8. Changes to This Policy</h2>
+  <p>We may update this policy periodically. Changes will be reflected in the "Last updated" date. Continued use of HyperAgent constitutes acceptance of changes.</p>
+
+  <h2>9. Contact Us</h2>
+  <p>For privacy-related questions or data deletion requests:</p>
+  <ul>
+    <li>Email: <a href="mailto:privacy@hyperagent.ai">privacy@hyperagent.ai</a></li>
+    <li>GitHub: <a href="https://github.com/ranoli90/hyper-agent/issues" target="_blank" rel="noopener">github.com/ranoli90/hyper-agent/issues</a></li>
+  </ul>
+
+  <h2>10. Permissions Justification</h2>
+  <p>HyperAgent requests the following browser permissions:</p>
+  <ul>
+    <li><strong>&lt;all_urls&gt;:</strong> Required to automate actions on any website you navigate to</li>
+    <li><strong>tabs:</strong> To interact with browser tabs for automation</li>
+    <li><strong>activeTab:</strong> To access the current tab when triggered</li>
+    <li><strong>scripting:</strong> To inject automation scripts into pages</li>
+    <li><strong>storage:</strong> To save your settings and chat history locally</li>
+    <li><strong>unlimitedStorage:</strong> To store learning data and chat history</li>
+    <li><strong>contextMenus:</strong> To provide right-click menu options</li>
+    <li><strong>sidePanel:</strong> To display the agent interface</li>
+    <li><strong>alarms:</strong> To schedule automated tasks</li>
+  </ul>
+
+  <p style="margin-top: 3rem; color: #6b7280; font-size: 0.85rem;">
+    &copy; 2026 HyperAgent. All rights reserved.
+  </p>
+</body>
+</html>

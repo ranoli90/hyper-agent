@@ -95,6 +95,9 @@ export const DEFAULTS = {
   ACTION_DELAY_MS: 350,          // Delay between sequential actions
   BODY_TEXT_LIMIT: 15000,        // Max body text to extract
   MAX_SEMANTIC_ELEMENTS: 250,    // Max semantic elements to index
+  // Token and cost management
+  COST_WARNING_THRESHOLD: 5.00,  // Warn when session cost exceeds $5
+  MAX_TOKENS_PER_SESSION: 100000, // Max tokens per session (approx $0.10-$0.50)
 } as const;
 
 // ─── Settings type ──────────────────────────────────────────────────

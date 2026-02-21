@@ -49,7 +49,7 @@ export class AdvancedCache<T = any> {
     accessTimes: [] as number[],
     compressionSavings: 0,
   };
-  private cleanupInterval?: number;
+  private cleanupInterval?: ReturnType<typeof setInterval>;
   private syncChannel?: BroadcastChannel;
 
   constructor(config: Partial<CacheConfig> = {}) {

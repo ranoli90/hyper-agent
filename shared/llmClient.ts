@@ -19,6 +19,7 @@ import { IntelligenceContext } from './ai-types';
 import { apiCache, generalCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
+import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 
 const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
 
@@ -732,109 +733,117 @@ export class EnhancedLLMClient implements LLMClientInterface {
     settings: any,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
-    try {
-      // Sanitize the command input
-      const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
-        maxLength: 10000,
-        preserveWhitespace: true,
-      });
+    // Sanitize the command input
+    const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
+      maxLength: 10000,
+      preserveWhitespace: true,
+    });
 
-      if (!sanitizedCommand.isValid) {
-        console.warn('[HyperAgent] Input sanitization warnings:', sanitizedCommand.warnings);
-      }
-
-      const rawMessages = buildMessages(
-        sanitizedCommand.sanitizedValue,
-        request.history || [],
-        request.context || this.createEmptyContext()
-      );
-      const messages = sanitizeMessages(rawMessages);
-
-      const model = SINGLE_MODEL;
-
-      // Check cache for similar requests
-      const cacheKey = `llm_${model}_${this.hashMessages(messages)}`;
-      const cachedResponse = await apiCache.get(cacheKey);
-      if (cachedResponse) {
-        console.log('[HyperAgent] Using cached LLM response');
-        return cachedResponse;
-      }
-
-      console.log(`[HyperAgent] Using model: ${model}`);
-
-      // Debug: log the request body
-      const requestBody = {
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 4096,
-      };
-      // Debug: uncomment to inspect request body
-      // console.log('[HyperAgent] Request body:', JSON.stringify(requestBody, null, 2));
-
-      const response = await fetch(`${settings.baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
-          'HTTP-Referer': 'https://hyperagent.ai',
-          'X-Title': 'HyperAgent',
-        },
-        body: JSON.stringify(requestBody),
-        signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[HyperAgent] API error ${response.status}:`, errorText);
-        if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
-          const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
-          throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
-        }
-        const friendly = userFriendlyApiError(response.status);
-        throw new Error(friendly || `API request failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-
-      if (!content) {
-        throw new Error('No content in response');
-      }
-
-      const parsed = extractJSON(content);
-      if (!parsed) {
-        console.warn('[HyperAgent] Failed to parse JSON from response:', content.slice(0, 500));
-        const fallback = await buildIntelligentFallback(
-          request.command || '',
-          request.context || this.createEmptyContext(),
-          {
-            baseUrl: settings.baseUrl,
-            apiKey: settings.apiKey,
-          }
-        );
-        return (
-          fallback || {
-            thinking: 'Failed to parse response.',
-            summary: 'I encountered an error parsing the AI response.',
-            actions: [],
-            done: true,
-          }
-        );
-      }
-
-      const validatedResponse = validateResponse(parsed);
-
-      // Cache successful responses for 15 minutes
-      await apiCache.set(cacheKey, validatedResponse, { ttl: 15 * 60 * 1000 });
-
-      return validatedResponse;
-    } catch (error: any) {
-      if (error.name === 'AbortError') throw error;
-      console.error('[HyperAgent] API call failed:', error);
-      throw error;
+    if (!sanitizedCommand.isValid) {
+      console.warn('[HyperAgent] Input sanitization warnings:', sanitizedCommand.warnings);
     }
+
+    const rawMessages = buildMessages(
+      sanitizedCommand.sanitizedValue,
+      request.history || [],
+      request.context || this.createEmptyContext()
+    );
+    const messages = sanitizeMessages(rawMessages);
+
+    const model = SINGLE_MODEL;
+
+    // Check cache for similar requests
+    const cacheKey = `llm_${model}_${this.hashMessages(messages)}`;
+    const cachedResponse = await apiCache.get(cacheKey);
+    if (cachedResponse) {
+      console.log('[HyperAgent] Using cached LLM response');
+      return cachedResponse;
+    }
+
+    console.log(`[HyperAgent] Using model: ${model}`);
+
+    const requestBody = {
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 4096,
+    };
+
+    // Use retry with circuit breaker for resilience (16.2)
+    const retryResult = await retryManager.retry(
+      async () => {
+        const response = await fetch(`${settings.baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${settings.apiKey}`,
+            'HTTP-Referer': 'https://hyperagent.ai',
+            'X-Title': 'HyperAgent',
+          },
+          body: JSON.stringify(requestBody),
+          signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`[HyperAgent] API error ${response.status}:`, errorText);
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After');
+            const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
+            throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
+          }
+          const friendly = userFriendlyApiError(response.status);
+          throw new Error(friendly || `API request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+
+        if (!content) {
+          throw new Error('No content in response');
+        }
+
+        const parsed = extractJSON(content);
+        if (!parsed) {
+          console.warn('[HyperAgent] Failed to parse JSON from response:', content.slice(0, 500));
+          throw new Error('Failed to parse LLM response');
+        }
+
+        return validateResponse(parsed);
+      },
+      {
+        ...networkRetryPolicy,
+        maxAttempts: 3,
+        onRetry: (attempt, error) => {
+          console.log(`[HyperAgent] LLM call attempt ${attempt} failed, retrying:`, error);
+        },
+      },
+      'llm-api'
+    );
+
+    if (retryResult.success && retryResult.result) {
+      // Cache successful responses for 15 minutes
+      await apiCache.set(cacheKey, retryResult.result, { ttl: 15 * 60 * 1000 });
+      return retryResult.result;
+    }
+
+    // All retries failed - try intelligent fallback
+    const fallback = await buildIntelligentFallback(
+      request.command || '',
+      request.context || this.createEmptyContext(),
+      {
+        baseUrl: settings.baseUrl,
+        apiKey: settings.apiKey,
+      }
+    );
+    return (
+      fallback || {
+        thinking: 'Failed to get response after retries.',
+        summary: 'I encountered an error after multiple attempts.',
+        actions: [],
+        done: true,
+      }
+    );
   }
 
   private hashMessages(messages: any[]): string {

@@ -318,8 +318,7 @@ const SUGGESTIONS = [
   { command: '/tools', description: 'List available agent tools' },
   { command: '/clear', description: 'Clear chat history' },
   { command: '/export-chat', description: 'Export chat history only' },
-  { command: '/export-chat', description: 'Export chat history only' },
-  { command: '/help', description: 'Help { command: '/help', description: 'Help { command: '/help', description: 'Help & documentation' }, documentation' }, documentation' },
+  { command: '/help', description: 'Help & documentation' },
 ];
 
 function sanitizeInput(text: string): string {
@@ -428,7 +427,15 @@ function renderMarkdown(text: string): string {
 }
 
 function escapeHtml(text: string): string {
-n// Focus trap for modals (accessibility)
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+// Focus trap for modals (accessibility)
 function trapFocus(modal: HTMLElement): () => void {
   const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
   const focusableElements = modal.querySelectorAll<HTMLElement>(focusableSelectors);
@@ -456,13 +463,6 @@ function trapFocus(modal: HTMLElement): () => void {
   firstFocusable?.focus();
 
   return () => modal.removeEventListener('keydown', handleKeyDown);
-}
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
 }
 
 function scrollToBottom() {
@@ -1214,7 +1214,7 @@ components.commandInput.addEventListener('keydown', e => {
   }
 });
 
-n// Offline indicator
+// Offline indicator
 window.addEventListener('offline', () => {
   showToast('You are offline. Some features may not work.', 'warning');
 });
@@ -1286,7 +1286,11 @@ loadCommandHistory();
 chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
   if (data.hyperagent_show_changelog) {
     chrome.storage.local.remove('hyperagent_show_changelog');
-n// Show onboarding for new installs
+    showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
+  }
+});
+
+// Show onboarding for new installs
 chrome.storage.local.get('hyperagent_show_onboarding').then((data) => {
   if (data.hyperagent_show_onboarding) {
     chrome.storage.local.remove('hyperagent_show_onboarding');
@@ -1302,9 +1306,6 @@ document.getElementById('btn-onboarding-close')?.addEventListener('click', () =>
 document.getElementById('btn-onboarding-settings')?.addEventListener('click', () => {
   document.getElementById('onboarding-modal')?.classList.add('hidden');
   chrome.runtime.openOptionsPage();
-});
-    showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
-  }
 });
 
 components.btnSettings.addEventListener('click', () => {
@@ -1345,10 +1346,12 @@ document.addEventListener('keydown', e => {
   // Escape: Close modals and suggestions
   if (e.key === 'Escape') {
     components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     components.askModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     components.suggestions.classList.add('hidden');
+    if (state.cleanupFocusTrap) {
+      state.cleanupFocusTrap();
+      state.cleanupFocusTrap = null;
+    }
     if (state.confirmResolve) {
       state.confirmResolve(false);
       state.confirmResolve = null;
@@ -1764,35 +1767,6 @@ async function exportSettings() {
 }
 
 async function importSettings() {
-n// Export chat history only
-async function exportChatHistory() {
-  try {
-    const data = await chrome.storage.local.get('chat_history_backup');
-    if (!data.chat_history_backup) {
-      showToast('No chat history to export', 'info');
-      return;
-    }
-    
-    const exportData = {
-      version: '1.0',
-      timestamp: Date.now(),
-      type: 'chat_history',
-      history: data.chat_history_backup,
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `hyperagent-chat-${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    showToast('Chat history exported!', 'success');
-  } catch (err) {
-    showToast('Failed to export chat history', 'error');
-  }
-}
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
@@ -1820,7 +1794,6 @@ async function exportChatHistory() {
       await chrome.storage.local.set(filtered);
       showToast('Settings imported successfully!', 'success');
 
-      // Reload to apply imported settings
       setTimeout(() => location.reload(), 1000);
     } catch (err) {
       showToast('Failed to import settings: Invalid file', 'error');
@@ -1829,4 +1802,33 @@ async function exportChatHistory() {
   };
 
   input.click();
+}
+
+async function exportChatHistory() {
+  try {
+    const data = await chrome.storage.local.get('chat_history_backup');
+    if (!data.chat_history_backup) {
+      showToast('No chat history to export', 'info');
+      return;
+    }
+    
+    const exportData = {
+      version: '1.0',
+      timestamp: Date.now(),
+      type: 'chat_history',
+      history: data.chat_history_backup,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hyperagent-chat-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('Chat history exported!', 'success');
+  } catch (err) {
+    showToast('Failed to export chat history', 'error');
+  }
 }

@@ -47,9 +47,9 @@ export class MemoryManager {
   private intervals = new Set<number>();
   private observers = new Set<MutationObserver | IntersectionObserver | PerformanceObserver>();
   private weakRefs = new Set<WeakRef<object>>();
-  private monitoringInterval?: number;
-  private cleanupInterval?: number;
-  private leakCheckInterval?: number;
+  private monitoringInterval?: ReturnType<typeof setInterval>;
+  private cleanupInterval?: ReturnType<typeof setInterval>;
+  private leakCheckInterval?: ReturnType<typeof setInterval>;
 
   constructor(config: Partial<MemoryConfig> = {}) {
     this.config = {
@@ -663,26 +663,26 @@ export const mem = {
 // ─── Enhanced Timer/Observer Wrappers ────────────────────────────────
 
 // Safe setTimeout that tracks memory usage (use global - service workers have no window)
-export function safeSetTimeout(callback: () => void, delay: number): number {
+export function safeSetTimeout(callback: () => void, delay: number): ReturnType<typeof setTimeout> {
   const timerId = globalThis.setTimeout(() => {
-    memoryManager.untrackTimer(timerId);
+    memoryManager.untrackTimer(timerId as unknown as number);
     callback();
   }, delay);
 
-  memoryManager.trackTimer(timerId);
+  memoryManager.trackTimer(timerId as unknown as number);
   return timerId;
 }
 
 // Safe setInterval that tracks memory usage (use global - service workers have no window)
-export function safeSetInterval(callback: () => void, delay: number): number {
+export function safeSetInterval(callback: () => void, delay: number): ReturnType<typeof setInterval> {
   const intervalId = globalThis.setInterval(callback, delay);
-  memoryManager.trackTimer(intervalId, true);
+  memoryManager.trackTimer(intervalId as unknown as number, true);
   return intervalId;
 }
 
 // Safe clearTimeout that updates tracking
-export function safeClearTimeout(timerId: number): void {
-  memoryManager.untrackTimer(timerId);
+export function safeClearTimeout(timerId: ReturnType<typeof setTimeout>): void {
+  memoryManager.untrackTimer(timerId as unknown as number);
   globalThis.clearTimeout(timerId);
 }
 
@@ -709,14 +709,14 @@ export function createTrackedObserver<
 // WeakMap-based cache with automatic cleanup
 export class MemorySafeCache<K extends object, V> {
   private cache = new WeakMap<K, { value: V; timestamp: number; ttl: number }>();
-  private cleanupInterval: number;
+  private cleanupIntervalId: ReturnType<typeof setInterval>;
 
   constructor(cleanupInterval = 300000) {
     // 5 minutes (use global - service workers have no window)
-    this.cleanupInterval = globalThis.setInterval(() => {
+    this.cleanupIntervalId = globalThis.setInterval(() => {
       this.cleanup();
     }, cleanupInterval);
-    memoryManager.trackTimer(this.cleanupInterval, true);
+    memoryManager.trackTimer(this.cleanupIntervalId as unknown as number, true);
   }
 
   set(key: K, value: V, ttl = 300000): void {
@@ -766,8 +766,8 @@ export class MemorySafeCache<K extends object, V> {
   }
 
   destroy(): void {
-    globalThis.clearInterval(this.cleanupInterval);
-    memoryManager.untrackTimer(this.cleanupInterval, true);
+    globalThis.clearInterval(this.cleanupIntervalId);
+    memoryManager.untrackTimer(this.cleanupIntervalId as unknown as number, true);
     this.clear();
   }
 }

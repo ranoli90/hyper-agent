@@ -234,10 +234,12 @@ class FailureRecoverySystemImpl {
       ACTION_FAILED: 3,
       TIMEOUT: 2,
       NAVIGATION_ERROR: 2,
+      RATE_LIMIT: 1,
+      SECURITY_POLICY: 0,
       UNKNOWN: 2,
     };
 
-    return attempt >= (maxAttempts[errorType] || 2);
+    return attempt >= (maxAttempts[errorType] ?? 2);
   }
 }
 
