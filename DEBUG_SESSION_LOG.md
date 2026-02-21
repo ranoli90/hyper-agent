@@ -157,3 +157,19 @@ No new issues found in Pass 2. Catch blocks without params that don't reference 
 
 ---
 
+## Phase 5: Multi-Perspective Audit (2026-02-21)
+
+### Fix 6: neuroplasticity-engine - localStorage → chrome.storage.local
+- **Issue**: NeuroplasticityEngine used localStorage; service worker (background) has no localStorage → ReferenceError
+- **Fix**: Use chrome.storage.local with guards for non-extension contexts; support both object and legacy string storage
+
+### Fix 7: neuroplasticity-engine - Division by zero in calculateCommandSimilarity
+- **Issue**: Empty cmd1/cmd2 → union.size=0 → intersection.size/union.size = NaN
+- **Fix**: Guard `if (union.size === 0) return 0`; filter empty strings from split
+
+### Fix 8: sidepanel - Sanitize chat_history_backup on import
+- **Issue**: Imported settings with malicious chat_history_backup HTML stored unsanitized; loadHistory sanitizes on read but defense-in-depth preferred
+- **Fix**: Sanitize chat_history_backup via inputSanitizer before chrome.storage.local.set on import
+
+---
+

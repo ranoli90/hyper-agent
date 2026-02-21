@@ -1784,6 +1784,15 @@ async function importSettings() {
         console.warn('[HyperAgent] Import validation warnings:', errors);
         showToast(`Imported with warnings: ${errors.join('; ')}`, 'warning');
       }
+      // Sanitize chat_history_backup on import to prevent XSS from malicious import files
+      if (typeof filtered.chat_history_backup === 'string') {
+        const result = inputSanitizer.sanitize(filtered.chat_history_backup, {
+          allowHtml: true,
+          allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span'],
+          allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
+        });
+        filtered.chat_history_backup = result.sanitizedValue;
+      }
       await chrome.storage.local.set(filtered);
       showToast('Settings imported successfully!', 'success');
 

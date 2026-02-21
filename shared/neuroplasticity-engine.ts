@@ -231,29 +231,40 @@ export class NeuroplasticityEngine {
   }
 
   private loadLearningHistory(): void {
-    // Load from chrome.storage.local if available
-    try {
-      const stored = localStorage.getItem('hyperagent_neuroplasticity');
-      if (stored) {
-        const data = JSON.parse(stored);
-        this.learningHistory = data.history || [];
-        this.adaptationCycles = data.cycles || 0;
+    // Use chrome.storage.local for extension compatibility (service worker has no localStorage)
+    if (typeof chrome?.storage?.local?.get !== 'function') return;
+    chrome.storage.local.get('hyperagent_neuroplasticity').then((result) => {
+      try {
+        const stored = result?.hyperagent_neuroplasticity;
+        if (stored && typeof stored === 'object' && stored !== null) {
+          this.learningHistory = Array.isArray(stored.history) ? stored.history : [];
+          this.adaptationCycles = typeof stored.cycles === 'number' ? stored.cycles : 0;
+        } else if (typeof stored === 'string') {
+          const data = JSON.parse(stored);
+          this.learningHistory = Array.isArray(data?.history) ? data.history : [];
+          this.adaptationCycles = typeof data?.cycles === 'number' ? data.cycles : 0;
+        }
+      } catch (error) {
+        console.log('[Neuroplasticity] Failed to parse learning history:', error);
       }
-    } catch (error) {
+    }).catch((error) => {
       console.log('[Neuroplasticity] Failed to load learning history:', error);
-    }
+    });
   }
 
   private saveLearningHistory(): void {
+    if (typeof chrome?.storage?.local?.set !== 'function') return;
     try {
       const data = {
         history: this.learningHistory.slice(-1000), // Keep last 1000 events
         cycles: this.adaptationCycles,
         timestamp: Date.now()
       };
-      localStorage.setItem('hyperagent_neuroplasticity', JSON.stringify(data));
+      chrome.storage.local.set({ hyperagent_neuroplasticity: data }).catch((error) => {
+        console.log('[Neuroplasticity] Failed to save learning history:', error);
+      });
     } catch (error) {
-      console.log('[Neuroplasticity] Failed to save learning history:', error);
+      console.log('[Neuroplasticity] Failed to serialize learning history:', error);
     }
   }
 
@@ -875,12 +886,13 @@ export class NeuroplasticityEngine {
 
   private calculateCommandSimilarity(cmd1: string, cmd2: string): number {
     // Simple similarity calculation
-    const words1 = new Set(cmd1.split(' '));
-    const words2 = new Set(cmd2.split(' '));
+    const words1 = new Set(cmd1.split(' ').filter(Boolean));
+    const words2 = new Set(cmd2.split(' ').filter(Boolean));
 
     const intersection = new Set([...words1].filter(x => words2.has(x)));
     const union = new Set([...words1, ...words2]);
 
+    if (union.size === 0) return 0;
     return intersection.size / union.size;
   }
 
