@@ -42,6 +42,7 @@ import {
   WorkflowAction,
 } from '../shared/types';
 import { withErrorBoundary } from '../shared/error-boundary';
+import { isSafeRegex } from '../shared/safe-regex';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
@@ -264,17 +265,6 @@ interface LogEntry {
 }
 
 // ─── Security helpers ─────────────────────────
-
-function isSafeRegex(pattern: string, maxLength = 256): boolean {
-  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength)
-    return false;
-  try {
-    new RegExp(pattern);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function safeInlineText(str: string, max = 500): string {
   const s = (str || '').replace(/[\n\r\t]+/g, ' ').replace(/["'`]/g, '');

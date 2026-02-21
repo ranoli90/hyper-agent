@@ -18,15 +18,11 @@ import type {
   ErrorContext,
   RecoveryStrategy,
 } from '../shared/types';
+import { isSafeRegex } from '../shared/safe-regex';
 import { tiktokModerator } from '../shared/tiktok-moderator';
 import { StealthEngine } from '../shared/stealth-engine';
 
 // ─── Local security/perf helpers ───────────────────────────────────────
-function isSafeRegex(pattern: string, maxLength = 256): boolean {
-  if (typeof pattern !== 'string' || pattern.length === 0 || pattern.length > maxLength) return false;
-  try { new RegExp(pattern); return true; } catch { return false; }
-}
-
 function safeKey(key: string, max = 32): string {
   const s = (key || '').slice(0, max);
   return /^[\w\-\s]+$/.test(s) ? s : 'Unidentified';
