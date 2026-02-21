@@ -53,9 +53,7 @@ export interface ClarificationExchange {
   extractedInfo: Map<string, string | number | boolean>;
 }
 
-export interface WorkflowResult {
-  // Define the structure of workflow results here
-}
+export type WorkflowResult = Record<string, unknown>;
 
 export class IntelligentClarificationEngine {
   private clarificationContexts: Map<string, ClarificationContext> = new Map();
@@ -781,7 +779,8 @@ export class IntelligentClarificationEngine {
     };
   }
 
-  private async callClassificationLLM(prompt: string): Promise<string> {
+   
+  private async callClassificationLLM(_prompt: string): Promise<string> {
     // Simplified LLM call for classification
     // In production, this would use the full LLM client
     return 'CAR_SALES_POSTING'; // Placeholder
@@ -817,7 +816,8 @@ export class PersistentOperationEngine {
   }
 
   private processAllSessions(): void {
-    for (const [_sessionId, session] of this.activeSessions) {
+     
+    for (const [_s, session] of this.activeSessions) {
       if (session.status === 'active') {
         session.lastActivity = Date.now();
       }

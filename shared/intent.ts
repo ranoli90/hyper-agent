@@ -332,7 +332,7 @@ export function getSuggestions(command: string): string[] {
     for (const keyword of pattern.keywords) {
       if (keyword.startsWith(normalized)) {
         // Suggest keyword + template
-        const template = pattern.templates[0].replace('{target}', '<target>');
+        const _template = pattern.templates[0].replace('{target}', '<target>');
         const suggestion = `${keyword} <target>`;
         if (!seen.has(suggestion)) {
           suggestions.push(capitalizeFirst(suggestion));

@@ -3,15 +3,8 @@
  * Chat, commands, tabs (Swarm, Vision, Tasks, Memory, Marketplace, Subscription).
  */
 
-import type {
-  ExtensionMessage,
-  Action,
-  MsgAgentProgress,
-  MsgConfirmActions,
-  MsgAgentDone,
-  MsgAskUser,
-} from '../../shared/types';
-import { billingManager, PRICING_PLANS } from '../../shared/billing';
+import type { ExtensionMessage } from '../../shared/types';
+import { billingManager } from '../../shared/billing';
 import { validateAndFilterImportData } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 
@@ -367,13 +360,13 @@ function showSuggestions(query: string) {
           components.commandInput.dispatchEvent(new Event('input'));
         });
         container.appendChild(div);
-      } catch (err) {
+      } catch {
         console.warn('[HyperAgent] Failed to create suggestion item:', err);
       }
     });
 
     container.classList.remove('hidden');
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] showSuggestions failed:', err);
     if (components.suggestions) {
       components.suggestions.classList.add('hidden');
@@ -420,7 +413,7 @@ function renderMarkdown(text: string): string {
       .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
       .join('');
     return html;
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] renderMarkdown failed', err);
     return escapeHtml(text);
   }
@@ -556,7 +549,7 @@ async function saveHistoryImmediate() {
   try {
     const historyHTML = components.chatHistory.innerHTML;
     await chrome.storage.local.set({ chat_history_backup: historyHTML });
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Failed to save chat history:', err);
   }
 }
@@ -581,7 +574,7 @@ async function loadHistory() {
       components.chatHistory.innerHTML = result.sanitizedValue;
       scrollToBottom();
     }
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Failed to load chat history:', err);
   }
 }
@@ -712,7 +705,7 @@ async function updateUsageDisplay() {
     if (cancelBtn) {
       cancelBtn.classList.toggle('hidden', tier === 'free');
     }
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Failed to update usage display:', err);
   }
 }
@@ -879,7 +872,7 @@ async function installWorkflow(workflowId: string) {
     } else {
       addMessage(`Failed to install workflow: ${escapeHtml(response?.error || 'Unknown error')}`, 'error');
     }
-  } catch (err) {
+  } catch {
     addMessage('Failed to install workflow: connection error', 'error');
   }
 }
@@ -922,7 +915,7 @@ async function loadMemoryTab() {
           '<p class="empty-state">No memory data yet. The agent learns from your interactions.</p>';
       }
     }
-  } catch (err) {
+  } catch {
     memoryList.innerHTML = '<p class="error-state">Failed to load memory data</p>';
   }
 }
@@ -984,7 +977,7 @@ async function loadTasksTab() {
         <p class="hint">Use commands like "schedule daily search for news" to create tasks.</p>
       `;
     }
-  } catch (err) {
+  } catch {
     tasksList.innerHTML = '<p class="error-state">Failed to load tasks</p>';
   }
 }
@@ -1056,7 +1049,7 @@ function loadVisionTab() {
           components.visionPlaceholder.classList.add('hidden');
           addMessage('Screenshot captured for analysis.', 'status');
         }
-      } catch (err) {
+      } catch {
         addMessage('Failed to capture screenshot.', 'error');
       }
     });
@@ -1168,7 +1161,7 @@ async function loadSwarmTab() {
     if (agentResponse?.ok && activeMissions) {
       activeMissions.textContent = agentResponse.status?.isRunning ? '1' : '0';
     }
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Failed to load swarm tab:', err);
   }
 
@@ -1533,7 +1526,7 @@ components.btnMic.addEventListener('click', () => {
     } else {
       voiceInterface.startListening();
     }
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Voice interface error:', err);
     showToast('Voice input not available in this browser', 'error');
   }
@@ -1645,7 +1638,7 @@ async function updateSubscriptionBadge() {
     if (status.tier === 'free') {
       badge.classList.add('free');
     }
-  } catch (err) {
+  } catch {
     console.warn('[HyperAgent] Failed to update subscription badge:', err);
   }
 }
@@ -1760,7 +1753,7 @@ async function exportSettings() {
     URL.revokeObjectURL(url);
 
     showToast('Settings exported successfully!', 'success');
-  } catch (err) {
+  } catch {
     showToast('Failed to export settings', 'error');
     console.error('[HyperAgent] Export error:', err);
   }
@@ -1795,7 +1788,7 @@ async function importSettings() {
       showToast('Settings imported successfully!', 'success');
 
       setTimeout(() => location.reload(), 1000);
-    } catch (err) {
+    } catch {
       showToast('Failed to import settings: Invalid file', 'error');
       console.error('[HyperAgent] Import error:', err);
     }
@@ -1828,7 +1821,7 @@ async function exportChatHistory() {
     URL.revokeObjectURL(url);
 
     showToast('Chat history exported!', 'success');
-  } catch (err) {
+  } catch {
     showToast('Failed to export chat history', 'error');
   }
 }

@@ -126,7 +126,7 @@ export async function getMetrics(): Promise<PerformanceMetric[]> {
   // Calculate aggregate metrics
   const totalActions = trackingEntries.length;
   const successfulActions = trackingEntries.filter(e => e.success).length;
-  const failedActions = totalActions - successfulActions;
+  const _failedActions = totalActions - successfulActions;
   
   // Overall success rate
   const overallSuccessRate = totalActions > 0 ? (successfulActions / totalActions) * 100 : 0;

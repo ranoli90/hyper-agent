@@ -11,7 +11,6 @@ import type {
   PageContext,
   Action,
   Locator,
-  ExtensionMessage,
   ActionResult,
   ErrorType,
   SiteConfig,
@@ -134,14 +133,36 @@ export default defineContentScript({
         const seen = new Set<HTMLElement>();
         const allElements: HTMLElement[] = [];
 
-        try {
-          document.querySelectorAll(selectors.join(',')).forEach((el) => {
-            const htmlEl = el as HTMLElement;
-            if (!seen.has(htmlEl)) {
-              seen.add(htmlEl);
-              allElements.push(htmlEl);
+        // Query with Shadow DOM traversal (21.1)
+        function queryWithShadowDOM(selector: string, root: Document | ShadowRoot = document): HTMLElement[] {
+          const elements: HTMLElement[] = [];
+          
+          try {
+            root.querySelectorAll(selector).forEach((el) => {
+              elements.push(el as HTMLElement);
+            });
+          } catch { /* ignore selector errors */ }
+          
+          // Traverse shadow roots
+          root.querySelectorAll('*').forEach((el) => {
+            if (el.shadowRoot) {
+              elements.push(...queryWithShadowDOM(selector, el.shadowRoot));
             }
           });
+          
+          return elements;
+        }
+
+        try {
+          for (const selector of selectors) {
+            const found = queryWithShadowDOM(selector);
+            for (const htmlEl of found) {
+              if (!seen.has(htmlEl)) {
+                seen.add(htmlEl);
+                allElements.push(htmlEl);
+              }
+            }
+          }
         } catch (selectorErr) {
           console.warn('[HyperAgent] Selector error, falling back to basic selectors:', selectorErr);
           // Fallback: just get buttons and inputs
@@ -512,7 +533,7 @@ export default defineContentScript({
     }
 
     // ─── Scroll-Before-Locate Strategy ─────────────────────────────────
-    async function scrollBeforeLocate(locator: Locator, action: Action): Promise<HTMLElement | null> {
+    async function scrollBeforeLocate(locator: Locator, _action: Action): Promise<HTMLElement | null> {
       const maxRetries = 3;
       const scrollAmount = 400;
 
@@ -615,8 +636,10 @@ export default defineContentScript({
     /**
      * Attempt to recover from an error using configured strategies
      */
-    async function recoverFromError(context: ErrorContext): Promise<Action | null> {
-      const { error, action, attempt, pageUrl } = context;
+    async function _recoverFromError(context: ErrorContext): Promise<Action | null> {
+      const { error, action } = context;
+      const _attempt = context.attempt;
+      const _pageUrl = context.pageUrl;
 
       // Find applicable strategy
       const strategy = DEFAULT_RECOVERY_STRATEGIES.find(s =>
@@ -719,7 +742,8 @@ export default defineContentScript({
     /**
      * Apply recovery strategies - called to initialize/reset recovery tracking
      */
-    function applyRecoveryStrategies(): void {
+     
+    function _applyRecoveryStrategies(): void {
       // Clear old recovery attempts
       activeRecoveryAttempts.clear();
       console.log('[HyperAgent] Recovery strategies initialized');
@@ -1139,7 +1163,7 @@ export default defineContentScript({
                 const resp = await chrome.runtime.sendMessage({ type: 'captureScreenshot' } as any);
                 const dataUrl = resp?.dataUrl || '';
                 return { type: 'captureScreenshotResponse', dataUrl };
-              } catch (_err: any) {
+              } catch {
                 return { type: 'captureScreenshotResponse', dataUrl: '' };
               }
             }

@@ -3,10 +3,15 @@
  * Storage keys, defaults, validation, and settings load/save.
  */
 
+// ─── Storage Schema Version ───────────────────────────────────────────
+export const STORAGE_VERSION = 1;
+
 // ─── Storage keys ───────────────────────────────────────────────────
 // API key is stored in chrome.storage.local (extension storage). Only this extension
 // can access it; it is not encrypted at rest. Do not share exported settings files.
 export const STORAGE_KEYS = {
+  // Schema version for migrations
+  SCHEMA_VERSION: 'hyperagent_schema_version',
   API_KEY: 'hyperagent_api_key',
   BASE_URL: 'hyperagent_base_url',
   MODEL_NAME: 'hyperagent_model_name',
@@ -360,4 +365,137 @@ export function isSiteBlacklisted(url: string, blacklist: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ─── Storage Migration (17.1) ───────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+interface StorageSchema {
+  version: number;
+  migratedAt?: number;
+}
+
+async function getStoredVersion(): Promise<number> {
+  try {
+    const data = await chrome.storage.local.get(STORAGE_KEYS.SCHEMA_VERSION);
+    return data[STORAGE_KEYS.SCHEMA_VERSION] || 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function setStoredVersion(version: number): Promise<void> {
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEYS.SCHEMA_VERSION]: version });
+  } catch (err) {
+    console.warn('[Config] Failed to set schema version:', err);
+  }
+}
+
+export async function runMigrations(): Promise<void> {
+  const currentVersion = await getStoredVersion();
+  
+  if (currentVersion >= STORAGE_VERSION) {
+    return;
+  }
+
+  console.log(`[Config] Running migrations from v${currentVersion} to v${STORAGE_VERSION}`);
+
+  try {
+    if (currentVersion < 1) {
+      await migrateToV1();
+    }
+    
+    await setStoredVersion(STORAGE_VERSION);
+    console.log('[Config] Migrations complete');
+  } catch (err) {
+    console.error('[Config] Migration failed:', err);
+  }
+}
+
+async function migrateToV1(): Promise<void> {
+  console.log('[Config] Migrating to v1: ensuring consistent key structure');
+}
+
+// ─── Corruption Recovery (17.2) ───────────────────────────────────────────
+export async function safeStorageGet<T>(key: string, defaultValue: T): Promise<T> {
+  try {
+    const data = await chrome.storage.local.get(key);
+    const value = data[key];
+    
+    if (value === undefined || value === null) {
+      return defaultValue;
+    }
+    
+    if (typeof value === 'string') {
+      try {
+        if (value.startsWith('{') || value.startsWith('[')) {
+          return JSON.parse(value) as T;
+        }
+      } catch {
+        console.warn(`[Config] Failed to parse stored value for ${key}, using default`);
+        return defaultValue;
+      }
+    }
+    
+    return value as T;
+  } catch (err) {
+    console.warn(`[Config] Failed to get ${key}, using default:`, err);
+    return defaultValue;
+  }
+}
+
+export async function safeStorageSet(key: string, value: unknown): Promise<boolean> {
+  try {
+    await chrome.storage.local.set({ [key]: value });
+    return true;
+  } catch (err) {
+    console.error(`[Config] Failed to set ${key}:`, err);
+    return false;
+  }
+}
+
+export async function validateStorageIntegrity(): Promise<{ 
+  healthy: boolean; 
+  issues: string[];
+  repaired: boolean;
+}> {
+  const issues: string[] = [];
+  let repaired = false;
+
+  try {
+    const allData = await chrome.storage.local.get(null);
+    
+    for (const [key, value] of Object.entries(allData)) {
+      if (value === 'undefined' || value === 'null') {
+        issues.push(`Key ${key} contains string 'undefined' or 'null'`);
+        await chrome.storage.local.remove(key);
+        repaired = true;
+      }
+      
+      if (typeof value === 'string' && key.endsWith('_json')) {
+        try {
+          JSON.parse(value);
+        } catch {
+          issues.push(`Key ${key} contains invalid JSON`);
+          await chrome.storage.local.remove(key);
+          repaired = true;
+        }
+      }
+    }
+    
+    const version = await getStoredVersion();
+    if (version < STORAGE_VERSION) {
+      issues.push(`Schema version ${version} is outdated`);
+      await runMigrations();
+      repaired = true;
+    }
+  } catch (err) {
+    issues.push(`Storage access error: ${(err as Error).message}`);
+  }
+
+  return {
+    healthy: issues.length === 0,
+    issues,
+    repaired,
+  };
 }

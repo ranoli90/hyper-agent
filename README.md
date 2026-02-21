@@ -160,6 +160,40 @@ hyper-agent/
 
 ---
 
+## User Guide
+
+### Getting Started
+1. **Install** the extension from Chrome Web Store (or load unpacked from `.output/chrome-mv3/`)
+2. **Configure API Key** — Open Settings (gear icon) → Enter your OpenRouter API key
+3. **Start Chatting** — Type natural language commands in the side panel
+
+### Basic Commands
+- **Navigate**: "Go to amazon.com and search for headphones"
+- **Extract**: "Get all product names and prices from this page"
+- **Fill Forms**: "Fill out this form with my info"
+- **Research**: "Compare this product across 3 different stores"
+
+### Advanced Features
+- **Autonomous Mode**: Use `/think` for complex multi-step tasks
+- **Scheduling**: "Schedule daily search for news every morning at 8am"
+- **Memory**: The agent learns from your interactions to improve over time
+
+### Troubleshooting
+| Issue | Solution |
+|-------|----------|
+| "API key not set" | Open Settings and enter your OpenRouter key |
+| "Rate limit exceeded" | Wait a few seconds and try again |
+| "Element not found" | The page may need to load; try scrolling first |
+| Extension not loading | Check chrome://extensions for errors |
+
+### Privacy & Data
+- All data stored locally in your browser
+- No data sent to external servers except LLM API calls
+- Export your data anytime: Settings → Export All Data
+- Delete all data: Settings → Delete All My Data
+
+---
+
 ## Security
 
 - API keys stored in Chrome extension storage (accessible only by HyperAgent)

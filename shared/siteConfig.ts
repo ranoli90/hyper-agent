@@ -1,4 +1,4 @@
-import { STORAGE_KEYS, DEFAULTS } from './config';
+import { STORAGE_KEYS } from './config';
 import type { SiteConfig } from './types';
 
 // ─── Default Site Configurations ────────────────────────────────────────

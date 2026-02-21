@@ -1,0 +1,159 @@
+
+> hyper-agent@3.0.0 lint
+> eslint . --ext .ts,.tsx,.js,.jsx
+
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\.wxt\types\imports.d.ts
+  23:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  26:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  29:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  32:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  35:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  38:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  41:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  44:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+  47:3  error  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\.wxt\wxt.d.ts
+  3:1  error  Do not use a triple slash reference for ./types/paths.d.ts, use `import` style instead           @typescript-eslint/triple-slash-reference
+  4:1  error  Do not use a triple slash reference for ./types/i18n.d.ts, use `import` style instead            @typescript-eslint/triple-slash-reference
+  5:1  error  Do not use a triple slash reference for ./types/globals.d.ts, use `import` style instead         @typescript-eslint/triple-slash-reference
+  6:1  error  Do not use a triple slash reference for ./types/imports-module.d.ts, use `import` style instead  @typescript-eslint/triple-slash-reference
+  7:1  error  Do not use a triple slash reference for ./types/imports.d.ts, use `import` style instead         @typescript-eslint/triple-slash-reference
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\entrypoints\background.ts
+   133:15  error  'actionType' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  1200:5   error  'sender' is defined but never used. Allowed unused args must match /^_/u      @typescript-eslint/no-unused-vars
+  1777:12  error  'delayForErrorType' is defined but never used                                 @typescript-eslint/no-unused-vars
+  2631:12  error  'buildFallbackPlan' is defined but never used                                 @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\entrypoints\content.ts
+   536:57  error  'action' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+   639:20  error  'recoverFromError' is defined but never used                              @typescript-eslint/no-unused-vars
+   640:30  error  'attempt' is assigned a value but never used                              @typescript-eslint/no-unused-vars
+   640:39  error  'pageUrl' is assigned a value but never used                              @typescript-eslint/no-unused-vars
+   743:14  error  'applyRecoveryStrategies' is defined but never used                       @typescript-eslint/no-unused-vars
+  1163:24  error  '_err' is defined but never used                                          @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\entrypoints\options\main.ts
+  179:9  error  'current' is assigned a value but never used            @typescript-eslint/no-unused-vars
+  203:5  error  'validationTimeout' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\entrypoints\sidepanel\main.ts
+   875:12  error  'err' is defined but never used             @typescript-eslint/no-unused-vars
+   918:12  error  'err' is defined but never used             @typescript-eslint/no-unused-vars
+   980:12  error  'err' is defined but never used             @typescript-eslint/no-unused-vars
+  1052:16  error  'err' is defined but never used             @typescript-eslint/no-unused-vars
+  1779:15  error  'valid' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  1824:12  error  'err' is defined but never used             @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\autonomous-intelligence.ts
+  237:19  error  'finalSummary' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\config.ts
+  371:11  error  'StorageSchema' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\failure-recovery.ts
+    1:23  error  'ActionResult' is defined but never used                                   @typescript-eslint/no-unused-vars
+  105:60  error  'action' is defined but never used. Allowed unused args must match /^_/u   @typescript-eslint/no-unused-vars
+  200:44  error  'success' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\global-learning.ts
+    1:26  error  'saveActionOutcome' is defined but never used    @typescript-eslint/no-unused-vars
+  148:11  error  'localStats' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\input-sanitization.ts
+  315:14  error  'error' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\intelligent-clarification.ts
+   56:18  error  An empty interface declaration allows any non-nullish value, including literals like `0` and `""`.
+- If that's what you want, disable this lint rule with an inline comment or configure the 'allowInterfaces' rule option.
+- If you want a type meaning "any object", you probably want `object` instead.
+- If you want a type meaning "any value", you probably want `unknown` instead  @typescript-eslint/no-empty-object-type
+  784:39  error  'prompt' is defined but never used. Allowed unused args must match /^_/u                                                                                                                                                                                                                                                                                                                  @typescript-eslint/no-unused-vars
+  820:17  error  '_sessionId' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                           @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\intent.ts
+  335:15  error  'template' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\llmClient.ts
+   19:20  error  'generalCache' is defined but never used                                       @typescript-eslint/no-unused-vars
+   26:10  error  'redact' is defined but never used                                             @typescript-eslint/no-unused-vars
+   50:7   error  'RateLimiter' is defined but never used                                        @typescript-eslint/no-unused-vars
+   57:7   error  'CostTracker' is defined but never used                                        @typescript-eslint/no-unused-vars
+   91:7   error  'CostTrackerLegacy' is defined but never used                                  @typescript-eslint/no-unused-vars
+   94:7   error  'TokenCounter' is defined but never used                                       @typescript-eslint/no-unused-vars
+  205:11  error  'APIResponse' is defined but never used                                        @typescript-eslint/no-unused-vars
+  911:18  error  'newSettings' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\metrics.ts
+   36:7  error  'METRICS_STORAGE_KEY' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  129:9  error  'failedActions' is assigned a value but never used        @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\neuroplasticity-engine.ts
+    21:37  error  The `Function` type accepts any function-like value.
+Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+   726:29  error  'context' is defined but never used. Allowed unused args must match /^_/u                                                @typescript-eslint/no-unused-vars
+   856:38  error  'interaction' is defined but never used. Allowed unused args must match /^_/u                                            @typescript-eslint/no-unused-vars
+   887:35  error  'interaction' is defined but never used. Allowed unused args must match /^_/u                                            @typescript-eslint/no-unused-vars
+   933:31  error  'intent' is defined but never used. Allowed unused args must match /^_/u                                                 @typescript-eslint/no-unused-vars
+  1273:40  error  'analysis' is defined but never used. Allowed unused args must match /^_/u                                               @typescript-eslint/no-unused-vars
+  1319:40  error  'analysis' is defined but never used. Allowed unused args must match /^_/u                                               @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\persistent-autonomous.ts
+  171:5   error  'session' is defined but never used. Allowed unused args must match /^_/u     @typescript-eslint/no-unused-vars
+  353:5   error  'session' is defined but never used. Allowed unused args must match /^_/u     @typescript-eslint/no-unused-vars
+  365:5   error  'session' is defined but never used. Allowed unused args must match /^_/u     @typescript-eslint/no-unused-vars
+  373:5   error  'session' is defined but never used. Allowed unused args must match /^_/u     @typescript-eslint/no-unused-vars
+  414:38  error  'workflowId' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  561:17  error  'sessionId' is assigned a value but never used                                @typescript-eslint/no-unused-vars
+  581:11  error  'activeSessionIds' is assigned a value but never used                         @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\reasoning-engine.ts
+    1:36  error  'ReasoningStep' is defined but never used                                  @typescript-eslint/no-unused-vars
+    1:51  error  'SuccessPattern' is defined but never used                                 @typescript-eslint/no-unused-vars
+    1:67  error  'RiskLevel' is defined but never used                                      @typescript-eslint/no-unused-vars
+  139:38  error  'context' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\retry-circuit-breaker.ts
+  92:21  error  'error' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\swarm-intelligence.ts
+  198:62  error  'data' is defined but never used. Allowed unused args must match /^_/u                                                   @typescript-eslint/no-unused-vars
+  415:40  error  The `Function` type accepts any function-like value.
+Prefer explicitly defining any function parameters and return type  @typescript-eslint/no-unsafe-function-type
+  424:37  error  'agent' is defined but never used. Allowed unused args must match /^_/u                                                  @typescript-eslint/no-unused-vars
+  424:56  error  'globalContext' is defined but never used. Allowed unused args must match /^_/u                                          @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\tiktok-moderator.ts
+    2:10  error  'LLMClientInterface' is defined but never used                             @typescript-eslint/no-unused-vars
+  269:18  error  'e' is defined but never used                                              @typescript-eslint/no-unused-vars
+  280:18  error  'e' is defined but never used                                              @typescript-eslint/no-unused-vars
+  285:22  error  'message' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\tool-system.ts
+  438:18  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+  526:18  error  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\shared\workflows.ts
+  151:3  error  'context' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\tests\extension-mock.spec.ts
+  127:9   error  'transfer' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  249:11  error  'inputAfterClear' is assigned a value but never used                        @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\tests\extension.spec.ts
+  16:25  error  'message' is defined but never used. Allowed unused args must match /^_/u   @typescript-eslint/no-unused-vars
+  18:27  error  'callback' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\tests\unit\billing.test.ts
+  31:46  error  'SubscriptionTier' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\tests\unit\config.test.ts
+  1:32  error  'beforeEach' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Administrator\Desktop\Chrome Hyper Agent\tests\unit\storage.test.ts
+  50:19  error  'name' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+✖ 91 problems (91 errors, 0 warnings)
+

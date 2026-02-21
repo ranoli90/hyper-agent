@@ -16,52 +16,30 @@
  * decisions about task execution while maintaining safety and reliability.
  */
 
-import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS } from '../shared/config';
+import { loadSettings, isSiteBlacklisted, DEFAULTS } from '../shared/config';
 import { checkStorageQuota } from '../shared/storage-monitor';
-import { initErrorReporter, captureError } from '../shared/error-reporter';
+import { initErrorReporter } from '../shared/error-reporter';
 import { type HistoryEntry, llmClient } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
-import { runWorkflow as executeWorkflow, getWorkflowById } from '../shared/workflows';
-import {
-  trackActionStart,
-  trackActionEnd,
-  getMetrics,
-  getActionMetrics,
-  getSuccessRateByDomain,
-} from '../shared/metrics';
-import {
-  createSession,
-  getActiveSession,
-  updateSessionPageInfo,
-  addActionToSession,
-  addResultToSession,
-  updateExtractedData,
-} from '../shared/session';
+import { runWorkflow as executeWorkflow } from '../shared/workflows';
+import { trackActionStart, trackActionEnd } from '../shared/metrics';
+import { createSession, getActiveSession } from '../shared/session';
 import {
   checkDomainAllowed,
   checkActionAllowed,
   checkRateLimit,
   initializeSecuritySettings,
-  getPrivacySettings,
-  getSecurityPolicy,
-  type PrivacySettings,
-  type SecurityPolicy,
   redact,
 } from '../shared/security';
 import {
   ExtensionMessage,
   Action,
   ActionResult,
-  MsgAgentProgress,
-  MsgAgentDone,
   MsgConfirmActions,
-  MsgAskUser,
   ErrorType,
   PageContext,
   MacroAction,
   WorkflowAction,
-  MsgGetUsage,
-  MsgGetUsageResponse,
 } from '../shared/types';
 import { withErrorBoundary } from '../shared/error-boundary';
 import { toolRegistry } from '../shared/tool-system';
@@ -69,20 +47,16 @@ import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
 import { billingManager } from '../shared/billing';
 import { schedulerEngine } from '../shared/scheduler-engine';
-import { getMemoryStats as getMemoryStatsUtil, getStrategiesForDomain } from '../shared/memory';
-import { SnapshotManager, type AgentSnapshot } from '../shared/snapshot-manager';
+import { getMemoryStats as getMemoryStatsUtil } from '../shared/memory';
+import { SnapshotManager } from '../shared/snapshot-manager';
 import { parseIntent, getSuggestions } from '../shared/intent';
-import { SwarmCoordinator, AgentRole, type SwarmAgent } from '../shared/swarm-intelligence';
+import { SwarmCoordinator } from '../shared/swarm-intelligence';
 import { ReasoningEngine } from '../shared/reasoning-engine';
-import { failureRecovery, type FailureAnalysis, StrategyType } from '../shared/failure-recovery';
-import {
-  PersistentAutonomousEngine,
-  type AutonomousSession,
-  type ProactiveSuggestion,
-} from '../shared/persistent-autonomous';
-import { apiCache, generalCache, type CacheStats } from '../shared/advanced-caching';
+import { failureRecovery } from '../shared/failure-recovery';
+import { PersistentAutonomousEngine } from '../shared/persistent-autonomous';
+import { apiCache, generalCache } from '../shared/advanced-caching';
 import { memoryManager } from '../shared/memory-management';
-import { inputSanitizer, sanitize, type ValidationResult } from '../shared/input-sanitization';
+import { inputSanitizer } from '../shared/input-sanitization';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -156,7 +130,7 @@ class UsageTracker {
     }
   }
 
-  trackAction(actionType: string): void {
+  trackAction(_actionType: string): void {
     this.metrics.actionsExecuted++;
     this.metrics.monthlyUsage.actions++;
     this.metrics.lastActivity = Date.now();
@@ -1223,7 +1197,7 @@ export default defineBackground(() => {
    */
   async function handleExtensionMessage(
     message: ExtensionMessage,
-    sender: chrome.runtime.MessageSender
+    _sender: chrome.runtime.MessageSender
   ): Promise<any> {
     switch (message.type) {
       case 'executeCommand': {
@@ -1800,7 +1774,8 @@ export default defineBackground(() => {
     return Math.max(0, base + (Math.random() * 2 - 1) * delta);
   }
 
-  function delayForErrorType(errorType?: string): number {
+   
+  function _delayForErrorType(errorType?: string): number {
     switch (errorType) {
       case 'ELEMENT_NOT_VISIBLE':
         return jitter(800, 0.3);
@@ -2654,7 +2629,8 @@ Return JSON:
 
   // ─── Fallback planner (intentionally unimplemented) ─────────────────
   /** Stub: no automatic fallback when LLM fails. buildIntelligentFallback is used for recovery. */
-  function buildFallbackPlan(
+   
+  function _buildFallbackPlan(
     _command: string,
     _context: PageContext
   ): { summary: string; actions: Action[] } | null {

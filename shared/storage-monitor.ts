@@ -5,7 +5,6 @@
 
 const QUOTA_WARNING_THRESHOLD = 0.8; // 80% of quota
 const QUOTA_CRITICAL_THRESHOLD = 0.95; // 95% of quota
-const DEFAULT_QUOTA = 5 * 1024 * 1024; // 5MB default
 const UNLIMITED_STORAGE_QUOTA = 10 * 1024 * 1024; // 10MB with unlimitedStorage
 
 export interface StorageStats {

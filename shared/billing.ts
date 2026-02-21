@@ -1,4 +1,4 @@
-import { STORAGE_KEYS } from './config';
+// Storage keys for billing state
 
 export type SubscriptionTier = 'free' | 'premium' | 'unlimited';
 export type BillingInterval = 'month' | 'year';

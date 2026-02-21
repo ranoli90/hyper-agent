@@ -1,4 +1,4 @@
-import { getMemoryStats, saveActionOutcome } from './memory';
+import { getMemoryStats } from './memory';
 
 export interface GlobalPattern {
   id: string;
@@ -145,7 +145,8 @@ class GlobalLearningImpl {
   async fetchGlobalWisdom(): Promise<GlobalPattern[]> {
     this.lastSync = Date.now();
 
-    const localStats = await getMemoryStats();
+     
+    const _localStats = await getMemoryStats();
 
     const significantPatterns = Array.from(this.patterns.values())
       .filter(

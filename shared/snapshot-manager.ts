@@ -3,7 +3,7 @@
  * Saves agent snapshots for resume after browser restart or crash.
  */
 
-import { Action, ActionResult } from './types';
+import type { ActionResult } from './types';
 
 export interface AgentSnapshot {
     sessionId: string;

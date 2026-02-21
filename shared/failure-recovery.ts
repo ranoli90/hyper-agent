@@ -1,4 +1,4 @@
-import type { Action, ActionResult, ErrorType } from './types';
+import type { Action, ErrorType } from './types';
 
 export enum FailureType {
   ELEMENT_NOT_FOUND = 'element_not_found',
@@ -102,7 +102,8 @@ class FailureRecoverySystemImpl {
     };
   }
 
-  private getSuggestedStrategies(failureType: FailureType, action: Action): StrategyType[] {
+   
+  private getSuggestedStrategies(failureType: FailureType, _action: Action): StrategyType[] {
     switch (failureType) {
       case FailureType.ELEMENT_NOT_FOUND:
         return [
@@ -197,7 +198,8 @@ class FailureRecoverySystemImpl {
     }
   }
 
-  recordRecovery(context: RecoveryContext, success: boolean): void {
+   
+  recordRecovery(context: RecoveryContext, _success: boolean): void {
     this.recoveryHistory.push(context);
     if (this.recoveryHistory.length > this.maxHistory) {
       this.recoveryHistory.shift();

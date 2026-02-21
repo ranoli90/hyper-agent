@@ -312,7 +312,7 @@ export class InputSanitizer {
       // Encode URL components
       result.sanitizedValue = urlObj.toString();
       result.sanitizedLength = result.sanitizedValue.length;
-    } catch (error) {
+    } catch {
       result.isValid = false;
       result.errors.push('Invalid URL format');
     }

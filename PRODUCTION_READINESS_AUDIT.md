@@ -547,15 +547,15 @@ Fix in this exact order to minimize rework and address blocking issues first:
 - [x] 19.4 Data export/deletion (GDPR buttons in options)
 
 ### Phase 17 — Storage & DOM
-- [ ] 17.1 Storage migration
-- [ ] 17.2 Corruption recovery
-- [ ] 21.1 Shadow DOM traversal
+- [x] 17.1 Storage migration (runMigrations, STORAGE_VERSION in config.ts)
+- [x] 17.2 Corruption recovery (validateStorageIntegrity, safeStorageGet in config.ts)
+- [x] 21.1 Shadow DOM traversal (queryWithShadowDOM in content.ts)
 - [ ] 21.3 iframe handling
 
 ### Phase 18 — Release & Docs
 - [x] 20.1 GitHub Actions
 - [x] 20.4 CHANGELOG.md
-- [ ] 24.2 User docs
+- [x] 24.2 User docs (README.md with user guide, PRIVACY_POLICY.md, PERMISSIONS.md)
 
 ### Phase 19 — Low Priority
 - [ ] 1.10 Condition.value sanitization

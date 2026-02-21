@@ -176,7 +176,6 @@ maxStepsInput.addEventListener('input', () => {
 // ─── Save settings ──────────────────────────────────────────────
 btnSave.addEventListener('click', async () => {
   const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
-  const current = cachedSettings;
 
   await saveSettings({
     apiKey: apiKeyValue,
@@ -200,7 +199,8 @@ btnSave.addEventListener('click', async () => {
 });
 
 // ─── API Key Validation ─────────────────────────────────────────
-let validationTimeout: NodeJS.Timeout | null = null;
+ 
+let _validationTimeout: NodeJS.Timeout | null = null;
 
 async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: boolean; error?: string }> {
   if (!key || key === DEFAULTS.DEFAULT_API_KEY) {

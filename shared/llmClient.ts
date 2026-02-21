@@ -16,14 +16,14 @@ import { DEFAULTS, loadSettings } from './config';
 import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
 import { IntelligenceContext } from './ai-types';
-import { apiCache, generalCache } from './advanced-caching';
+import { apiCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 
 const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
 
-import { redact, sanitizeMessages } from './security';
+import { sanitizeMessages } from './security';
 
 /** Map API status codes to user-friendly messages (22.1). */
 function userFriendlyApiError(status: number): string | null {
@@ -47,19 +47,21 @@ function userFriendlyApiError(status: number): string | null {
 }
 
 // ─── Utility Classes ──────────────────────────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 class RateLimiter {
-  recordRequest(model: string): void {
+  recordRequest(_model: string): void {
     // Simple rate limiting - could be enhanced later
-    console.log(`[RateLimiter] Recorded request for ${model}`);
+    console.log(`[RateLimiter] Recorded request for ${_model}`);
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 class CostTracker {
   private sessionTokens = 0;
   private sessionCost = 0;
   private warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
 
-  trackCost(model: string, usage: any): void {
+  trackCost(_model: string, usage: any): void {
     if (usage?.total_tokens) {
       this.sessionTokens += usage.total_tokens;
     }
@@ -88,9 +90,11 @@ class CostTracker {
   }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 class CostTrackerLegacy {
-  }
+}
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 class TokenCounter {
   // Simple token counter - could be enhanced later
   countTokens(text: string): number {
@@ -202,6 +206,7 @@ interface MessageContent {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface APIResponse {
   choices: Array<{
     message: {
@@ -908,7 +913,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
     this.cache.clear();
   }
 
-  updateSettings(newSettings: Partial<any>): void {
+  updateSettings(_newSettings: Partial<any>): void {
     // Update settings if needed
   }
 }
