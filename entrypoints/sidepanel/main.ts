@@ -410,7 +410,7 @@ function renderMarkdown(text: string): string {
 
     html = html
       .split('\n\n')
-      .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+      .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
       .join('');
     return html;
   } catch (err) {
