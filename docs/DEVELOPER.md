@@ -114,3 +114,17 @@ access to page context.
 **Future improvement:**
 Add pageContext parameter to runWorkflow signature and call checkCondition
 before executing each step.
+
+
+## Confirm Modal Behavior (Item 3.3)
+
+The confirm modal Promise never rejects - it resolves with:
+-  for user confirmation
+-  for cancel or backdrop click
+
+This is intentional design:
+- Calling code checks boolean result
+- No exception handling needed
+- Consistent behavior for all dismissals
+
+No reject path is needed for this use case.
