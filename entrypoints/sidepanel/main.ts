@@ -1274,7 +1274,7 @@ components.commandInput.addEventListener('keydown', e => {
 });
 
 // Load history on start
-loadHistory();
+requestIdleCallback(() => loadHistory(), { timeout: 100 });
 loadCommandHistory();
 
 // Show changelog on update
