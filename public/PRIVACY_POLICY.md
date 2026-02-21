@@ -46,3 +46,36 @@ For privacy questions: privacy@hyperagent.ai
 ## Changes
 
 We will update this policy as needed. Significant changes will be announced in the extension.
+
+## Data Usage Disclosure
+
+### What data HyperAgent processes:
+
+| Data Type | Where Stored | Who Can Access | Shared Externally |
+|-----------|--------------|----------------|-------------------|
+| API Key | Chrome extension storage | Only HyperAgent extension | No |
+| Chat History | Chrome extension storage | Only you | No |
+| Settings/Preferences | Chrome extension storage | Only you | No (unless exported) |
+| Command text | Sent to LLM API | LLM provider (user's choice) | Yes (to LLM) |
+| Page screenshots | Sent to LLM API (if vision enabled) | LLM provider | Yes (to LLM) |
+| Page content | Sent to LLM API | LLM provider | Yes (to LLM) |
+| Payment info | Stripe (not stored by HyperAgent) | Stripe only | No |
+
+### Third-party services:
+
+1. **LLM Provider (OpenRouter/OpenAI/Google)**
+   - Purpose: AI processing of commands
+   - Data sent: Command text, page context, screenshots
+   - Retention: Per provider policy
+
+2. **Stripe**
+   - Purpose: Payment processing
+   - Data sent: Subscription tier only
+   - Card details never touch our servers
+
+### Your control:
+
+- Disable vision/screenshot: Settings → Visual Analysis
+- Clear chat history: Type `/clear`
+- Export/delete data: Settings → Export or Reset
+- Disable action history: Settings → Privacy
