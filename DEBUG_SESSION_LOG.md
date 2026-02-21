@@ -98,3 +98,32 @@
 
 ---
 
+## Phase 4: Session 2026-02-21 (Continued)
+
+### Fix 1: sidepanel/main.ts - Missing err in catch blocks
+- **Issue**: 11 catch blocks used `catch {` but referenced `err` in body (TS2304)
+- **Fix**: Added `(err)` parameter to all catch blocks
+- **Validation**: type-check ✅, test:unit ✅
+
+### Fix 2: ESLint no-unused-vars (32 errors)
+- **Files**: options/main.ts, sidepanel/main.ts, autonomous-intelligence, metrics, neuroplasticity-engine, persistent-autonomous, reasoning-engine, retry-circuit-breaker, swarm-intelligence, tiktok-moderator, tool-system, workflows
+- **Fix**: Prefixed unused vars/params with `_`; removed unused imports; empty catch → `catch {}`
+- **Validation**: lint ✅, type-check ✅, test:unit ✅
+
+### CI Pipeline Status
+- type-check: ✅
+- test:unit: ✅ (93 tests)
+- lint: ✅
+- build: ✅
+
+### Fix 3: ReDoS - Use shared isSafeRegex in background & content
+- **Issue**: background.ts and content.ts had local isSafeRegex that only validated syntax, NOT ReDoS (catastrophic backtracking)
+- **Fix**: Import and use shared `isSafeRegex` from safe-regex.ts (uses safe-regex npm package)
+- **Impact**: URL patterns, filters now protected against ReDoS in all entrypoints
+
+### Fix 4: config.ts comment cleanup
+- **Issue**: Concatenated comments on DEFAULTS (ERROR_REPORTING_ENABLED / LLM_TIMEOUT_MS)
+- **Fix**: Separated comments for clarity
+
+---
+
