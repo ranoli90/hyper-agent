@@ -86,6 +86,25 @@ export class SwarmCoordinator {
     console.log(`[Swarm] Initialized ${this.agents.size} specialized AI agents`);
   }
 
+  /** Returns agent status for UI display (Swarm tab). */
+  getAgentsStatus(): { role: string; displayName: string; status: string }[] {
+    const roleLabels: Record<string, string> = {
+      [AgentRole.INTENT_ANALYZER]: 'Intent Analyzer',
+      [AgentRole.INFORMATION_GATHERER]: 'Information Gatherer',
+      [AgentRole.ACTION_EXECUTOR]: 'Action Executor',
+      [AgentRole.VALIDATOR]: 'Validator',
+      [AgentRole.STRATEGIST]: 'Strategist',
+      [AgentRole.PREDICTOR]: 'Predictor',
+      [AgentRole.MEMORY_MANAGER]: 'Memory Manager',
+      [AgentRole.ETHICS_GUARDIAN]: 'Ethics Guardian',
+    };
+    return Array.from(this.agents.values()).map(a => ({
+      role: a.role,
+      displayName: roleLabels[a.role] || a.role.replace(/_/g, ' '),
+      status: this.activeSwarm ? 'Active' : 'Ready',
+    }));
+  }
+
   /**
    * Processes a task by orchestrating multiple specialized AI agents.
    * 

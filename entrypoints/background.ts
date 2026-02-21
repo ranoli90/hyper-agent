@@ -1408,7 +1408,8 @@ export default defineBackground(() => {
         if (!swarmCoordinator) {
           return { ok: true, status: { initialized: false, agents: [] } };
         }
-        return { ok: true, status: { initialized: true, agents: [] } };
+        const agents = swarmCoordinator.getAgentsStatus();
+        return { ok: true, status: { initialized: true, agents } };
       }
 
       case 'getSnapshot': {

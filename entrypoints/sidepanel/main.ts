@@ -956,7 +956,7 @@ async function loadTasksTab() {
           <div class="task-schedule">${escapeHtml(formatSchedule(task.schedule))}</div>
           <div class="task-next-run">Next: ${task.nextRun ? escapeHtml(new Date(task.nextRun).toLocaleString()) : 'Not scheduled'}</div>
           <div class="task-actions">
-            <button class="btn-small" data-task-id="${safeId}" data-action="toggle">${task.enabled ? 'Pause' : 'Enable'}</button>
+            <button class="btn-small" data-task-id="${safeId}" data-action="toggle" data-enabled="${task.enabled}">${task.enabled ? 'Pause' : 'Enable'}</button>
             <button class="btn-small btn-danger" data-task-id="${safeId}" data-action="delete">Delete</button>
           </div>
         `;
@@ -968,7 +968,8 @@ async function loadTasksTab() {
           const target = e.target as HTMLButtonElement;
           const taskId = target.dataset.taskId;
           const action = target.dataset.action;
-          handleTaskAction(taskId, action);
+          const currentEnabled = action === 'toggle' ? target.dataset.enabled === 'true' : undefined;
+          handleTaskAction(taskId, action, currentEnabled);
         });
       });
     } else {
@@ -999,11 +1000,13 @@ function formatSchedule(schedule: any): string {
   }
 }
 
-async function handleTaskAction(taskId: string | undefined, action: string | undefined) {
+async function handleTaskAction(taskId: string | undefined, action: string | undefined, currentEnabled?: boolean) {
   if (!taskId || !action) return;
 
   if (action === 'toggle') {
-    await chrome.runtime.sendMessage({ type: 'toggleScheduledTask', taskId });
+    // Toggle: pass opposite of current state (Pause = disable, Enable = enable)
+    const enabled = currentEnabled !== undefined ? !currentEnabled : true;
+    await chrome.runtime.sendMessage({ type: 'toggleScheduledTask', taskId, enabled });
     loadTasksTab();
   } else if (action === 'delete') {
     await chrome.runtime.sendMessage({ type: 'deleteScheduledTask', taskId });
@@ -1068,6 +1071,8 @@ function loadVisionTab() {
 let swarmListenersAttached = false;
 async function loadSwarmTab() {
   const swarmState = document.getElementById('swarm-state');
+  const agentList = document.getElementById('agent-list');
+  const agentCount = document.getElementById('agent-count');
   const missionsCompleted = document.getElementById('missions-completed');
   const swarmSuccessRate = document.getElementById('swarm-success-rate');
   const activeMissions = document.getElementById('active-missions');
@@ -1077,8 +1082,23 @@ async function loadSwarmTab() {
   try {
     // Get swarm status
     const swarmResponse = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
-    if (swarmResponse?.ok && swarmState) {
-      swarmState.textContent = swarmResponse.status?.initialized ? 'Active' : 'Initializing...';
+    if (swarmResponse?.ok) {
+      if (swarmState) {
+        swarmState.textContent = swarmResponse.status?.initialized ? 'Active' : 'Initializing...';
+      }
+      // Populate agent list from live coordinator
+      const agents = swarmResponse.status?.agents || [];
+      if (agentList) {
+        agentList.innerHTML = agents.length > 0
+          ? agents.map((a: { displayName?: string; role?: string; status?: string }) => `
+              <div class="agent-item">
+                <span class="agent-role">${escapeHtml(a.displayName || a.role || '')}</span>
+                <span class="agent-status active">${escapeHtml(a.status || 'Ready')}</span>
+              </div>
+            `).join('')
+          : '<p class="empty-state">No agents initialized.</p>';
+      }
+      if (agentCount) agentCount.textContent = String(agents.length);
     }
 
     // Get global learning stats
