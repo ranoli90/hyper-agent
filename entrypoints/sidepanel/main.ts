@@ -1776,7 +1776,7 @@ async function importSettings() {
         throw new Error('Invalid settings file format');
       }
 
-      const { valid, filtered, errors } = validateAndFilterImportData(data.settings);
+      const { filtered, errors } = validateAndFilterImportData(data.settings);
       if (Object.keys(filtered).length === 0) {
         throw new Error(errors.length > 0 ? errors[0] : 'No valid settings to import');
       }

@@ -82,7 +82,7 @@ function showNotification(message: string, variant: 'info' | 'success' | 'error'
 const DEFAULT_SITE_MAX_RETRIES = 2;
 const DEFAULT_SITE_WAIT_MS = 400;
 let dangerZoneHandlersAttached = false;
-let cachedSettings: Settings | null = null;
+let _cachedSettings: Settings | null = null;
 
 function storageGet(keys?: string[] | null): Promise<Record<string, any>> {
   return new Promise(resolve => {
@@ -128,7 +128,7 @@ const siteConfigsList = document.getElementById('site-configs-list')!;
 // ─── Load current settings ──────────────────────────────────────
 async function loadCurrentSettings() {
   const settings = await loadSettings();
-  cachedSettings = settings;
+  _cachedSettings = settings;
 
   // Detect API provider from base URL
   const provider = detectProviderFromUrl(settings.baseUrl);
@@ -484,7 +484,7 @@ function attachDangerZoneHandlers() {
   resetSettings?.addEventListener('click', async () => {
     if (!confirm('Reset all settings to defaults? This will permanently clear your API key, chat history, sessions, snapshots, and all preferences. This cannot be undone.')) return;
     await storageClear();
-    cachedSettings = null;
+    _cachedSettings = null;
     await loadCurrentSettings();
     showNotification('Settings reset to defaults', 'success');
   });
@@ -567,7 +567,7 @@ function attachDangerZoneHandlers() {
 
     try {
       await storageClear();
-      cachedSettings = null;
+      _cachedSettings = null;
       await loadCurrentSettings();
       showNotification('All data has been permanently deleted', 'success');
     } catch (err) {

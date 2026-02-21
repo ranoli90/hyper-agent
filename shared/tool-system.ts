@@ -435,7 +435,7 @@ class ToolRegistryImpl {
           const sanitized = params.expression.replace(/[^0-9+\-*/().%\s]/g, '');
           const result = Function(`"use strict"; return (${sanitized})`)();
           return { success: true, data: result, message: `Result: ${result}` };
-        } catch (e) {
+        } catch {
           return { success: false, error: 'Invalid expression' };
         }
       },
@@ -523,7 +523,7 @@ class ToolRegistryImpl {
               formatted = String(parsed);
           }
           return { success: true, data: formatted, message: `Formatted as ${params.format}` };
-        } catch (e) {
+        } catch {
           return { success: false, error: 'Failed to format data' };
         }
       },

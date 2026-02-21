@@ -1,4 +1,4 @@
-import type { IntelligenceContext, ReasoningStep, SuccessPattern, RiskLevel } from './ai-types';
+import type { IntelligenceContext } from './ai-types';
 import type { LLMClientInterface } from './types';
 
 export class ReasoningEngine {
@@ -136,12 +136,12 @@ Return format: LEVEL|REASONING`;
         return { level: level?.trim() || '5', reasoning: reasoning?.trim() || 'Moderate' };
     }
 
-    private async identifyApproaches(context: IntelligenceContext): Promise<string[]> {
+    private async identifyApproaches(_context: IntelligenceContext): Promise<string[]> {
         // Deprecated by performTreeOfThoughts, but kept for interface if needed
         return [];
     }
 
-    private async evaluateRisks(context: IntelligenceContext, approaches: string[]): Promise<Array<{ type: string; probability: number }>> {
+    private async evaluateRisks(_context: IntelligenceContext, approaches: string[]): Promise<Array<{ type: string; probability: number }>> {
         const prompt = `
 Evaluate risks for this strategy:
 ${approaches[0]}

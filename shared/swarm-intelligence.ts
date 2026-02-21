@@ -195,7 +195,7 @@ export class SwarmCoordinator {
     }
   }
 
-  private buildAgentPrompt(agent: SwarmAgent, phase: string, data?: any): string {
+  private buildAgentPrompt(agent: SwarmAgent, phase: string, _data?: any): string {
     const basePrompt = `You are ${agent.specialization} in a multi-agent AI swarm.
 
 Current Phase: ${phase}
@@ -421,7 +421,7 @@ export class NeuroplasticityEngine {
     }
   }
 
-  private calculateAgentPerformance(agent: SwarmAgent, globalContext: Map<string, any>): number {
+  private calculateAgentPerformance(_agent: SwarmAgent, _globalContext: Map<string, any>): number {
     // Calculate performance based on:
     // - Task completion rate
     // - Accuracy of results

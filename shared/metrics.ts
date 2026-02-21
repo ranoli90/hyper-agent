@@ -33,7 +33,7 @@ export interface ActionTrackingEntry {
 }
 
 // ─── Storage Keys ─────────────────────────────────────────────────────────
-const METRICS_STORAGE_KEY = 'hyperagent_metrics';
+const _METRICS_STORAGE_KEY = 'hyperagent_metrics';
 const ACTION_TRACKING_KEY = 'hyperagent_action_tracking';
 const MAX_TRACKING_ENTRIES = 1000;
 

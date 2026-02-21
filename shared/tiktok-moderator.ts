@@ -1,5 +1,4 @@
 import { autonomousIntelligence } from './autonomous-intelligence';
-import { LLMClientInterface } from './types';
 
 // ─── Interfaces ─────────────────────────────────────────────────────────────
 
@@ -266,7 +265,7 @@ export class TikTokModerator {
                 type: 'moderatorStats',
                 stats: this.stats
             });
-        } catch (e) {
+        } catch {
             // Ignore if sidepanel is closed
         }
     }
@@ -277,12 +276,12 @@ export class TikTokModerator {
                 type: 'moderationLog',
                 log: log
             });
-        } catch (e) {
+        } catch {
             // Ignore if sidepanel is closed
         }
     }
 
-    private notifyUI(message: string) {
+    private notifyUI(_message: string) {
         // Optional: send status update
     }
 }

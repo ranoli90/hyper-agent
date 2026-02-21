@@ -234,7 +234,7 @@ Current page context will be provided. Return 'SUCCESS' if the step appears comp
 
             // All steps completed
             const success = results.every(r => r.success !== false) || results.length > 0;
-            const finalSummary = success 
+            const _finalSummary = success 
                 ? `Autonomous task completed with ${results.filter(r => r.success).length}/${results.length} steps successful`
                 : `Autonomous task failed after ${results.length} steps`;
 

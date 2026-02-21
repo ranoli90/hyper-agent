@@ -723,7 +723,7 @@ export class NeuroplasticityEngine {
     return 'desktop';
   }
 
-  private detectBrowserType(context: any): string {
+  private detectBrowserType(_context: any): string {
     // This would be detected from user agent or other signals
     return 'chrome'; // Default assumption for extension context
   }
@@ -853,7 +853,7 @@ export class NeuroplasticityEngine {
     return Math.min(1, frustration);
   }
 
-  private calculateSatisfactionLevel(interaction: InteractionData): number {
+  private calculateSatisfactionLevel(_interaction: InteractionData): number {
     // This would be calculated based on interaction outcomes and user feedback
     // For now, return a neutral value
     return 0.6;
@@ -884,7 +884,7 @@ export class NeuroplasticityEngine {
     return intersection.size / union.size;
   }
 
-  private calculateSuccessMetrics(interaction: InteractionData): SuccessMetrics {
+  private calculateSuccessMetrics(_interaction: InteractionData): SuccessMetrics {
     // Calculate various success metrics for the interaction
     return {
       taskCompletion: 0.8, // Would be calculated based on actual outcomes
@@ -930,7 +930,7 @@ export class NeuroplasticityEngine {
     return opportunities;
   }
 
-  private findSimilarPatterns(intent: UserIntent): Pattern[] {
+  private findSimilarPatterns(_intent: UserIntent): Pattern[] {
     return Array.from(this.cognitiveMap.behavioralPatterns.values())
       .filter(pattern => pattern.confidence > 0.6)
       .sort((a, b) => b.confidence - a.confidence)
@@ -1270,7 +1270,7 @@ export class NeuroplasticityEngine {
     return adaptations;
   }
 
-  private generateCognitiveAdaptations(analysis: InteractionAnalysis): CognitiveAdaptation[] {
+  private generateCognitiveAdaptations(_analysis: InteractionAnalysis): CognitiveAdaptation[] {
     const adaptations: CognitiveAdaptation[] = [];
 
     // Adapt explanation complexity based on user profile
@@ -1316,7 +1316,7 @@ export class NeuroplasticityEngine {
     return adaptations;
   }
 
-  private generateTechnicalAdaptations(analysis: InteractionAnalysis): TechnicalAdaptation[] {
+  private generateTechnicalAdaptations(_analysis: InteractionAnalysis): TechnicalAdaptation[] {
     const adaptations: TechnicalAdaptation[] = [];
 
     // Adapt technical approach based on user proficiency

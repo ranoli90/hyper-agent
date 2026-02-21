@@ -148,7 +148,7 @@ export async function checkCondition(
 export function findNextStep(
   currentStep: WorkflowStep,
   actionSuccess: boolean,
-  context: PageContext
+  _context: PageContext
 ): string | null {
   // If there's a condition, check it first
   if (currentStep.condition) {

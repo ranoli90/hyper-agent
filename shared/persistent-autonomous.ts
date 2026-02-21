@@ -168,7 +168,7 @@ export class PersistentAutonomousEngine {
 
   private async generateFollowUpSuggestions(
     task: CompletedTask,
-    session: AutonomousSession
+    _session: AutonomousSession
   ): Promise<ProactiveSuggestion[]> {
     const suggestions: ProactiveSuggestion[] = [];
 
@@ -350,7 +350,7 @@ export class PersistentAutonomousEngine {
 
   private async executeFollowUp(
     suggestion: ProactiveSuggestion,
-    session: AutonomousSession
+    _session: AutonomousSession
   ): Promise<void> {
     // Execute follow-up logic based on suggestion context
     if (suggestion.context?.originalTaskId) {
@@ -362,7 +362,7 @@ export class PersistentAutonomousEngine {
 
   private async executeOptimization(
     suggestion: ProactiveSuggestion,
-    session: AutonomousSession
+    _session: AutonomousSession
   ): Promise<void> {
     // Execute optimization tasks
     console.log(`[Autonomous] Running optimization: ${suggestion.description}`);
@@ -370,7 +370,7 @@ export class PersistentAutonomousEngine {
 
   private async executeExpansion(
     suggestion: ProactiveSuggestion,
-    session: AutonomousSession
+    _session: AutonomousSession
   ): Promise<void> {
     // Execute expansion tasks (e.g., post to more platforms)
     console.log(`[Autonomous] Expanding reach: ${suggestion.description}`);
@@ -411,7 +411,7 @@ export class PersistentAutonomousEngine {
     }
   }
 
-  private async checkForNewResponses(workflowId: string): Promise<boolean> {
+  private async checkForNewResponses(_workflowId: string): Promise<boolean> {
     // Check external platforms for new responses
     // This would integrate with the platform monitoring systems
     return Math.random() < 0.1; // Simulate occasional new responses
@@ -558,7 +558,7 @@ export class PersistentAutonomousEngine {
     // Clean up old sessions, suggestions, and tasks
     const cutoffTime = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
 
-    for (const [sessionId, session] of this.activeSessions) {
+    for (const [_sessionId, session] of this.activeSessions) {
       // Remove old completed tasks
       session.completedTasks = session.completedTasks.filter(
         task => task.completionTime > cutoffTime
@@ -578,7 +578,7 @@ export class PersistentAutonomousEngine {
 
   private optimizeMemoryUsage(): void {
     // Optimize memory usage by cleaning up unused data
-    const activeSessionIds = new Set(this.activeSessions.keys());
+    const _activeSessionIds = new Set(this.activeSessions.keys());
 
     // Clean up any orphaned data structures
     // This would be more sophisticated in production
