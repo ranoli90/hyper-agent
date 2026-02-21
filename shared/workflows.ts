@@ -86,6 +86,7 @@ export function validateWorkflow(workflow: Workflow): boolean {
   return true;
 }
 
+
 /**
  * Check if a condition is met
  */
@@ -93,40 +94,46 @@ export async function checkCondition(
   condition: Condition,
   context: PageContext
 ): Promise<boolean> {
+  // Sanitize condition value - limit length to prevent abuse
+  const MAX_VALUE_LENGTH = 500;
+  const value = typeof condition.value === 'string' 
+    ? condition.value.slice(0, MAX_VALUE_LENGTH) 
+    : '';
+
   switch (condition.type) {
     case 'elementExists': {
       const element = context.semanticElements.find(
-        el => el.visibleText.includes(condition.value) ||
-              el.ariaLabel?.includes(condition.value) ||
-              el.id.includes(condition.value) ||
-              el.role === condition.value
+        el => el.visibleText.includes(value) ||
+              el.ariaLabel?.includes(value) ||
+              el.id.includes(value) ||
+              el.role === value
       );
       return !!element;
     }
     
     case 'elementMissing': {
       const element = context.semanticElements.find(
-        el => el.visibleText.includes(condition.value) ||
-              el.ariaLabel?.includes(condition.value) ||
-              el.id.includes(condition.value) ||
-              el.role === condition.value
+        el => el.visibleText.includes(value) ||
+              el.ariaLabel?.includes(value) ||
+              el.id.includes(value) ||
+              el.role === value
       );
       return !element;
     }
     
     case 'textContains': {
-      return context.bodyText.includes(condition.value);
+      return context.bodyText.includes(value);
     }
     
     case 'urlMatches': {
-      if (!isSafeRegex(condition.value)) {
-        return context.url.includes(condition.value);
+      if (!isSafeRegex(value)) {
+        return context.url.includes(value);
       }
       try {
-        const regex = new RegExp(condition.value, 'i');
+        const regex = new RegExp(value, 'i');
         return regex.test(context.url);
       } catch {
-        return context.url.includes(condition.value);
+        return context.url.includes(value);
       }
     }
     
