@@ -99,3 +99,18 @@ Marked as future work.
 | assetCache | 60 min | 200 | Static assets |
 
 TTLs are appropriate for extension use case. No stale data concerns.
+
+
+## Workflow Condition Check (Item 4.6)
+
+Workflow conditions are currently **not evaluated** during runWorkflow execution.
+The checkCondition function exists and works, but runWorkflow does not have
+access to page context.
+
+**Current behavior:**
+- Conditions in workflow steps are skipped
+- Actions execute regardless of condition
+
+**Future improvement:**
+Add pageContext parameter to runWorkflow signature and call checkCondition
+before executing each step.
