@@ -88,3 +88,14 @@ This requires careful refactoring to:
 3. Preserve existing error handling for 429, auth errors, etc.
 
 Marked as future work.
+
+
+## Cache TTL Audit (Item 6.5)
+
+| Cache | TTL | Max Size | Purpose |
+|-------|-----|----------|---------|
+| apiCache | 15 min | 500 | LLM responses |
+| generalCache | 30 min | 1000 | General data |
+| assetCache | 60 min | 200 | Static assets |
+
+TTLs are appropriate for extension use case. No stale data concerns.
