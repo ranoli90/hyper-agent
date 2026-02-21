@@ -142,3 +142,18 @@ No new issues found in Pass 2. Catch blocks without params that don't reference 
 
 ---
 
+## Environment Setup (2026-02-21)
+
+### Playwright Installation
+- `npx playwright install` — Chromium, Firefox, WebKit, FFmpeg downloaded
+- `sudo apt-get install` — System deps: libxslt1.1, libevent, libgstreamer-*, libavif16, libharfbuzz-icu0, libmanette, libhyphen0, libwoff1
+
+### Full Test Suite
+- **Unit tests**: 93 passed
+- **E2E tests**: 19 passed (Playwright)
+- **type-check**: ✅
+- **lint**: ✅
+- **build**: ✅
+
+---
+
