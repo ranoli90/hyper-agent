@@ -125,5 +125,9 @@
 - **Issue**: Concatenated comments on DEFAULTS (ERROR_REPORTING_ENABLED / LLM_TIMEOUT_MS)
 - **Fix**: Separated comments for clarity
 
+### Fix 5: XSS in renderMarkdown (sidepanel)
+- **Issue**: Paragraph content in renderMarkdown was not escaped before insertion into `<p>` tags; user/LLM content like `<script>alert(1)</script>` could execute
+- **Fix**: Wrap paragraph content with escapeHtml(): `escapeHtml(p).replace(/\n/g, '<br>')`
+
 ---
 
