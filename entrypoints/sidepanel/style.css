@@ -117,7 +117,7 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  font-size: 14px;
+  font-size: 0.875rem; /* 14px base, respects browser font size settings */
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -1237,7 +1237,7 @@ body {
 }
 
 #vision-placeholder {
-  font-size: 14px;
+  font-size: 0.875rem; /* 14px base, respects browser font size settings */
   color: var(--text-muted);
   text-align: center;
   animation: pulse 2s infinite;

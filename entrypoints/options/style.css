@@ -108,7 +108,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-weight: 400;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 #app {
@@ -1106,7 +1106,7 @@ h2:first-child {
 .danger-zone h3 {
   color: #dc2626;
   margin: 0 0 16px 0;
-  font-size: 16px;
+  font-size: 1rem;
   font-weight: 600;
 }
 
@@ -1123,7 +1123,7 @@ h2:first-child {
   padding: 10px 16px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   transition: all 0.3s ease;
 }
@@ -1141,7 +1141,7 @@ h2:first-child {
   padding: 10px 16px;
   border-radius: 8px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   transition: all 0.3s ease;
 }
@@ -1174,7 +1174,7 @@ h2:first-child {
   color: white;
   padding: 6px 12px;
   border-radius: 20px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   width: fit-content;
 }
@@ -1185,6 +1185,6 @@ h2:first-child {
 
 .model-desc {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 0.8125rem;
   line-height: 1.5;
 }
