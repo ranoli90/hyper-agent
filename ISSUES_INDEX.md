@@ -45,7 +45,7 @@
 | # | Issue | Source | Notes |
 |---|-------|--------|------|
 | O1 | API key stored in plain text | PROD-2.1 | chrome.storage.local unencrypted |
-| O2 | Security module not fully integrated | PROD-2.11 | checkDomainAllowed, checkActionAllowed, checkRateLimit imported but usage unclear |
+| O2 | Security module integration | PROD-2.11 | ✅ checkDomainAllowed, checkActionAllowed, checkRateLimit used in background (lines 1802, 1811, 2191) |
 | O3 | Billing license key no server validation | PROD-2.9 | verifyLicenseKey format-only; forgeable |
 
 ### Crashes / Data Loss
@@ -86,7 +86,7 @@
 |---|-------|--------|------|
 | O17 | Swarm tab static data | PROD-4.4 | UI shows 8 agents; getSwarmStatus returns empty |
 | O18 | Vision "Analyze Page" no handler | PROD-4.5 | btn-analyze-vision created but no click handler |
-| O19 | Scheduler "once" task validation | PROD-4.11 | Undefined time → orphaned task |
+| O19 | ~~Scheduler "once" task validation~~ | PROD-4.11 | ✅ schedule() validates once time; creates disabled if invalid |
 | O20 | Tasks "New" button | PROD-4.3 | btn-add-task-ui no handler |
 
 ### Performance
@@ -113,9 +113,9 @@
 | O33 | Console.log in production | PROD-10.8 | debug.ts exists; audit coverage |
 | O34 | Scheduler scheduled flag unused | PROD-10.9 | executeCommand includes it; handler? |
 | O35 | Metrics storage callback style | PROD-10.10 | Inconsistent with async/await |
-| O36 | Condition.value sanitization | PROD-1.10 | Length limit in checkCondition; audit |
+| O36 | Condition.value sanitization | PROD-1.10 | ✅ checkCondition enforces MAX_VALUE_LENGTH 500 |
 | O37 | InputSanitizer allowedDomains | PROD-2.4 | Vestigial? |
-| O38 | redact patterns | PROD-2.6 | Expand for new token formats |
+| O38 | redact patterns | PROD-2.6 | ✅ Added sk-or-v1- (OpenRouter) pattern |
 
 ---
 

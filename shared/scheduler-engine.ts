@@ -196,6 +196,15 @@ class SchedulerEngineImpl {
       nextRun: undefined,
     };
 
+    // Validate "once" schedule: time must be defined and in the future
+    if (newTask.schedule.type === 'once') {
+      const time = newTask.schedule.time;
+      if (!time || typeof time !== 'number' || time <= Date.now()) {
+        console.warn('[Scheduler] Once task has invalid or past time; creating disabled');
+        newTask.enabled = false;
+      }
+    }
+
     this.tasks.set(newTask.id, newTask);
 
     if (newTask.enabled) {

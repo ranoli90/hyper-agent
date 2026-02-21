@@ -240,6 +240,8 @@ export function redact(value: any): string {
   const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
   const REDACTION_TOKEN = '***REDACTED***';
   const patterns: RegExp[] = [
+    // OpenRouter API keys (sk-or-v1-...)
+    /sk-or-v1-[a-zA-Z0-9_-]{20,}/g,
     // OpenRouter/OpenAI-style API keys
     /sk-[a-zA-Z0-9]{20,}/g,
     // Anthropic API keys

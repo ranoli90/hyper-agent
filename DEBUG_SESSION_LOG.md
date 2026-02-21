@@ -211,3 +211,33 @@ No new issues found in Pass 2. Catch blocks without params that don't reference 
 
 ---
 
+## Phase 8: System Hardening (2026-02-21)
+
+### Message Validation (background)
+- **resumeSnapshot**: taskId length 1–256
+- **toggleScheduledTask**: taskId 1–256, enabled optional boolean
+- **deleteScheduledTask**: taskId 1–256
+- **clearSnapshot**: taskId optional, 1–256 when provided
+- **installWorkflow**: workflowId alphanumeric/hyphen, max 64 chars
+- **activateLicenseKey**: key 1–256 chars
+- **contextMenuCommand**: command non-empty, max 10000
+- **parseIntent**: command max 10000
+- **userReply**: reply max 10000
+- **executeTool**: toolId 1–64, params object or undefined
+
+### Redaction
+- Added OpenRouter `sk-or-v1-` pattern to redact()
+
+### Scheduler
+- "once" task validation: reject invalid/past time on schedule(); create disabled if invalid
+
+### Content Script
+- performAction: validate action object and type before execution; return INVALID_ACTION on malformed
+
+### Verification
+- type-check: ✅
+- lint: ✅
+- test:unit: ✅ (94 tests)
+
+---
+

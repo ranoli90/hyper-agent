@@ -757,24 +757,33 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
       return true;
     case 'confirmResponse':
       return typeof (message as any).confirmed === 'boolean';
-    case 'userReply':
-      return typeof (message as any).reply === 'string';
+    case 'userReply': {
+      const reply = (message as any).reply;
+      return typeof reply === 'string' && reply.length <= 10000;
+    }
     case 'getAgentStatus':
     case 'clearHistory':
     case 'getMetrics':
       return true;
-    case 'contextMenuCommand':
-      return typeof (message as any).command === 'string';
+    case 'contextMenuCommand': {
+      const cmd = (message as any).command;
+      return typeof cmd === 'string' && cmd.trim().length > 0 && cmd.length <= 10000;
+    }
     case 'captureScreenshot':
     case 'getToolStats':
     case 'getTools':
     case 'getSwarmStatus':
     case 'getSnapshot':
     case 'listSnapshots':
-    case 'clearSnapshot':
       return true;
-    case 'resumeSnapshot':
-      return typeof (message as any).taskId === 'string';
+    case 'clearSnapshot': {
+      const cTaskId = (message as any).taskId;
+      return cTaskId === undefined || (typeof cTaskId === 'string' && cTaskId.length > 0 && cTaskId.length <= 256);
+    }
+    case 'resumeSnapshot': {
+      const taskId = (message as any).taskId;
+      return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= 256;
+    }
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
     case 'getUsage':
@@ -784,10 +793,17 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'verifySubscription':
     case 'cancelSubscription':
       return true;
-    case 'executeTool':
-      return typeof (message as any).toolId === 'string';
-    case 'parseIntent':
-      return typeof (message as any).command === 'string';
+    case 'executeTool': {
+      const tMsg = message as any;
+      const toolId = tMsg.toolId;
+      const params = tMsg.params;
+      return typeof toolId === 'string' && toolId.length > 0 && toolId.length <= 64 &&
+        (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)));
+    }
+    case 'parseIntent': {
+      const pCmd = (message as any).command;
+      return typeof pCmd === 'string' && pCmd.length <= 10000;
+    }
     case 'getAPICache':
     case 'setAPICache':
     case 'invalidateCacheTag':
@@ -801,10 +817,24 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'sanitizeInput':
     case 'sanitizeUrl':
     case 'sanitizeBatch':
-    case 'toggleScheduledTask':
-    case 'deleteScheduledTask':
-    case 'installWorkflow':
-    case 'activateLicenseKey':
+    case 'toggleScheduledTask': {
+      const tMsg = message as any;
+      const tId = tMsg.taskId;
+      return typeof tId === 'string' && tId.length > 0 && tId.length <= 256 &&
+        (tMsg.enabled === undefined || typeof tMsg.enabled === 'boolean');
+    }
+    case 'deleteScheduledTask': {
+      const dId = (message as any).taskId;
+      return typeof dId === 'string' && dId.length > 0 && dId.length <= 256;
+    }
+    case 'installWorkflow': {
+      const wfId = (message as any).workflowId;
+      return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= 64;
+    }
+    case 'activateLicenseKey': {
+      const key = (message as any).key;
+      return typeof key === 'string' && key.length > 0 && key.length <= 256;
+    }
     case 'openCheckout':
       return true;
     default:

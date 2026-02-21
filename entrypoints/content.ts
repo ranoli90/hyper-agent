@@ -1144,7 +1144,11 @@ export default defineContentScript({
           switch (message.type) {
             case 'performAction':
             case 'executeActionOnPage': {
-              const result = await performAction(message.action);
+              const action = message.action;
+              if (!action || typeof action !== 'object' || typeof action.type !== 'string') {
+                return { type: 'performActionResponse', success: false, errorType: 'INVALID_ACTION', error: 'Invalid action object' };
+              }
+              const result = await performAction(action);
               // Log action outcome to memory (non-blocking)
               saveActionOutcome(
                 window.location.href,
