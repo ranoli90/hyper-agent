@@ -304,6 +304,9 @@ const SLASH_COMMANDS = {
   '/export': () => {
     exportSettings();
   },
+  '/export-chat': () => {
+    exportChatHistory();
+  },
   '/import': () => {
     importSettings();
   },
@@ -314,7 +317,9 @@ const SUGGESTIONS = [
   { command: '/schedule', description: 'Manage background tasks' },
   { command: '/tools', description: 'List available agent tools' },
   { command: '/clear', description: 'Clear chat history' },
-  { command: '/help', description: 'Help & documentation' },
+  { command: '/export-chat', description: 'Export chat history only' },
+  { command: '/export-chat', description: 'Export chat history only' },
+  { command: '/help', description: 'Help { command: '/help', description: 'Help { command: '/help', description: 'Help & documentation' }, documentation' }, documentation' },
 ];
 
 function sanitizeInput(text: string): string {
@@ -1759,6 +1764,35 @@ async function exportSettings() {
 }
 
 async function importSettings() {
+n// Export chat history only
+async function exportChatHistory() {
+  try {
+    const data = await chrome.storage.local.get('chat_history_backup');
+    if (!data.chat_history_backup) {
+      showToast('No chat history to export', 'info');
+      return;
+    }
+    
+    const exportData = {
+      version: '1.0',
+      timestamp: Date.now(),
+      type: 'chat_history',
+      history: data.chat_history_backup,
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hyperagent-chat-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('Chat history exported!', 'success');
+  } catch (err) {
+    showToast('Failed to export chat history', 'error');
+  }
+}
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
