@@ -48,4 +48,52 @@ describe('Workflows Module', () => {
       expect(workflows).toEqual([]);
     });
   });
+
+  describe('runWorkflow with conditions', () => {
+    it('should evaluate condition and follow onError when condition fails', async () => {
+      const { saveWorkflow, runWorkflow } = await import('../../shared/workflows');
+      const workflow = {
+        id: 'cond-workflow',
+        name: 'Conditional Workflow',
+        startStep: 'step1',
+        steps: [
+          {
+            id: 'step1',
+            action: { type: 'wait' as const, ms: 1 },
+            condition: { type: 'textContains' as const, value: 'NEVER_FOUND' },
+            onSuccess: 'step2',
+            onError: 'step3',
+          },
+          { id: 'step2', action: { type: 'wait' as const, ms: 1 } },
+          { id: 'step3', action: { type: 'wait' as const, ms: 1 } },
+        ],
+      };
+      await saveWorkflow(workflow);
+
+      const results: any[] = [];
+      const executeActionFn = async (action: any) => {
+        results.push({ action });
+        return { success: true };
+      };
+      const getContextFn = async () => ({
+        url: 'https://example.com',
+        title: 'Example',
+        bodyText: 'Hello world',
+        metaDescription: '',
+        formCount: 0,
+        semanticElements: [],
+        timestamp: Date.now(),
+        scrollPosition: { x: 0, y: 0 },
+        viewportSize: { width: 800, height: 600 },
+        pageHeight: 1000,
+      });
+
+      const result = await runWorkflow('cond-workflow', executeActionFn, getContextFn);
+
+      expect(result.success).toBe(true);
+      expect(results.length).toBe(1);
+      expect(results[0].action.type).toBe('wait');
+      expect(results[0].action.ms).toBe(1);
+    });
+  });
 });

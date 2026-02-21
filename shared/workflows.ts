@@ -171,12 +171,29 @@ export function findNextStep(
   }
 }
 
+/** Minimal page context for when getContext fails (e.g. chrome:// page) */
+const EMPTY_PAGE_CONTEXT: PageContext = {
+  url: '',
+  title: '',
+  bodyText: '',
+  metaDescription: '',
+  formCount: 0,
+  semanticElements: [],
+  timestamp: 0,
+  scrollPosition: { x: 0, y: 0 },
+  viewportSize: { width: 0, height: 0 },
+  pageHeight: 0,
+};
+
 /**
  * Run a workflow by ID
+ * @param getContextFn - Optional. When provided, step conditions are evaluated against current page context.
+ *   If omitted, steps with conditions are executed (condition not evaluated).
  */
 export async function runWorkflow(
   id: string,
-  executeActionFn: (action: any) => Promise<{ success: boolean; error?: string; errorType?: string; extractedData?: string }>
+  executeActionFn: (action: any) => Promise<{ success: boolean; error?: string; errorType?: string; extractedData?: string }>,
+  getContextFn?: () => Promise<PageContext>
 ): Promise<{ success: boolean; error?: string; results?: any[] }> {
   const workflow = await getWorkflowById(id);
   
@@ -208,10 +225,33 @@ export async function runWorkflow(
       break;
     }
     
-    // Check condition if present
-    if (step.condition) {
-      // Get current page context - for now we skip this in automated execution
-      // In a full implementation, we'd check the condition against current context
+    // Evaluate condition if present and getContextFn provided
+    if (step.condition && getContextFn) {
+      let context: PageContext;
+      try {
+        context = await getContextFn();
+      } catch {
+        context = EMPTY_PAGE_CONTEXT;
+      }
+      const conditionMet = await checkCondition(step.condition, context);
+      if (!conditionMet) {
+        // Condition failed - follow onError branch
+        results.push({
+          stepId: step.id,
+          action: step.action,
+          result: { success: false, error: 'Condition not met', errorType: 'CONDITION_FAILED' }
+        });
+        if (step.onError) {
+          currentStepId = step.onError;
+        } else {
+          return {
+            success: false,
+            error: `Workflow condition failed at step: ${step.id}`,
+            results
+          };
+        }
+        continue;
+      }
     }
     
     // Execute the action

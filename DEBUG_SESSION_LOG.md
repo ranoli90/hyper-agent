@@ -173,3 +173,19 @@ No new issues found in Pass 2. Catch blocks without params that don't reference 
 
 ---
 
+## Phase 6: Production Fixes (2026-02-21)
+
+### Fix 9: Workflow conditions wired into runWorkflow
+- **Issue**: checkCondition existed but was never called during workflow execution
+- **Fix**: Added optional getContextFn to runWorkflow; when step has condition and getContextFn provided, evaluate condition; if false, follow onError branch
+- **Background**: Passes getContextFn that fetches page context via getContext message to content script
+
+### Fix 10: visionUpdate screenshot format
+- **Issue**: Inconsistent format (raw base64 vs data URL) could break vision display
+- **Fix**: captureScreenshot now accepts outputFormat ('dataUrl' | 'base64'); visionUpdate sends full data URL
+
+### Tests
+- Added workflow condition test: condition fails → onError branch → step3 executed
+
+---
+

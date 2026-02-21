@@ -1273,8 +1273,8 @@ export default defineBackground(() => {
       }
 
       case 'captureScreenshot': {
-        const dataUrl = await captureScreenshot();
-        return { ok: true, dataUrl };
+        const base64 = await captureScreenshot('base64');
+        return { ok: true, dataUrl: base64 }; // dataUrl is raw base64; callers add data:image/jpeg;base64, prefix
       }
 
       case 'getUsage': {
@@ -1680,13 +1680,14 @@ export default defineBackground(() => {
     };
   }
 
-  /** Returns raw base64 (no data URL prefix). Callers must add `data:image/jpeg;base64,` when setting img.src. */
-  async function captureScreenshot(): Promise<string> {
+  /** Returns full data URL for display, or raw base64 for LLM/context (legacy). Use format: 'dataUrl' for img.src, 'base64' for context. */
+  async function captureScreenshot(outputFormat: 'dataUrl' | 'base64' = 'base64'): Promise<string> {
     try {
       const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, {
         format: 'jpeg',
         quality: 60,
       });
+      if (outputFormat === 'dataUrl') return dataUrl;
       return dataUrl.replace(/^data:image\/\w+;base64,/, '');
     } catch (err) {
       console.warn('[HyperAgent] Screenshot capture failed:', err);
@@ -1918,12 +1919,34 @@ export default defineBackground(() => {
     // Handle runWorkflow action - execute a saved workflow with conditional logic
     if (action.type === 'runWorkflow') {
       const workflowAction = action as WorkflowAction;
+      const getContextFn = async (): Promise<PageContext> => {
+        try {
+          const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
+          if (response?.context && typeof response.context === 'object') {
+            return response.context as PageContext;
+          }
+        } catch {
+          // Tab may be chrome:// or content script not loaded
+        }
+        return {
+          url: '',
+          title: '',
+          bodyText: '',
+          metaDescription: '',
+          formCount: 0,
+          semanticElements: [],
+          timestamp: 0,
+          scrollPosition: { x: 0, y: 0 },
+          viewportSize: { width: 0, height: 0 },
+          pageHeight: 0,
+        };
+      };
       const workflowResult = await executeWorkflow(
         workflowAction.workflowId,
         async (subAction: Action) => {
-          // Execute each action in the workflow
           return await executeAction(tabId, subAction, dryRun, autoRetry);
-        }
+        },
+        getContextFn
       );
 
       if (workflowResult.success) {
@@ -2247,10 +2270,11 @@ export default defineBackground(() => {
         let context = await getPageContext(tabId);
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
-          const screenshot = await captureScreenshot();
-          if (screenshot) {
-            context = { ...context, screenshotBase64: screenshot };
-            sendToSidePanel({ type: 'visionUpdate', screenshot });
+          const screenshotDataUrl = await captureScreenshot('dataUrl');
+          if (screenshotDataUrl) {
+            const base64 = screenshotDataUrl.replace(/^data:image\/\w+;base64,/, '');
+            context = { ...context, screenshotBase64: base64 };
+            sendToSidePanel({ type: 'visionUpdate', screenshot: screenshotDataUrl });
           }
           requestScreenshot = false;
         }
@@ -2352,11 +2376,12 @@ export default defineBackground(() => {
           ) {
             sendToSidePanel({ type: 'agentProgress', status: 'Verifying...', step: 'verify' });
             try {
-              const vScreenshot = await captureScreenshot();
-              if (vScreenshot) {
-                sendToSidePanel({ type: 'visionUpdate', screenshot: vScreenshot });
+              const vScreenshotDataUrl = await captureScreenshot('dataUrl');
+              if (vScreenshotDataUrl) {
+                sendToSidePanel({ type: 'visionUpdate', screenshot: vScreenshotDataUrl });
+                const vScreenshotBase64 = vScreenshotDataUrl.replace(/^data:image\/\w+;base64,/, '');
                 try {
-                  const isVerified = await verifyActionWithVision(action, vScreenshot);
+                  const isVerified = await verifyActionWithVision(action, vScreenshotBase64);
                   if (isVerified && !isVerified.success) {
                     result.success = false;
                     result.error = `Visual Failure: ${isVerified.reason || 'Verification failed'}`;
