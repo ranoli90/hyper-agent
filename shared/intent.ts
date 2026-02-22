@@ -153,6 +153,23 @@ const COMMAND_PATTERNS: CommandPattern[] = [
     ],
     confidence: 0.75,
   },
+  {
+    action: 'publish',
+    keywords: ['publish', 'upload', 'submit', 'chrome web store', 'web store', 'extension store', 'app store'],
+    templates: [
+      'publish to {target}',
+      'publish on {target}',
+      'upload to {target}',
+      'submit to {target}',
+      'publish extension',
+      'upload extension',
+      'submit extension',
+      'publish to chrome web store',
+      'upload to chrome web store',
+      'submit to chrome web store',
+    ],
+    confidence: 0.85,
+  },
 ];
 
 // ─── Common Commands Templates ──────────────────────────────────────────
@@ -175,6 +192,12 @@ const COMMON_COMMANDS = [
   'open new tab',
   'close tab',
   'switch tab {target}',
+  'publish {target}',
+  'publish to {target}',
+  'upload to {target}',
+  'submit to {target}',
+  'publish extension',
+  'publish to chrome web store',
 ];
 
 // ─── Parse Intent ──────────────────────────────────────────────────────
@@ -193,7 +216,7 @@ export function parseIntent(command: string): CommandIntent[] {
   }
 
   // Valid action types that LLM can execute
-  const validActions = new Set(['navigate', 'search', 'click', 'fill', 'extract', 'scroll', 'wait', 'goBack', 'openTab', 'closeTab', 'switchTab', 'hover', 'focus', 'pressKey']);
+  const validActions = new Set(['navigate', 'search', 'click', 'fill', 'extract', 'scroll', 'wait', 'goBack', 'openTab', 'closeTab', 'switchTab', 'hover', 'focus', 'pressKey', 'publish']);
 
   // Try to match each pattern
   for (const pattern of COMMAND_PATTERNS) {

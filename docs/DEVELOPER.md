@@ -36,6 +36,8 @@ Observe -> Plan -> Act -> Re-observe
 | `shared/security.ts` | Domain policy, redaction |
 | `shared/error-reporter.ts` | Error tracking |
 | `shared/storage-monitor.ts` | Storage quota |
+| `shared/billing.ts` | Subscription management, Stripe integration |
+| `shared/crypto-payments.ts` | Cryptocurrency payment verification |
 
 ---
 
@@ -72,10 +74,42 @@ Side Panel <-> Background <-> Content Script
 
 ---
 
+## Billing Architecture
+
+### Subscription Model
+- **$5 Beta Plan**: Flat monthly fee, unlimited actions
+- Stored in `chrome.storage.local` with key `subscription`
+- Status checked on extension load and periodically
+
+### Stripe Integration
+- Checkout sessions created via Stripe API
+- Webhook handles subscription events (created, updated, canceled)
+- Return URL handled in sidepanel for post-payment flow
+- Card details never touch extension - Stripe handles all PCI compliance
+
+### Cryptocurrency Payments
+- Supported: ETH, USDC on Ethereum, Base, and Polygon
+- Payment verification via blockchain transaction monitoring
+- Wallet address generated per transaction
+- No KYC required - pure on-chain verification
+
+### Key Types
+```typescript
+interface Subscription {
+  tier: 'beta' | 'none';
+  status: 'active' | 'canceled' | 'expired';
+  startDate: string;
+  endDate?: string;
+  paymentMethod: 'stripe' | 'crypto';
+}
+```
+
+---
+
 ## Testing
 
 ```bash
-npm run test:unit   # 94 tests (Vitest)
+npm run test:unit   # 253 tests (Vitest)
 npm run test:e2e    # Playwright
 ```
 
@@ -110,8 +144,8 @@ npm run test:e2e    # Playwright
 
 ## Known Limitations
 
-### LLM Retry Integration
-The retry infrastructure exists in shared/retry-circuit-breaker.ts but is not yet integrated into llmClient.ts. Requires wrapping fetch calls with retry logic.
+### LLM Retry
+Main LLM API calls in llmClient.ts use retryManager.retry (shared/retry-circuit-breaker.ts) with networkRetryPolicy and circuit breaker key `llm-api`. Completion and getEmbedding use direct fetch with optional fallback paths.
 
 ### Workflow Condition Execution
 Workflow conditions are now evaluated during runWorkflow. Background passes `getContextFn` to fetch page context from the content script; conditions use `checkCondition` with that context.

@@ -3,6 +3,8 @@
 // each specializing in different cognitive tasks, coordinating through quantum-like
 // decision trees and real-time neuroplastic learning.
 
+import { NeuroplasticityEngine } from './neuroplasticity-engine';
+
 export interface SwarmAgent {
   id: string;
   role: AgentRole;
@@ -50,10 +52,10 @@ export class SwarmCoordinator {
   private messageQueue: SwarmMessage[] = [];
   private activeSwarm: boolean = false;
   private globalContext: Map<string, any> = new Map();
-  private neuroplasticityEngine: NeuroplasticityEngine;
+  private neuroplasticityEngine: SwarmNeuroplasticityEngine;
 
   constructor() {
-    this.neuroplasticityEngine = new NeuroplasticityEngine();
+    this.neuroplasticityEngine = new SwarmNeuroplasticityEngine();
     this.initializeSwarm();
   }
 
@@ -428,30 +430,18 @@ Your Specialization: ${agent.specialization}
   }
 }
 
-// ─── Neuroplasticity Engine for Real-Time Learning ───────────────────
-export class NeuroplasticityEngine {
-  private learningHistory: Map<string, any[]> = new Map();
-  private adaptationRules: Map<string, Function> = new Map();
+class SwarmNeuroplasticityEngine extends NeuroplasticityEngine {
+  private agentLearningHistory: Map<string, any[]> = new Map();
 
-  async updateWeights(agents: Map<string, SwarmAgent>, globalContext: Map<string, any>): Promise<void> {
+  async updateWeights(agents: Map<string, SwarmAgent>, _globalContext: Map<string, any>): Promise<void> {
     for (const agent of agents.values()) {
-      const performance = this.calculateAgentPerformance(agent, globalContext);
+      const performance = this.calculateAgentPerformance(agent);
       this.adjustNeuralWeights(agent, performance);
     }
   }
 
-  private calculateAgentPerformance(_agent: SwarmAgent, _globalContext: Map<string, any>): number {
-    // Calculate performance based on:
-    // - Task completion rate
-    // - Accuracy of results
-    // - Coordination with other agents
-    // - Learning from feedback
-
-    let score = 0.5; // Base score
-
-    // Add performance metrics...
-    // This would be much more sophisticated in practice
-
+  private calculateAgentPerformance(_agent: SwarmAgent): number {
+    let score = 0.5;
     return Math.max(0, Math.min(1, score));
   }
 
@@ -466,27 +456,24 @@ export class NeuroplasticityEngine {
   }
 
   recordAgentPerformance(agent: SwarmAgent, response: any): void {
-    const history = this.learningHistory.get(agent.id) || [];
+    const history = this.agentLearningHistory.get(agent.id) || [];
     history.push({
       timestamp: Date.now(),
       response,
       performance: response.confidence || 0.5
     });
 
-    // Keep only recent history
     if (history.length > 100) {
       history.shift();
     }
 
-    this.learningHistory.set(agent.id, history);
+    this.agentLearningHistory.set(agent.id, history);
   }
 
   processIncomingMessage(agent: SwarmAgent, message: SwarmMessage): void {
-    // Adjust agent behavior based on messages from other agents
     const messageType = message.type;
     const confidence = message.confidence;
 
-    // Update neural weights based on message content
     if (confidence > 0.8) {
       agent.neuralWeights.set(`message_${messageType}`, (agent.neuralWeights.get(`message_${messageType}`) || 0.5) + 0.1);
     }

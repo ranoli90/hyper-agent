@@ -138,6 +138,9 @@ export interface PageContext {
   scrollPosition: { x: number; y: number };
   viewportSize: { width: number; height: number };
   pageHeight: number;
+  isInitialQuery?: boolean;
+  pageUrl?: string;
+  pageTitle?: string;
 }
 
 // ─── Locator ────────────────────────────────────────────────────────
@@ -337,6 +340,10 @@ export interface LLMResponse {
   done?: boolean;
   error?: string;
   askUser?: string;
+  needsClarification?: boolean;
+  clarificationQuestion?: string;
+  needsNavigation?: boolean;
+  targetUrl?: string;
 }
 
 // ─── Messages (side panel ↔ background ↔ content) ──────────────────
@@ -681,7 +688,13 @@ export type ExtensionMessage =
   | MsgActivateLicenseKey
   | MsgOpenCheckout
   | MsgCancelSubscription
-  | MsgVerifySubscription;
+  | MsgVerifySubscription
+  | MsgConfigurePayment
+  | MsgConfigurePaymentResponse
+  | MsgGetPaymentConfig
+  | MsgGetPaymentConfigResponse
+  | MsgConfirmCryptoPayment
+  | MsgConfirmCryptoPaymentResponse;
 
 export interface MsgStartModerator {
   type: 'startModerator';
@@ -785,8 +798,8 @@ export interface MsgActivateLicenseKey {
 
 export interface MsgOpenCheckout {
   type: 'openCheckout';
-  tier: 'premium' | 'unlimited';
-  interval?: 'month' | 'year';
+  method: 'stripe' | 'crypto';
+  chainId?: number;
 }
 
 export interface MsgCancelSubscription {
@@ -795,4 +808,75 @@ export interface MsgCancelSubscription {
 
 export interface MsgVerifySubscription {
   type: 'verifySubscription';
+}
+
+export interface MsgConfigurePayment {
+  type: 'configurePayment';
+  config: {
+    stripePublishableKey?: string;
+    stripePaymentLinkBeta?: string;
+    cryptoRecipientAddress?: string;
+    supportedChains?: number[];
+  };
+}
+
+export interface MsgConfigurePaymentResponse {
+  type: 'configurePaymentResponse';
+  success: boolean;
+  error?: string;
+}
+
+export interface MsgGetPaymentConfig {
+  type: 'getPaymentConfig';
+}
+
+export interface MsgGetPaymentConfigResponse {
+  type: 'getPaymentConfigResponse';
+  config: {
+    stripeConfigured: boolean;
+    cryptoConfigured: boolean;
+    supportedChains: { chainId: number; name: string; currency: string }[];
+  };
+}
+
+export interface MsgConfirmCryptoPayment {
+  type: 'confirmCryptoPayment';
+  txHash: string;
+  fromAddress: string;
+  chainId: number;
+}
+
+export interface MsgConfirmCryptoPaymentResponse {
+  type: 'confirmCryptoPaymentResponse';
+  success: boolean;
+  error?: string;
+}
+
+export interface SubscriptionPlan {
+  id: 'community' | 'beta';
+  name: string;
+  price: number;
+  features: string[];
+  watermark: boolean;
+  workflowLimit: number;
+}
+
+export interface PaymentMethod {
+  type: 'stripe' | 'crypto';
+  last4?: string;
+  walletAddress?: string;
+  chainId?: number;
+}
+
+export interface BillingState {
+  plan: 'community' | 'beta';
+  status: 'active' | 'past_due' | 'canceled' | 'incomplete';
+  paymentMethod?: PaymentMethod;
+  stripeCustomerId?: string;
+  subscriptionId?: string;
+  currentPeriodEnd?: number;
+  cancelAtPeriodEnd?: boolean;
+  lastVerified?: number;
+  licenseKey?: string;
+  cryptoTxHash?: string;
 }

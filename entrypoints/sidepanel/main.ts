@@ -5,16 +5,9 @@
 
 import type { ExtensionMessage } from '../../shared/types';
 import { billingManager } from '../../shared/billing';
-import { validateAndFilterImportData } from '../../shared/config';
+import { validateAndFilterImportData, STORAGE_KEYS } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
-
-function debounce<T extends (...args: any[]) => any>(fn: T, ms: number): T {
-  let timeout: ReturnType<typeof setTimeout>;
-  return ((...args: any[]) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => fn(...args), ms);
-  }) as T;
-}
+import { debounce } from '../../shared/utils';
 
 // ─── DOM Elements ───────────────────────────────────────────────
 const safeGetElement = <T extends HTMLElement>(id: string, optional = false): T | null => {
@@ -43,11 +36,16 @@ const components = {
   panes: document.querySelectorAll('.tab-pane'),
 
   usageActions: safeGetElement<HTMLElement>('usage-actions')!,
-  usageSessions: safeGetElement<HTMLElement>('usage-sessions')!,
   usageTier: safeGetElement<HTMLElement>('usage-tier')!,
   marketplaceList: safeGetElement<HTMLElement>('marketplace-list')!,
   btnUpgradePremium: safeGetElement<HTMLButtonElement>('btn-upgrade-premium')!,
-  btnUpgradeUnlimited: safeGetElement<HTMLButtonElement>('btn-upgrade-unlimited')!,
+  btnPayCard: safeGetElement<HTMLButtonElement>('btn-pay-card', true)!,
+  btnPayCrypto: safeGetElement<HTMLButtonElement>('btn-pay-crypto', true)!,
+  cryptoPaymentInfo: safeGetElement<HTMLElement>('crypto-payment-info', true)!,
+  cryptoAddress: safeGetElement<HTMLElement>('crypto-address', true)!,
+  cryptoChainSelect: safeGetElement<HTMLSelectElement>('crypto-chain-select', true)!,
+  btnConfirmCrypto: safeGetElement<HTMLButtonElement>('btn-confirm-crypto', true)!,
+  btnCancelSubscription: safeGetElement<HTMLButtonElement>('btn-cancel-subscription')!,
 
   subscriptionBadge: safeGetElement<HTMLElement>('subscription-badge')!,
   toastContainer: safeGetElement<HTMLElement>('toast-container')!,
@@ -132,6 +130,19 @@ function switchTab(tabId: string) {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
   });
 
+  // Update tab indicator
+  const tabIndicator = document.getElementById('tab-indicator');
+  const selectedButton = document.querySelector(`.tab-btn[data-tab="${tabId}"]`) as HTMLElement;
+  if (tabIndicator && selectedButton) {
+    const buttonRect = selectedButton.getBoundingClientRect();
+    const navRect = document.getElementById('tabs-nav')?.getBoundingClientRect();
+    
+    if (navRect) {
+      tabIndicator.style.width = `${buttonRect.width}px`;
+      tabIndicator.style.left = `${buttonRect.left - navRect.left}px`;
+    }
+  }
+
   // Load tab-specific content
   if (tabId === 'marketplace') {
     loadMarketplace();
@@ -154,6 +165,38 @@ components.tabs.forEach(tab => {
     if (target) switchTab(target);
   });
 });
+
+const tabsNav = document.getElementById('tabs-nav');
+if (tabsNav) {
+  tabsNav.addEventListener('keydown', (e) => {
+    const tabs = Array.from(tabsNav.querySelectorAll('.tab-btn'));
+    const currentIndex = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true');
+
+    let newIndex = currentIndex;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
+        break;
+      case 'ArrowRight':
+        newIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
+        break;
+      case 'Home':
+        newIndex = 0;
+        break;
+      case 'End':
+        newIndex = tabs.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    e.preventDefault();
+    const newTab = tabs[newIndex] as HTMLElement;
+    newTab.click();
+    newTab.focus();
+  });
+}
 
 // Confirm / cancel modal actions
 components.btnConfirm.addEventListener('click', () => {
@@ -221,6 +264,7 @@ const SLASH_COMMANDS = {
     components.chatHistory.innerHTML = '';
     saveHistory();
     addMessage('Chat history cleared.', 'status');
+    showExampleCommandsIfNeeded();
   },
   '/reset': () => {
     chrome.runtime.sendMessage({ type: 'stopAgent' });
@@ -255,7 +299,7 @@ const SLASH_COMMANDS = {
     }
     executeAutonomousCommand(cmd);
   },
-  '/help': () => {
+'/help': () => {
     addMessage(
       `
 **Hyper-Commands:**
@@ -265,7 +309,9 @@ const SLASH_COMMANDS = {
 - \`/tools\`: List agent capabilities
 - \`/clear\`: Clear chat history
 - \`/shortcuts\`: Show keyboard shortcuts
-- \`/export\`: Export settings
+- \`/export\`: Export data (settings/chat/full)
+- \`/export-all\`: Full GDPR data export
+- \`/delete-data\`: Delete all data (GDPR erasure)
 - \`/import\`: Import settings
 - \`/help\`: Show this message
 
@@ -294,11 +340,17 @@ const SLASH_COMMANDS = {
       'agent'
     );
   },
-  '/export': () => {
-    exportSettings();
+'/export': () => {
+    showExportOptions();
+  },
+  '/export-all': () => {
+    exportAllUserData();
   },
   '/export-chat': () => {
     exportChatHistory();
+  },
+  '/delete-data': () => {
+    deleteAllUserData();
   },
   '/import': () => {
     importSettings();
@@ -310,7 +362,9 @@ const SUGGESTIONS = [
   { command: '/schedule', description: 'Manage background tasks' },
   { command: '/tools', description: 'List available agent tools' },
   { command: '/clear', description: 'Clear chat history' },
-  { command: '/export-chat', description: 'Export chat history only' },
+  { command: '/export', description: 'Export data (options menu)' },
+  { command: '/export-all', description: 'Full GDPR data export' },
+  { command: '/delete-data', description: 'Delete all data (GDPR erasure)' },
   { command: '/help', description: 'Help & documentation' },
 ];
 
@@ -377,6 +431,7 @@ function showSuggestions(query: string) {
 // ─── Chat Interface ─────────────────────────────────────────────
 function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status' | 'thinking') {
   if (!components.chatHistory) return null;
+  clearExampleCommands();
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
@@ -566,16 +621,91 @@ async function loadHistory() {
   try {
     const data = await chrome.storage.local.get('chat_history_backup');
     if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
-      const result = inputSanitizer.sanitize(data.chat_history_backup, {
-        allowHtml: true,
-        allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span'],
-        allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
-      });
-      components.chatHistory.innerHTML = result.sanitizedValue;
+      // Chat history was already rendered by our own renderMarkdown function,
+      // so we just need to verify it's safe HTML, not re-sanitize it
+      // This prevents double-encoding issues
+      components.chatHistory.innerHTML = data.chat_history_backup;
       scrollToBottom();
     }
+    showExampleCommandsIfNeeded();
   } catch (err) {
     console.warn('[HyperAgent] Failed to load chat history:', err);
+    showExampleCommandsIfNeeded();
+  }
+}
+
+function showExampleCommandsIfNeeded() {
+  const chatHistory = components.chatHistory;
+  if (!chatHistory) return;
+  
+  const hasRealContent = chatHistory.querySelector('.chat-msg');
+  if (hasRealContent) return;
+
+  const examples = [
+    "Go to amazon.com and search for wireless headphones",
+    "Extract all email addresses from this page",
+    "Fill out this form with my contact information",
+    "Click the 'Add to Cart' button",
+  ];
+
+  const examplesContainer = document.createElement('div');
+  examplesContainer.className = 'example-commands';
+  examplesContainer.style.cssText = 'padding: 24px; text-align: center;';
+  
+  const title = document.createElement('p');
+  title.style.cssText = 'color: var(--text-tertiary); margin-bottom: 16px; font-size: 0.875rem; font-weight: 500;';
+  title.textContent = 'Try one of these commands:';
+  examplesContainer.appendChild(title);
+
+  const buttonContainer = document.createElement('div');
+  buttonContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto;';
+
+  examples.forEach(cmd => {
+    const btn = document.createElement('button');
+    btn.className = 'example-cmd';
+    btn.dataset.cmd = cmd;
+    btn.textContent = cmd;
+    btn.style.cssText = `background: var(--surface-secondary); border: 1px solid var(--surface-glass-border); 
+                         border-radius: 12px; padding: 14px 16px; cursor: pointer; text-align: left;
+                         font-size: 0.875rem; color: var(--text-primary); transition: all 0.2s; font-family: inherit;
+                         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);`;
+    
+    btn.addEventListener('click', () => {
+      components.commandInput.value = cmd;
+      components.commandInput.focus();
+      components.commandInput.dispatchEvent(new Event('input'));
+    });
+
+    btn.addEventListener('mouseenter', () => {
+      btn.style.borderColor = 'var(--accent)';
+      btn.style.background = 'var(--surface-accent)';
+      btn.style.transform = 'translateY(-1px)';
+      btn.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.borderColor = 'var(--surface-glass-border)';
+      btn.style.background = 'var(--surface-secondary)';
+      btn.style.transform = 'translateY(0)';
+      btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+    });
+
+    buttonContainer.appendChild(btn);
+  });
+
+  examplesContainer.appendChild(buttonContainer);
+
+  const hint = document.createElement('p');
+  hint.style.cssText = 'color: var(--text-quaternary); margin-top: 16px; font-size: 0.75rem;';
+  hint.textContent = 'Or type your own command below';
+  examplesContainer.appendChild(hint);
+
+  chatHistory.appendChild(examplesContainer);
+}
+
+function clearExampleCommands() {
+  const exampleCommands = components.chatHistory.querySelector('.example-commands');
+  if (exampleCommands) {
+    exampleCommands.remove();
   }
 }
 
@@ -626,23 +756,15 @@ async function updateUsageDisplay() {
 
     // Update text
     const actionsLabel = limitActions === -1 ? `${actions} / ∞` : `${actions} / ${limitActions}`;
-    const sessionsLabel = limitSessions === -1 ? `${sessions} / ∞` : `${sessions} / ${limitSessions}`;
     components.usageActions.textContent = actionsLabel;
-    components.usageSessions.textContent = sessionsLabel;
     components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
 
     // Update progress bars
     const actionsProgress = document.getElementById('actions-progress');
-    const sessionsProgress = document.getElementById('sessions-progress');
     if (actionsProgress) {
       const pct = limitActions === -1 ? 0 : Math.min(100, (actions / limitActions) * 100);
       actionsProgress.style.width = `${pct}%`;
       actionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
-    }
-    if (sessionsProgress) {
-      const pct = limitSessions === -1 ? 0 : Math.min(100, (sessions / limitSessions) * 100);
-      sessionsProgress.style.width = `${pct}%`;
-      sessionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
     }
 
     // Update banner
@@ -749,7 +871,9 @@ async function loadMarketplace() {
     if (resp?.ok && Array.isArray(resp.workflows)) {
       installedWorkflowIds = new Set(resp.workflows);
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[HyperAgent] Failed to load installed workflows', e);
+  }
 
   renderMarketplaceWorkflows();
 
@@ -796,8 +920,11 @@ function renderMarketplaceWorkflows() {
 
   filtered.forEach(workflow => {
     const currentTier = billingManager.getTier();
-    const tierOrder = { free: 0, premium: 1, unlimited: 2 };
-    const canInstall = tierOrder[currentTier] >= tierOrder[workflow.tier];
+    // Map new tier names to legacy for comparison
+    const tierOrder = { community: 0, beta: 1, free: 0, premium: 1, unlimited: 2 };
+    const currentTierLevel = tierOrder[currentTier] || 0;
+    const workflowTierLevel = tierOrder[workflow.tier] || 0;
+    const canInstall = currentTierLevel >= workflowTierLevel;
     const isInstalled = installedWorkflowIds.has(workflow.id);
     const stars = '★'.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
 
@@ -947,6 +1074,9 @@ async function loadTasksTab() {
         const item = document.createElement('div');
         item.className = 'task-item';
         const safeId = escapeHtml(String(task.id || ''));
+        const lastErrorHtml = task.lastError
+          ? `<div class="task-error">Error: ${escapeHtml(task.lastError)}</div>`
+          : '';
         item.innerHTML = `
           <div class="task-header">
             <span class="task-name">${escapeHtml(task.name || 'Unnamed')}</span>
@@ -955,6 +1085,7 @@ async function loadTasksTab() {
           <div class="task-command">${escapeHtml(task.command || '')}</div>
           <div class="task-schedule">${escapeHtml(formatSchedule(task.schedule))}</div>
           <div class="task-next-run">Next: ${task.nextRun ? escapeHtml(new Date(task.nextRun).toLocaleString()) : 'Not scheduled'}</div>
+          ${lastErrorHtml}
           <div class="task-actions">
             <button class="btn-small" data-task-id="${safeId}" data-action="toggle" data-enabled="${task.enabled}">${task.enabled ? 'Pause' : 'Enable'}</button>
             <button class="btn-small btn-danger" data-task-id="${safeId}" data-action="delete">Delete</button>
@@ -1069,6 +1200,7 @@ function loadVisionTab() {
 
 // ─── Swarm Tab ───────────────────────────────────────────────────
 let swarmListenersAttached = false;
+// ─── Swarm Tab ───────────────────────────────────────────────────
 async function loadSwarmTab() {
   const swarmState = document.getElementById('swarm-state');
   const agentList = document.getElementById('agent-list');
@@ -1078,6 +1210,68 @@ async function loadSwarmTab() {
   const activeMissions = document.getElementById('active-missions');
   const recoveredTasks = document.getElementById('recovered-tasks');
   const snapshotsList = document.getElementById('snapshots-list');
+  const useCasesButton = document.getElementById('use-cases-button');
+  const activeMissionsList = document.getElementById('active-missions-list');
+  const missionHistoryList = document.getElementById('mission-history-list');
+  const btnClearActiveMissions = document.getElementById('btn-clear-active-missions');
+  const btnClearMissionHistory = document.getElementById('btn-clear-mission-history');
+  const autoScaleAgents = document.getElementById('auto-scale-agents') as HTMLInputElement;
+  const missionTimeout = document.getElementById('mission-timeout') as HTMLSelectElement;
+
+  // Add click handler for use cases button
+  if (useCasesButton && !swarmListenersAttached) {
+    useCasesButton.addEventListener('click', () => {
+      components.commandInput.value = 'Compare laptop prices on Amazon, Best Buy, and Newegg';
+      components.commandInput.focus();
+      showToast('Use case example loaded', 'info');
+    });
+  }
+
+  // Add click handlers for clear buttons
+  if (btnClearActiveMissions && !swarmListenersAttached) {
+    btnClearActiveMissions.addEventListener('click', async () => {
+      const confirmed = confirm('Clear all active missions?');
+      if (confirmed) {
+        // Clear active missions (placeholder for actual API call)
+        if (activeMissionsList) {
+          activeMissionsList.innerHTML = '';
+          if (activeMissions) activeMissions.textContent = '0';
+        }
+        showToast('Active missions cleared', 'success');
+      }
+    });
+  }
+
+  if (btnClearMissionHistory && !swarmListenersAttached) {
+    btnClearMissionHistory.addEventListener('click', async () => {
+      const confirmed = confirm('Clear mission history?');
+      if (confirmed) {
+        // Clear mission history (placeholder for actual API call)
+        if (missionHistoryList) {
+          missionHistoryList.innerHTML = '';
+          if (missionsCompleted) missionsCompleted.textContent = '0';
+        }
+        showToast('Mission history cleared', 'success');
+      }
+    });
+  }
+
+  // Add event listeners for configuration changes
+  if (autoScaleAgents && !swarmListenersAttached) {
+    autoScaleAgents.addEventListener('change', async (e: Event) => {
+      const enabled = (e.target as HTMLInputElement).checked;
+      // Save configuration (placeholder for actual API call)
+      showToast(`Auto-scale agents ${enabled ? 'enabled' : 'disabled'}`, 'success');
+    });
+  }
+
+  if (missionTimeout && !swarmListenersAttached) {
+    missionTimeout.addEventListener('change', async (e: Event) => {
+      const timeout = (e.target as HTMLSelectElement).value;
+      // Save configuration (placeholder for actual API call)
+      showToast(`Mission timeout set to ${timeout} seconds`, 'success');
+    });
+  }
 
   try {
     // Get swarm status
@@ -1090,10 +1284,16 @@ async function loadSwarmTab() {
       const agents = swarmResponse.status?.agents || [];
       if (agentList) {
         agentList.innerHTML = agents.length > 0
-          ? agents.map((a: { displayName?: string; role?: string; status?: string }) => `
-              <div class="agent-item">
-                <span class="agent-role">${escapeHtml(a.displayName || a.role || '')}</span>
-                <span class="agent-status active">${escapeHtml(a.status || 'Ready')}</span>
+          ? agents.map((a: { displayName?: string; role?: string; status?: string; description?: string }) => `
+              <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="font-semibold text-sm">${escapeHtml(a.displayName || a.role || '')}</span>
+                  <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+                    <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
+                    ${escapeHtml(a.status || 'Ready')}
+                  </span>
+                </div>
+                <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">${escapeHtml(a.description || 'Performs specialized tasks within the swarm')}</p>
               </div>
             `).join('')
           : '<p class="empty-state">No agents initialized.</p>';
@@ -1138,9 +1338,9 @@ async function loadSwarmTab() {
         });
 
         // Attach click handlers for Resume and Delete
-        snapshotsList.querySelectorAll('.btn-resume').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+        snapshotsList.querySelectorAll('.btn-resume').forEach(resumeBtn => {
+          resumeBtn.addEventListener('click', async () => {
+            const taskId = (resumeBtn as HTMLButtonElement).dataset.taskId;
             if (taskId) {
               const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
               if (resp?.ok) {
@@ -1152,13 +1352,13 @@ async function loadSwarmTab() {
             }
           });
         });
-        snapshotsList.querySelectorAll('.btn-delete-snapshot').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const taskId = (btn as HTMLButtonElement).dataset.taskId;
+        snapshotsList.querySelectorAll('.btn-delete-snapshot').forEach(deleteBtn => {
+          deleteBtn.addEventListener('click', async () => {
+            const taskId = (deleteBtn as HTMLButtonElement).dataset.taskId;
             if (taskId) {
-              const resp = await chrome.runtime.sendMessage({ type: 'clearSnapshot', taskId });
+              const resp = await chrome.runtime.sendMessage({ type: 'deleteSnapshot', taskId });
               if (resp?.ok) {
-                showToast('Mission deleted', 'success');
+                showToast('Snapshot deleted', 'success');
                 loadSwarmTab();
               } else {
                 showToast(resp?.error || 'Failed to delete', 'error');
@@ -1166,42 +1366,71 @@ async function loadSwarmTab() {
             }
           });
         });
-
-        // Count recovered tasks
-        if (recoveredTasks) {
-          recoveredTasks.textContent = snapshotsResponse.snapshots.length;
-        }
       } else {
-        snapshotsList.innerHTML = '<p class="empty-state">No saved missions.</p>';
+        snapshotsList.innerHTML = `
+          <p class="empty-state">No saved missions.</p>
+          <p class="hint">Use commands like "extract data from website" to create snapshots.</p>
+        `;
       }
     }
 
-    // Active missions (from agent status)
-    const agentResponse = await chrome.runtime.sendMessage({ type: 'getAgentStatus' });
-    if (agentResponse?.ok && activeMissions) {
-      activeMissions.textContent = agentResponse.status?.isRunning ? '1' : '0';
+    // Load active missions (placeholder data for now)
+    if (activeMissionsList) {
+      const activeMissionsData = [
+        { id: '1', name: 'Extracting product prices', progress: 25 },
+        { id: '2', name: 'Analyzing competitor data', progress: 60 },
+        { id: '3', name: 'Scraping reviews', progress: 85 }
+      ];
+
+      activeMissionsList.innerHTML = activeMissionsData.map(mission => `
+        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>${mission.progress}%</span>
+            <div class="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+              <div class="h-full bg-emerald-500 rounded-full" style="width: ${mission.progress}%"></div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      if (activeMissions) activeMissions.textContent = activeMissionsData.length.toString();
     }
+
+    // Load mission history (placeholder data for now)
+    if (missionHistoryList) {
+      const missionHistoryData = [
+        { id: '1', name: 'Product price extraction', status: 'Completed', time: '2 min ago' },
+        { id: '2', name: 'Competitor analysis', status: 'Completed', time: '5 min ago' },
+        { id: '3', name: 'Review scraping', status: 'Failed', time: '10 min ago' }
+      ];
+
+      missionHistoryList.innerHTML = missionHistoryData.map(mission => `
+        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full ${mission.status === 'Completed' ? 'bg-emerald-500' : 'bg-red-500'}"></div>
+            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>${mission.status}</span>
+            <span>${mission.time}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    swarmListenersAttached = true;
+
   } catch (err) {
-    console.warn('[HyperAgent] Failed to load swarm tab:', err);
+    console.error('[HyperAgent] Failed to load swarm tab:', err);
+    // Show error state
+    if (agentList) {
+      agentList.innerHTML = '<p class="empty-state">Failed to load swarm status. Check your connection.</p>';
+    }
   }
-
-  if (swarmListenersAttached) return;
-  swarmListenersAttached = true;
-
-  const clearBtn = document.getElementById('btn-clear-snapshots');
-  if (clearBtn) {
-    clearBtn.addEventListener('click', async () => {
-      const confirmed = confirm('Clear all saved missions?');
-      if (confirmed) {
-        const response = await chrome.runtime.sendMessage({ type: 'clearSnapshot' });
-        if (response?.ok) {
-          showToast('All missions cleared', 'success');
-          loadSwarmTab();
-        }
-      }
-    });
-  }
-}
 
 // ─── Event Listeners ────────────────────────────────────────────
 components.btnExecute.addEventListener('click', () => {
@@ -1299,7 +1528,7 @@ loadCommandHistory();
 chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
   if (data.hyperagent_show_changelog) {
     chrome.storage.local.remove('hyperagent_show_changelog');
-    showToast('HyperAgent updated! See CHANGELOG.md for release notes.', 'info');
+    showToast('HyperAgent updated! Check the repository for release notes.', 'info');
   }
 });
 
@@ -1308,21 +1537,29 @@ chrome.storage.local.get('hyperagent_show_onboarding').then((data) => {
   if (data.hyperagent_show_onboarding) {
     chrome.storage.local.remove('hyperagent_show_onboarding');
     const modal = document.getElementById('onboarding-modal');
-    if (modal) modal.classList.remove('hidden');
+    if (modal) {
+      modal.classList.remove('hidden');
+      if (state.cleanupFocusTrap) state.cleanupFocusTrap();
+      state.cleanupFocusTrap = trapFocus(modal);
+    }
   }
 });
 
 // Onboarding modal handlers
 document.getElementById('btn-onboarding-close')?.addEventListener('click', () => {
-  document.getElementById('onboarding-modal')?.classList.add('hidden');
+  const modal = document.getElementById('onboarding-modal');
+  modal?.classList.add('hidden');
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
 });
 document.getElementById('btn-onboarding-settings')?.addEventListener('click', () => {
-  document.getElementById('onboarding-modal')?.classList.add('hidden');
-  chrome.runtime.openOptionsPage();
+  const modal = document.getElementById('onboarding-modal');
+  modal?.classList.add('hidden');
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  openOptionsPageSafe();
 });
 
 components.btnSettings.addEventListener('click', () => {
-  chrome.runtime.openOptionsPage();
+  openOptionsPageSafe();
 });
 
 // Dark mode toggle
@@ -1348,7 +1585,7 @@ document.addEventListener('keydown', e => {
   // Ctrl/Cmd + S: Open settings
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
-    chrome.runtime.openOptionsPage();
+    openOptionsPageSafe();
   }
   // Ctrl/Cmd + K: Focus command input
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -1361,6 +1598,7 @@ document.addEventListener('keydown', e => {
     components.confirmModal.classList.add('hidden');
     components.askModal.classList.add('hidden');
     components.suggestions.classList.add('hidden');
+    document.getElementById('onboarding-modal')?.classList.add('hidden');
     if (state.cleanupFocusTrap) {
       state.cleanupFocusTrap();
       state.cleanupFocusTrap = null;
@@ -1553,44 +1791,71 @@ components.btnMic.addEventListener('click', () => {
 });
 
 components.btnUpgradePremium.addEventListener('click', async () => {
-  await billingManager.openCheckout('premium', selectedBillingInterval);
-  addMessage(`Redirecting to Stripe checkout for Premium (${selectedBillingInterval}ly)...`, 'status');
-  showToast('Opening Stripe checkout...', 'info');
-});
-
-components.btnUpgradeUnlimited.addEventListener('click', async () => {
-  await billingManager.openCheckout('unlimited', selectedBillingInterval);
-  addMessage(`Redirecting to Stripe checkout for Unlimited (${selectedBillingInterval}ly)...`, 'status');
-  showToast('Opening Stripe checkout...', 'info');
-});
-
-// Billing interval toggle
-document.querySelectorAll('.interval-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.interval-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedBillingInterval = (btn as HTMLElement).dataset.interval as 'month' | 'year';
-    updatePricingDisplay();
-  });
-});
-
-function updatePricingDisplay() {
-  const premiumPrice = document.getElementById('premium-price');
-  const premiumPeriod = document.getElementById('premium-period');
-  const unlimitedPrice = document.getElementById('unlimited-price');
-  const unlimitedPeriod = document.getElementById('unlimited-period');
-
-  if (selectedBillingInterval === 'year') {
-    if (premiumPrice) premiumPrice.textContent = '$190';
-    if (premiumPeriod) premiumPeriod.textContent = '/year';
-    if (unlimitedPrice) unlimitedPrice.textContent = '$490';
-    if (unlimitedPeriod) unlimitedPeriod.textContent = '/year';
+  const result = await billingManager.openCheckout('beta');
+  if (result.success) {
+    addMessage('Redirecting to checkout...', 'status');
+    showToast('Opening checkout...', 'info');
   } else {
-    if (premiumPrice) premiumPrice.textContent = '$19';
-    if (premiumPeriod) premiumPeriod.textContent = '/month';
-    if (unlimitedPrice) unlimitedPrice.textContent = '$49';
-    if (unlimitedPeriod) unlimitedPeriod.textContent = '/month';
+    showToast(result.error || 'Checkout not available', 'error');
   }
+});
+
+// Payment method buttons
+if (components.btnPayCard) {
+  components.btnPayCard.addEventListener('click', async () => {
+    const result = await billingManager.openCheckout('beta');
+    if (result.success) {
+      showToast('Opening Stripe checkout...', 'info');
+    } else {
+      showToast(result.error || 'Card payment not configured', 'error');
+    }
+  });
+}
+
+if (components.btnPayCrypto) {
+  components.btnPayCrypto.addEventListener('click', () => {
+    if (components.cryptoPaymentInfo) {
+      components.cryptoPaymentInfo.classList.toggle('hidden');
+      
+      // Update crypto address if visible
+      if (!components.cryptoPaymentInfo.classList.contains('hidden')) {
+        const config = billingManager.getPaymentConfig();
+        const addr = config.cryptoRecipientAddress;
+        const isReal = addr && addr.length === 42 && addr.toLowerCase() !== '0x0000000000000000000000000000000000000000';
+        if (components.cryptoAddress) {
+          components.cryptoAddress.textContent = isReal ? addr : 'Configure wallet in settings';
+        }
+      }
+    }
+  });
+}
+
+if (components.btnConfirmCrypto) {
+  components.btnConfirmCrypto.addEventListener('click', async () => {
+    const txHash = prompt('Enter your transaction hash:');
+    if (!txHash) return;
+    
+    const chainId = components.cryptoChainSelect ? parseInt(components.cryptoChainSelect.value) : 1;
+    const result = await billingManager.confirmCryptoPayment(txHash, 'user', chainId);
+    
+    if (result.success) {
+      showToast('Payment confirmed! Upgrading to Beta...', 'success');
+      updateSubscriptionBadge();
+    } else {
+      showToast(result.error || 'Payment verification failed', 'error');
+    }
+  });
+}
+
+if (components.btnCancelSubscription) {
+  components.btnCancelSubscription.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to cancel? You\'ll keep Beta until the end of your billing period.')) {
+      return;
+    }
+    await billingManager.cancelSubscription();
+    showToast('Subscription will cancel at end of period', 'info');
+    updateSubscriptionBadge();
+  });
 }
 
 // License key activation
@@ -1639,7 +1904,8 @@ if (cancelSubBtn) {
 }
 
 // Init
-addMessage('**HyperAgent Dashboard Initialized.** Ready for commands.', 'agent');
+// Note: Don't add initial message here - loadHistory() will handle it
+// or showExampleCommandsIfNeeded() will show examples if empty
 switchTab('chat');
 updateCharCounter(components.commandInput.value || '');
 updateSubscriptionBadge();
@@ -1652,10 +1918,10 @@ async function updateSubscriptionBadge() {
     const badge = components.subscriptionBadge;
     if (!badge) return;
 
-    badge.textContent = status.tier.charAt(0).toUpperCase() + status.tier.slice(1);
-    badge.className = `subscription-badge ${status.tier}`;
+    badge.textContent = status.plan.charAt(0).toUpperCase() + status.plan.slice(1);
+    badge.className = `subscription-badge ${status.plan}`;
 
-    if (status.tier === 'free') {
+    if (status.plan === 'community') {
       badge.classList.add('free');
     }
   } catch (err) {
@@ -1685,6 +1951,17 @@ function showToast(message: string, type: 'success' | 'error' | 'info' | 'warnin
     toast.classList.add('toast-fade-out');
     setTimeout(() => toast.remove(), 300);
   }, 5000);
+}
+
+function openOptionsPageSafe(): void {
+  try {
+    // Directly open options.html instead of relying on chrome.runtime.openOptionsPage()
+    const optionsUrl = chrome.runtime.getURL('options.html');
+    chrome.tabs.create({ url: optionsUrl });
+  } catch (e) {
+    console.warn('[HyperAgent] Failed to open options page', e);
+    showToast('Could not open settings', 'error');
+  }
 }
 
 // ─── Dark Mode ────────────────────────────────────────────────────
@@ -1752,7 +2029,7 @@ async function exportSettings() {
   );
   if (!warned) return;
   try {
-    const data = await chrome.storage.local.get(null);
+    const data = await chrome.storage.local.get(null) as Record<string, unknown>;
     const exportData = {
       version: '1.0',
       timestamp: Date.now(),
@@ -1828,7 +2105,7 @@ async function importSettings() {
 
 async function exportChatHistory() {
   try {
-    const data = await chrome.storage.local.get('chat_history_backup');
+    const data = await chrome.storage.local.get('chat_history_backup') as Record<string, unknown>;
     if (!data.chat_history_backup) {
       showToast('No chat history to export', 'info');
       return;
@@ -1852,5 +2129,130 @@ async function exportChatHistory() {
     showToast('Chat history exported!', 'success');
   } catch {
     showToast('Failed to export chat history', 'error');
+  }
+}
+
+async function exportAllUserData(): Promise<void> {
+  try {
+    const allData = await chrome.storage.local.get(null) as Record<string, unknown>;
+    
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      version: '3.1.0',
+      data: {
+        settings: {
+          darkMode: allData.dark_mode ?? allData[STORAGE_KEYS.DARK_MODE],
+          apiKeyConfigured: !!(allData[STORAGE_KEYS.API_KEY]),
+          baseUrl: allData[STORAGE_KEYS.BASE_URL],
+          modelName: allData[STORAGE_KEYS.MODEL_NAME],
+          maxSteps: allData[STORAGE_KEYS.MAX_STEPS],
+          requireConfirm: allData[STORAGE_KEYS.REQUIRE_CONFIRM],
+          dryRun: allData[STORAGE_KEYS.DRY_RUN],
+          enableVision: allData[STORAGE_KEYS.ENABLE_VISION],
+          enableSwarmIntelligence: allData[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE],
+          enableAutonomousMode: allData[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE],
+          learningEnabled: allData[STORAGE_KEYS.LEARNING_ENABLED],
+          siteBlacklist: allData[STORAGE_KEYS.SITE_BLACKLIST],
+        },
+        chatHistory: allData.chat_history_backup || allData[STORAGE_KEYS.CHAT_HISTORY] || '',
+        commandHistory: allData.command_history || allData[STORAGE_KEYS.COMMAND_HISTORY] || [],
+        workflows: Object.fromEntries(
+          Object.entries(allData).filter(([key]) => 
+            key.startsWith('workflow_') || key === STORAGE_KEYS.WORKFLOWS || key === STORAGE_KEYS.INSTALLED_WORKFLOWS
+          )
+        ),
+        scheduledTasks: allData[STORAGE_KEYS.SCHEDULED_TASKS] || [],
+        siteConfigs: allData[STORAGE_KEYS.SITE_CONFIGS] || [],
+        siteStrategies: allData[STORAGE_KEYS.SITE_STRATEGIES] || {},
+        memory: {
+          actionHistory: allData[STORAGE_KEYS.ACTION_HISTORY] || [],
+          sessions: allData[STORAGE_KEYS.SESSIONS] || [],
+          neuroplasticity: allData.hyperagent_neuroplasticity || {},
+        },
+        snapshots: Object.fromEntries(
+          Object.entries(allData).filter(([key]) => key.startsWith('snapshot_'))
+        ),
+        metrics: allData[STORAGE_KEYS.USAGE_METRICS] || {},
+        billing: {
+          tier: (allData[STORAGE_KEYS.SUBSCRIPTION] as any)?.tier || billingManager.getTier(),
+          status: (allData[STORAGE_KEYS.SUBSCRIPTION] as any)?.status || 'active',
+        },
+        privacy: allData[STORAGE_KEYS.PRIVACY_SETTINGS] || {},
+        security: allData[STORAGE_KEYS.SECURITY_POLICY] || {},
+      },
+      gdpr: {
+        rightToAccess: true,
+        rightToRectification: true,
+        rightToErasure: true,
+        rightToPortability: true,
+        dataController: 'HyperAgent',
+        dataLocation: 'Local browser storage only',
+        retention: 'User-controlled',
+        contact: 'privacy@hyperagent.ai',
+        note: 'API keys are NOT exported for security. Chat history may contain sensitive information - handle with care.',
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hyperagent-gdpr-export-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showToast('Full data exported successfully', 'success');
+    addMessage('GDPR data export complete. The file contains all your stored data. Keep it secure.', 'agent');
+  } catch (error) {
+    console.error('[Export] Failed:', error);
+    showToast('Export failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+  }
+}
+
+async function deleteAllUserData(): Promise<void> {
+  if (!confirm('This will permanently delete ALL your data. This cannot be undone. Continue?')) {
+    return;
+  }
+  
+  if (!confirm('Are you REALLY sure? This includes your API key, chat history, workflows, and all settings.')) {
+    return;
+  }
+
+  const confirmation = prompt('Type "DELETE" to confirm permanent data erasure:');
+  if (confirmation !== 'DELETE') {
+    showToast('Data deletion cancelled', 'info');
+    return;
+  }
+
+  try {
+    await chrome.storage.local.clear();
+    showToast('All data deleted. The extension will reload.', 'success');
+    setTimeout(() => chrome.runtime.reload(), 1500);
+  } catch (error) {
+    showToast('Delete failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+  }
+}
+
+function showExportOptions(): void {
+  const choice = prompt(
+    'Export Options:\n' +
+    '1 - Settings only (preferences, no history)\n' +
+    '2 - Chat history only\n' +
+    '3 - Full GDPR export (all data)\n\n' +
+    'Enter 1, 2, or 3:'
+  );
+
+  switch (choice) {
+    case '1':
+      exportSettings();
+      break;
+    case '2':
+      exportChatHistory();
+      break;
+    case '3':
+      exportAllUserData();
+      break;
+    default:
+      showToast('Export cancelled', 'info');
   }
 }

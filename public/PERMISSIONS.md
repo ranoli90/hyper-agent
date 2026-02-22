@@ -14,6 +14,7 @@ This document explains why HyperAgent requires each permission.
 | `unlimitedStorage` | Allows storage of chat history and sessions without 5MB limit |
 | `contextMenus` | Right-click menu to send page content to HyperAgent |
 | `alarms` | Schedules automated tasks (scheduler feature) |
+| `notifications` | Alerts users when background tasks complete or fail |
 
 ## Host Permissions
 

@@ -419,12 +419,15 @@ export class MemoryManager {
     this.detectedLeaks.clear();
   }
 
-  private clearExpiredCaches(): void {
-    // Clear any cached data older than 1 hour
+private clearExpiredCaches(): void {
     const cutoff = Date.now() - 60 * 60 * 1000;
 
+    if (typeof localStorage === 'undefined') {
+      this.clearExpiredStorageCaches(cutoff);
+      return;
+    }
+
     try {
-      // Clear localStorage caches
       const keys = Object.keys(localStorage);
       keys.forEach(key => {
         if (key.startsWith('cache_') || key.startsWith('temp_')) {
@@ -436,40 +439,46 @@ export class MemoryManager {
                 localStorage.removeItem(key);
               }
             } catch {
-              // Invalid JSON, remove it
               localStorage.removeItem(key);
             }
           }
         }
       });
-
-      // Clear chrome.storage caches
-      chrome.storage.local
-        .get(null)
-        .then((data: Record<string, any>) => {
-          const keysToRemove = Object.keys(data).filter(key => {
-            if (key.startsWith('cache_') || key.startsWith('temp_')) {
-              const item = data[key];
-              return item.timestamp && item.timestamp < cutoff;
-            }
-            return false;
-          });
-
-          if (keysToRemove.length > 0) {
-            chrome.storage.local.remove(keysToRemove);
-          }
-        })
-        .catch(() => {});
     } catch (error) {
-      console.warn('[MemoryManager] Error clearing expired caches:', error);
+      console.warn('[MemoryManager] Error clearing localStorage caches:', error);
+    }
+
+    this.clearExpiredStorageCaches(cutoff);
+  }
+
+  private async clearExpiredStorageCaches(cutoff: number): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(null);
+      const keysToRemove = Object.keys(data).filter(key => {
+        if (key.startsWith('cache_') || key.startsWith('temp_')) {
+          const item = data[key];
+          return item.timestamp && item.timestamp < cutoff;
+        }
+        return false;
+      });
+
+      if (keysToRemove.length > 0) {
+        await chrome.storage.local.remove(keysToRemove);
+      }
+    } catch (error) {
+      console.warn('[MemoryManager] Error clearing chrome.storage caches:', error);
     }
   }
 
-  private clearAllCaches(): void {
-    // Emergency cache clearing (skip in service worker — no localStorage)
-    if (typeof localStorage === 'undefined') return;
+private clearAllCaches(): void {
+    if (typeof localStorage === 'undefined') {
+      this.clearAllStorageCaches().catch(err =>
+        console.warn('[MemoryManager] Error clearing storage caches:', err)
+      );
+      return;
+    }
+
     try {
-      // Clear all cache-like localStorage entries
       const keys = Object.keys(localStorage);
       const cacheKeys = keys.filter(
         key => key.startsWith('cache_') || key.startsWith('temp_') || key.includes('log')
@@ -479,6 +488,21 @@ export class MemoryManager {
       console.log(`[MemoryManager] Cleared ${cacheKeys.length} cache entries`);
     } catch (error) {
       console.warn('[MemoryManager] Error clearing all caches:', error);
+    }
+  }
+
+  private async clearAllStorageCaches(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(null);
+      const cacheKeys = Object.keys(data).filter(
+        key => key.startsWith('cache_') || key.startsWith('temp_') || key.includes('log')
+      );
+      if (cacheKeys.length > 0) {
+        await chrome.storage.local.remove(cacheKeys);
+        console.log(`[MemoryManager] Cleared ${cacheKeys.length} storage cache entries`);
+      }
+    } catch (error) {
+      console.warn('[MemoryManager] Error clearing storage caches:', error);
     }
   }
 

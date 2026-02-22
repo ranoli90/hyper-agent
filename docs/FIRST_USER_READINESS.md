@@ -60,7 +60,7 @@
 |---|------|--------|-------|
 | 22 | API key stored unencrypted | ⚠️ | Acceptable — extension storage is isolated |
 | 23 | Marketplace workflows display only | ⚠️ | Labeled "Coming Soon" |
-| 24 | LLM retry not integrated | ⚠️ | Single retry on failure; manual retry works |
+| 24 | LLM retry | ✅ | Main API path uses retry + circuit breaker (llm-api) |
 
 ---
 
@@ -84,7 +84,7 @@
 npm run build
 
 # Ensure tests pass
-npm run test:unit   # 94 tests
+npm run test:unit   # 253 tests
 npm run type-check
 npm run lint
 ```

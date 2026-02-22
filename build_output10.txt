@@ -1,0 +1,85 @@
+﻿
+[90mWXT[39m [90m[1m0.20.17[22m[39m
+[36mΓä╣[39m Building [36mchrome-mv3[39m for [36mproduction[39m with [32mVite 6.4.1[39m
+[31mΓ£û[39m Command failed after 1.249 s
+node.exe : 
+At line:1 char:1
++ & "C:\Program 
+Files\nodejs/node.exe" 
+"C:\Program 
+Files\nodejs/node_mo 
+...
++ ~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (:String) [],    
+ RemoteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+[41m[30m ERROR 
+[39m[49m Unexpected 
+character 'Γ¿»'. (1:0)
+
+    [90mat 
+[39mtoParseError ([36
+mnode_modules\@babel\pa
+rser\src\parse-error.ts
+:95:45[39m)
+    [90mat [39mV8Intr
+insicMixin.raise ([36m
+node_modules\@babel\par
+ser\src\tokenizer\index
+.ts:1504:19[39m)
+    [90mat [39mV8Intr
+insicMixin.getTokenFrom
+Code ([36mnode_modules
+\@babel\parser\src\toke
+nizer\index.ts:1059:16
+[39m)
+    [90mat [39mV8Intr
+insicMixin.getTokenFrom
+Code ([36mnode_modules
+\@babel\parser\src\plug
+ins\jsx\index.ts:631:13
+[39m)
+    [90mat [39mV8Intr
+insicMixin.getTokenFrom
+Code ([36mnode_modules
+\@babel\parser\src\plug
+ins\typescript\index.ts
+:4138:13[39m)
+    [90mat [39mV8Intr
+insicMixin.nextToken (
+[36mnode_modules\@babel
+\parser\src\tokenizer\i
+ndex.ts:279:10[39m)
+    [90mat [39mV8Intr
+insicMixin.parse ([36m
+node_modules\@babel\par
+ser\src\parser\index.ts
+:80:10[39m)
+    [90mat [39mV8Intr
+insicMixin.parse ([36m
+node_modules\@babel\par
+ser\src\plugins\typescr
+ipt\index.ts:4354:20[3
+9m)
+    [90mat 
+[39mModule.parse ([36
+mnode_modules\@babel\pa
+rser\src\index.ts:86:38
+[39m)
+    [90mat 
+[39mObject.parse ([36
+m/C:/Users/Administrato
+r/Desktop/Chrome%20Hype
+r%20Agent/node_modules/
+magicast/dist/builders-
+B_BPSg0Q.js:7612:22[39
+m)
+

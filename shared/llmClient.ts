@@ -1,6 +1,15 @@
 /**
  * @fileoverview HyperAgent LLM client.
  * OpenRouter API integration, response parsing, caching, and fallback logic.
+ * 
+ * Optimizations:
+ * - Context caching with stable system prefix
+ * - Model cascade (simple/standard/complex tasks)
+ * - History compression for token efficiency
+ * - Semantic caching with embeddings
+ * - Progressive reasoning (CoT only when needed)
+ * - Minimal context extraction
+ * - Strategic reasoning enhancement
  */
 
 import type {
@@ -10,6 +19,7 @@ import type {
   LLMRequest,
   LLMClientInterface,
   CompletionRequest,
+  SemanticElement,
 } from './types';
 import { DEFAULTS, loadSettings } from './config';
 
@@ -21,7 +31,41 @@ import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 
-const SINGLE_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+
+// ─── Model Cascade Configuration ───────────────────────────────────────────
+const MODEL_CASCADE = {
+  simple: 'google/gemini-2.0-flash-lite-001',
+  standard: 'google/gemini-2.0-flash-001',
+  complex: 'anthropic/claude-3.5-sonnet',
+} as const;
+
+type TaskComplexity = 'simple' | 'standard' | 'complex';
+
+interface AgentTask {
+  type: string;
+  description: string;
+  requiresReasoning?: boolean;
+  multiStep?: boolean;
+  complexity: TaskComplexity;
+}
+
+// ─── Cached System Prefix (stable for provider caching) ────────────────────
+const CACHED_SYSTEM_PREFIX = `[HYPERAGENT v3.0]
+You are an autonomous browser agent with enhanced reasoning capabilities.
+
+CORE CAPABILITIES:
+- Observe DOM and understand page context
+- Plan multi-step actions strategically  
+- Execute precise element interactions
+- Verify outcomes and adapt
+
+REASONING FRAMEWORK:
+1. ASSESS: What is the current state?
+2. ANALYZE: What needs to happen?
+3. STRATEGIZE: What's the optimal approach?
+4. EXECUTE: Take precise action
+5. VERIFY: Did it work? Adjust if needed.`;
 
 import { sanitizeMessages } from './security';
 
@@ -102,11 +146,8 @@ class TokenCounter {
   }
 }
 
-// ─── Dynamic Intelligence System Prompt ───────────────────────────────
-// Instead of hardcoded workflows, use autonomous reasoning that adapts to any task
-
-const DYNAMIC_SYSTEM_PROMPT = `You are HyperAgent, an autonomous AI browser agent. You execute web automation tasks step by step.
-
+// ─── Dynamic System Prompt Builder (cached prefix + dynamic suffix) ────────
+const DYNAMIC_ACTIONS_SUFFIX = `
 ## Available Actions
 Each action must include "type" and "description". Actions that target elements need a "locator".
 
@@ -168,6 +209,58 @@ Set "askUser" to ask the user a clarifying question instead of executing actions
 7. Use "text" strategy for buttons and links when their visible text is clear and unique.
 8. Include "description" on every action explaining what it does in plain language.`;
 
+function buildDynamicSystemPrompt(task: AgentTask): string {
+  const basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}`;
+  
+  if (task.complexity === 'complex') {
+    return `${basePrompt}
+
+ENHANCED REASONING MODE:
+For this complex task, think through step by step:
+1. What am I trying to achieve?
+2. What obstacles might I face?
+3. What's the best approach?
+4. How will I verify success?`;
+  }
+  
+  return basePrompt;
+}
+
+// ─── Model Selection ──────────────────────────────────────────────────────
+function selectModelForTask(task: AgentTask): string {
+  if (task.type === 'click' || task.type === 'type' || task.type === 'fill') {
+    return MODEL_CASCADE.simple;
+  }
+  if (task.requiresReasoning || task.multiStep || task.complexity === 'complex') {
+    return MODEL_CASCADE.complex;
+  }
+  return MODEL_CASCADE.standard;
+}
+
+function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentTask {
+  const commandLower = command.toLowerCase();
+  const stepCount = history.filter(h => h?.role === 'assistant').length;
+  
+  const isSimple = /^(click|press|type|fill|scroll|select)\s/i.test(commandLower);
+  const isComplex = /\b(analyze|compare|research|find all|extract|summarize|navigate|search|multi|complex)\b/i.test(commandLower);
+  const multiStep = stepCount > 3 || /\b(and|then|after|next|also)\b/i.test(commandLower);
+  
+  let complexity: TaskComplexity = 'standard';
+  if (isSimple && !multiStep) complexity = 'simple';
+  if (isComplex || multiStep || stepCount > 5) complexity = 'complex';
+  
+  const actionMatch = commandLower.match(/^(click|type|fill|scroll|navigate|extract|press|select|hover|focus)/);
+  const actionType = actionMatch ? actionMatch[1] : 'unknown';
+  
+  return {
+    type: actionType,
+    description: command,
+    requiresReasoning: isComplex,
+    multiStep,
+    complexity,
+  };
+}
+
 // ─── History entry ──────────────────────────────────────────────────
 export interface HistoryEntry {
   role: 'user' | 'assistant';
@@ -218,23 +311,230 @@ interface APIResponse {
   };
 }
 
+// ─── History Compression ───────────────────────────────────────────────────
+function compressHistory(history: HistoryEntry[]): HistoryEntry[] {
+  if (history.length <= 10) return history;
+  
+  const recent = history.slice(-5);
+  const older = history.slice(0, -5);
+  
+  const actions = older
+    .filter(m => m.role === 'assistant' && m.response?.actions)
+    .flatMap(m => m.response?.actions?.map(a => a.type) || [])
+    .filter(Boolean);
+  
+  const summaryEntry: HistoryEntry = {
+    role: 'user',
+    context: {
+      url: 'summary',
+      title: 'Compressed History',
+      bodyText: `[Previous ${older.length} turns: ${actions.length} actions - ${actions.slice(0, 5).join(', ')}${actions.length > 5 ? '...' : ''}]`,
+      metaDescription: '',
+      formCount: 0,
+      semanticElements: [],
+      timestamp: Date.now(),
+      scrollPosition: { x: 0, y: 0 },
+      viewportSize: { width: 0, height: 0 },
+      pageHeight: 0,
+    },
+  };
+  
+  return [summaryEntry, ...recent];
+}
+
+// ─── Semantic Cache ────────────────────────────────────────────────────────
+interface CachedResponse {
+  response: LLMResponse;
+  embedding: number[];
+  timestamp: number;
+  query: string;
+}
+
+class SemanticCache {
+  private cache = new Map<string, CachedResponse>();
+  private maxSize = 50;
+  private similarityThreshold = 0.95;
+  
+  async get(query: string, getEmbedding: (text: string) => Promise<number[]>): Promise<CachedResponse | null> {
+    if (this.cache.size === 0) return null;
+    
+    try {
+      const queryEmbedding = await getEmbedding(query);
+      if (!queryEmbedding.length) return null;
+      
+      for (const [key, cached] of this.cache) {
+        if (Date.now() - cached.timestamp > 30 * 60 * 1000) {
+          this.cache.delete(key);
+          continue;
+        }
+        
+        const similarity = this.cosineSimilarity(queryEmbedding, cached.embedding);
+        if (similarity > this.similarityThreshold) {
+          console.log(`[SemanticCache] Hit with similarity ${similarity.toFixed(3)}`);
+          return cached;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  
+  async set(query: string, response: LLMResponse, getEmbedding: (text: string) => Promise<number[]>): Promise<void> {
+    if (this.cache.size >= this.maxSize) {
+      const oldest = [...this.cache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+      if (oldest) this.cache.delete(oldest[0]);
+    }
+    
+    try {
+      const embedding = await getEmbedding(query);
+      if (embedding.length) {
+        const key = `sem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        this.cache.set(key, { response, embedding, timestamp: Date.now(), query });
+      }
+    } catch {
+      // Silently fail on embedding errors
+    }
+  }
+  
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length) return 0;
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+  
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const semanticCache = new SemanticCache();
+
+// ─── Minimal Context Extraction ─────────────────────────────────────────────
+interface MinimalContext {
+  interactive: Array<{ tag: string; text: string; role: string; index: number }>;
+  headings: Array<{ level: number; text: string }>;
+  forms: Array<{ action: string; fields: string[] }>;
+  currentFocus: string | null;
+  url: string;
+  title: string;
+}
+
+function extractMinimalContext(context: PageContext): MinimalContext {
+  const interactive = context.semanticElements
+    .filter(el => ['button', 'a', 'input', 'select', 'textarea'].includes(el.tag.toLowerCase()))
+    .slice(0, 50)
+    .map((el, idx) => ({
+      tag: el.tag,
+      text: (el.visibleText || el.ariaLabel || el.placeholder || '').slice(0, 50),
+      role: el.role || '',
+      index: el.index ?? idx,
+    }));
+  
+  const headings = context.semanticElements
+    .filter(el => /^h[1-6]$/i.test(el.tag))
+    .slice(0, 10)
+    .map(el => ({
+      level: parseInt(el.tag.slice(1)),
+      text: (el.visibleText || '').slice(0, 80),
+    }));
+  
+  const forms = context.semanticElements
+    .filter(el => el.tag.toLowerCase() === 'form')
+    .slice(0, 5)
+    .map(el => ({
+      action: '',
+      fields: context.semanticElements
+        .filter(f => f.tag.toLowerCase() === 'input' && f.parentTag === el.tag)
+        .slice(0, 10)
+        .map(f => f.name || f.placeholder || f.id || 'field'),
+    }));
+  
+  return {
+    interactive,
+    headings,
+    forms,
+    currentFocus: null,
+    url: context.url,
+    title: context.title,
+  };
+}
+
+// ─── Strategic Context Enhancement ───────────────────────────────────────────
+interface StrategicContext {
+  goal: string;
+  currentPage: string;
+  previousActions: string[];
+  obstacles: string[];
+  stepCount: number;
+}
+
+function enhanceWithStrategicReasoning(context: StrategicContext): string {
+  const patterns = analyzePatterns(context);
+  const alternatives = identifyAlternatives(context);
+  
+  return `
+STRATEGIC ANALYSIS:
+Goal: ${context.goal}
+Current Position: ${context.currentPage}
+Progress: ${context.stepCount} steps taken
+
+INTELLIGENCE ENHANCEMENT:
+- Pattern Recognition: ${patterns}
+- Alternative Paths: ${alternatives}
+- Risk Level: ${context.obstacles.length > 2 ? 'HIGH' : context.obstacles.length > 0 ? 'MEDIUM' : 'LOW'}
+
+RECOMMENDED APPROACH:
+${context.obstacles.length > 0 ? `Address obstacles: ${context.obstacles.join(', ')}` : 'Continue with current approach'}
+`;
+}
+
+function analyzePatterns(context: StrategicContext): string {
+  const actionTypes = context.previousActions.map(a => a.split(':')[0] || a);
+  const clickCount = actionTypes.filter(a => a === 'click').length;
+  const navCount = actionTypes.filter(a => a === 'navigate').length;
+  
+  if (clickCount > 5) return 'Multiple click attempts - consider alternative locators';
+  if (navCount > 2) return 'Multiple navigations - verify target page';
+  return 'Normal execution pattern';
+}
+
+function identifyAlternatives(context: StrategicContext): string {
+  if (context.obstacles.some(o => o.includes('not found'))) {
+    return 'Try: scroll to reveal, wait for dynamic content, use different locator strategy';
+  }
+  if (context.obstacles.some(o => o.includes('timeout'))) {
+    return 'Try: increase wait time, check for loading indicators';
+  }
+  return 'Current approach viable';
+}
+
 // ─── Build messages for the API ─────────────────────────────────────
 function buildMessages(command: string, history: HistoryEntry[], context: PageContext): Message[] {
-  const messages: Message[] = [{ role: 'system', content: DYNAMIC_SYSTEM_PROMPT }];
-
-  // Get context manager for smart context window
+  const task = analyzeTaskComplexity(command, history);
+  const systemPrompt = buildDynamicSystemPrompt(task);
+  const messages: Message[] = [{ role: 'system', content: systemPrompt }];
+  
   const contextManager = getContextManager();
-
-  // Add history (compact older entries to save tokens)
-  for (let i = 0; i < history.length; i++) {
-    const entry = history[i];
+  
+  const compressedHistory = compressHistory(history);
+  
+  for (let i = 0; i < compressedHistory.length; i++) {
+    const entry = compressedHistory[i];
     if (entry.role === 'user') {
       if (entry.userReply) {
         messages.push({
           role: 'user',
           content: `User replied: ${entry.userReply}`,
         });
-        // Add to context manager
         contextManager.addContextItem({
           type: 'result',
           content: `User replied: ${entry.userReply}`,
@@ -242,7 +542,7 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           importance: 8,
         });
       } else if (entry.context) {
-        const isOld = i < history.length - 4;
+        const isOld = i < compressedHistory.length - 4;
         const ctx = isOld
           ? compactContext(entry.context)
           : (() => {
@@ -255,7 +555,6 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           role: 'user',
           content,
         });
-        // Add to context manager
         contextManager.addContextItem({
           type: 'action',
           content,
@@ -272,7 +571,6 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
         role: 'assistant',
         content: respContent,
       });
-      // Add to context manager
       contextManager.addContextItem({
         type: 'thought',
         content: resp.thinking || resp.summary,
@@ -292,7 +590,6 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           role: 'user',
           content: resultsContent,
         });
-        // Add to context manager with importance based on success
         const hasErrors = results.some(r => !r.ok);
         contextManager.addContextItem({
           type: hasErrors ? 'error' : 'result',
@@ -304,7 +601,6 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
     }
   }
 
-  // Get optimized context from context manager (prioritize recent + important)
   const optimizedContext = contextManager.getContextForLLM(20000);
   if (optimizedContext.length > 0) {
     const contextSummary = optimizedContext
@@ -441,7 +737,7 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    const model = SINGLE_MODEL;
+    const model = settings.backupModel || DEFAULT_MODEL;
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -462,7 +758,7 @@ Respond with valid JSON:
           signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
         });
 
-        if (!resp.ok) continue;
+        if (!resp?.ok) continue;
 
         const data = await resp.json();
         const content = data?.choices?.[0]?.message?.content;
@@ -684,7 +980,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
 
-      const completionModel = SINGLE_MODEL;
+      const completionModel = settings.modelName || DEFAULT_MODEL;
 
       console.log(`[HyperAgent] Using completion model: ${completionModel}`);
 
@@ -705,16 +1001,16 @@ export class EnhancedLLMClient implements LLMClientInterface {
         signal: signal || AbortSignal.timeout(60000),
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[HyperAgent] Completion error ${response.status}:`, errorText);
-        if (response.status === 429) {
-          const retryAfter = response.headers.get('Retry-After');
+      if (!response?.ok) {
+        const errorText = response ? await response.text() : '';
+        console.error(`[HyperAgent] Completion error ${response?.status ?? 'unknown'}:`, errorText);
+        if (response?.status === 429) {
+          const retryAfter = response?.headers?.get('Retry-After');
           const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
           throw new Error(`Rate limit exceeded. Try again in ${waitSec} seconds.`);
         }
-        const friendly = userFriendlyApiError(response.status);
-        throw new Error(friendly || `Completion request failed: ${response.status}`);
+        const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
+        throw new Error(friendly || `Completion request failed: ${response?.status ?? 'unknown'}`);
       }
 
       const data = await response.json();
@@ -738,7 +1034,6 @@ export class EnhancedLLMClient implements LLMClientInterface {
     settings: any,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
-    // Sanitize the command input
     const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
       maxLength: 10000,
       preserveWhitespace: true,
@@ -748,6 +1043,15 @@ export class EnhancedLLMClient implements LLMClientInterface {
       console.warn('[HyperAgent] Input sanitization warnings:', sanitizedCommand.warnings);
     }
 
+    const task = analyzeTaskComplexity(sanitizedCommand.sanitizedValue, request.history || []);
+    const selectedModel = settings.modelName || selectModelForTask(task);
+    
+    const semanticCached = await semanticCache.get(sanitizedCommand.sanitizedValue, (text) => this.getEmbedding(text));
+    if (semanticCached) {
+      console.log('[HyperAgent] Using semantically cached response');
+      return semanticCached.response;
+    }
+
     const rawMessages = buildMessages(
       sanitizedCommand.sanitizedValue,
       request.history || [],
@@ -755,26 +1059,22 @@ export class EnhancedLLMClient implements LLMClientInterface {
     );
     const messages = sanitizeMessages(rawMessages);
 
-    const model = SINGLE_MODEL;
-
-    // Check cache for similar requests
-    const cacheKey = `llm_${model}_${this.hashMessages(messages)}`;
+    const cacheKey = `llm_${selectedModel}_${this.hashMessages(messages)}`;
     const cachedResponse = await apiCache.get(cacheKey);
     if (cachedResponse) {
       console.log('[HyperAgent] Using cached LLM response');
       return cachedResponse;
     }
 
-    console.log(`[HyperAgent] Using model: ${model}`);
+    console.log(`[HyperAgent] Using model: ${selectedModel} (complexity: ${task.complexity})`);
 
     const requestBody = {
-      model,
+      model: selectedModel,
       messages,
-      temperature: 0.7,
-      max_tokens: 4096,
+      temperature: task.complexity === 'complex' ? 0.5 : 0.7,
+      max_tokens: task.complexity === 'complex' ? 4096 : 2048,
     };
 
-    // Use retry with circuit breaker for resilience (16.2)
     const retryResult = await retryManager.retry(
       async () => {
         const response = await fetch(`${settings.baseUrl}/chat/completions`, {
@@ -789,20 +1089,20 @@ export class EnhancedLLMClient implements LLMClientInterface {
           signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
         });
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[HyperAgent] API error ${response.status}:`, errorText);
-          if (response.status === 429) {
-            const retryAfter = response.headers.get('Retry-After');
+        if (!response?.ok) {
+          const errorText = response ? await response.text() : '';
+          console.error(`[HyperAgent] API error ${response?.status ?? 'unknown'}:`, errorText);
+          if (response?.status === 429) {
+            const retryAfter = response?.headers?.get('Retry-After');
             const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
             throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
           }
-          const friendly = userFriendlyApiError(response.status);
-          throw new Error(friendly || `API request failed: ${response.status}`);
+          const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
+          throw new Error(friendly || `API request failed: ${response?.status ?? 'unknown'}`);
         }
 
         const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
+        const content = data?.choices?.[0]?.message?.content;
 
         if (!content) {
           throw new Error('No content in response');
@@ -827,12 +1127,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
     );
 
     if (retryResult.success && retryResult.result) {
-      // Cache successful responses for 15 minutes
       await apiCache.set(cacheKey, retryResult.result, { ttl: 15 * 60 * 1000 });
+      await semanticCache.set(sanitizedCommand.sanitizedValue, retryResult.result, (text) => this.getEmbedding(text));
       return retryResult.result;
     }
 
-    // All retries failed - try intelligent fallback
     const fallback = await buildIntelligentFallback(
       request.command || '',
       request.context || this.createEmptyContext(),
@@ -896,7 +1195,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         }),
       });
 
-      if (!response.ok) {
+      if (!response?.ok) {
         console.warn('[HyperAgent] Embedding request failed, returning empty');
         return [];
       }

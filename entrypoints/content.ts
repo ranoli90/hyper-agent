@@ -22,15 +22,125 @@ import { isSafeRegex } from '../shared/safe-regex';
 import { tiktokModerator } from '../shared/tiktok-moderator';
 import { StealthEngine } from '../shared/stealth-engine';
 
-// ─── Local security/perf helpers ───────────────────────────────────────
+// ─── Visual Mouse Cursor ───────────────────────────────────────────────
+function createVisualCursor() {
+  const cursor = document.createElement('div');
+  cursor.id = 'hyperagent-visual-cursor';
+  cursor.style.cssText = `
+    position: fixed;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ff0055;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 2147483647;
+    left: -10px;
+    top: -10px;
+    box-shadow: 0 0 15px rgba(255, 0, 85, 0.7);
+    transition: all 0.2s ease-out;
+    opacity: 0;
+  `;
+  
+  const dot = document.createElement('div');
+  dot.style.cssText = `
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    background-color: #ff0055;
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  `;
+  
+  cursor.appendChild(dot);
+  document.body.appendChild(cursor);
+  
+  return cursor;
+}
+
+function moveVisualCursor(x: number, y: number) {
+  let cursor = document.getElementById('hyperagent-visual-cursor');
+  if (!cursor) {
+    cursor = createVisualCursor();
+  }
+  
+  cursor.style.left = `${x - 10}px`;
+  cursor.style.top = `${y - 10}px`;
+  cursor.style.opacity = '1';
+}
+
+function hideVisualCursor() {
+  const cursor = document.getElementById('hyperagent-visual-cursor');
+  if (cursor) {
+    cursor.style.opacity = '0';
+  }
+}
 function safeKey(key: string, max = 32): string {
   const s = (key || '').slice(0, max);
   return /^[\w\-\s]+$/.test(s) ? s : 'Unidentified';
 }
 
+// Glowing frame functionality to indicate active tab
+function showGlowingFrame() {
+  // Remove any existing glowing frame
+  hideGlowingFrame();
+  
+  // Create glowing frame element
+  const glowingFrame = document.createElement('div');
+  glowingFrame.id = 'hyperagent-glowing-frame';
+  glowingFrame.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border: 3px solid #00d4ff;
+    border-radius: 8px;
+    pointer-events: none;
+    z-index: 2147483647;
+    box-shadow: 0 0 20px rgba(0, 212, 255, 0.6), 0 0 40px rgba(0, 212, 255, 0.4);
+    animation: hyperagent-glow-pulse 2s ease-in-out infinite;
+  `;
+  
+  // Add animation
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes hyperagent-glow-pulse {
+      0%, 100% {
+        box-shadow: 0 0 20px rgba(0, 212, 255, 0.6), 0 0 40px rgba(0, 212, 255, 0.4);
+        border-color: #00d4ff;
+      }
+      50% {
+        box-shadow: 0 0 30px rgba(0, 212, 255, 0.8), 0 0 60px rgba(0, 212, 255, 0.6);
+        border-color: #00e0ff;
+      }
+    }
+  `;
+  
+  document.head.appendChild(style);
+  document.body.appendChild(glowingFrame);
+}
+
+function hideGlowingFrame() {
+  const existingFrame = document.getElementById('hyperagent-glowing-frame');
+  if (existingFrame) {
+    existingFrame.remove();
+  }
+  
+  const styleElements = document.head.querySelectorAll('style');
+  styleElements.forEach(style => {
+    if (style.textContent.includes('hyperagent-glow-pulse')) {
+      style.remove();
+    }
+  });
+}
+
 const allowedMessageTypes = new Set([
   'getContext', 'performAction', 'executeActionOnPage', 'captureScreenshot',
-  'getSiteConfig', 'startModerator', 'stopModerator', 'updateModerationRules'
+  'getSiteConfig', 'startModerator', 'stopModerator', 'updateModerationRules',
+  'showGlowingFrame', 'hideGlowingFrame',
+  'moveVisualCursor', 'hideVisualCursor'
 ]);
 
 function validateInboundMessage(msg: any): boolean {
@@ -1125,6 +1235,31 @@ export default defineContentScript({
           case 'getContext': {
             const context = getPageContext();
             sendResponse({ type: 'getContextResponse', context });
+            return true;
+          }
+          case 'showGlowingFrame': {
+            showGlowingFrame();
+            sendResponse({ success: true });
+            return true;
+          }
+          case 'hideGlowingFrame': {
+            hideGlowingFrame();
+            sendResponse({ success: true });
+            return true;
+          }
+          case 'moveVisualCursor': {
+            const { x, y } = message;
+            if (typeof x === 'number' && typeof y === 'number') {
+              moveVisualCursor(x, y);
+              sendResponse({ success: true });
+            } else {
+              sendResponse({ success: false, error: 'Invalid coordinates' });
+            }
+            return true;
+          }
+          case 'hideVisualCursor': {
+            hideVisualCursor();
+            sendResponse({ success: true });
             return true;
           }
           case 'stopModerator': {

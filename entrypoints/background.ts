@@ -923,33 +923,47 @@ export default defineBackground(() => {
       }
 
       if (chrome.sidePanel?.setPanelBehavior) {
-        await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+        try {
+          await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+        } catch (e) {
+          logger.log('warn', 'Could not set side panel behavior', { error: (e as Error)?.message });
+        }
       }
 
       // Ensure context menus are cleared before re-creating to avoid "duplicate ID" errors
-      chrome.contextMenus.removeAll(() => {
-        chrome.contextMenus.create({
-          id: 'hyperagent-send-page',
-          title: 'Send this page to HyperAgent',
-          contexts: ['page'],
+      try {
+        chrome.contextMenus.removeAll(() => {
+          try {
+            chrome.contextMenus.create({
+              id: 'hyperagent-send-page',
+              title: 'Send this page to HyperAgent',
+              contexts: ['page'],
+            });
+            chrome.contextMenus.create({
+              id: 'hyperagent-summarize',
+              title: 'Summarize this page with HyperAgent',
+              contexts: ['page'],
+            });
+            chrome.contextMenus.create({
+              id: 'hyperagent-selection',
+              title: 'Ask HyperAgent about selection',
+              contexts: ['selection'],
+            });
+          } catch (menuErr) {
+            logger.log('warn', 'Context menu creation failed', { error: (menuErr as Error)?.message });
+          }
         });
-
-        chrome.contextMenus.create({
-          id: 'hyperagent-summarize',
-          title: 'Summarize this page with HyperAgent',
-          contexts: ['page'],
-        });
-
-        chrome.contextMenus.create({
-          id: 'hyperagent-selection',
-          title: 'Ask HyperAgent about selection',
-          contexts: ['selection'],
-        });
-      });
+      } catch (removeErr) {
+        logger.log('warn', 'Context menu removeAll failed', { error: (removeErr as Error)?.message });
+      }
 
       const settings = await loadSettings();
       if (!settings.apiKey) {
-        chrome.runtime.openOptionsPage();
+        try {
+          await chrome.runtime.openOptionsPage();
+        } catch (e) {
+          logger.log('warn', 'Could not open options page (install flow)', { error: (e as Error)?.message });
+        }
       }
 
       // Restore session on startup
@@ -1390,16 +1404,15 @@ export default defineBackground(() => {
         if (!msg.key) return { ok: false, error: 'No key provided' };
         const result = await billingManager.activateWithLicenseKey(msg.key);
         if (result.success) {
-          usageTracker.setSubscriptionTier(billingManager.getTier());
+          usageTracker.setSubscriptionTier(billingManager.getTierMapping());
         }
         return { ok: result.success, error: result.error };
       }
 
       case 'openCheckout': {
         const msg = message as any;
-        if (!msg.tier) return { ok: false, error: 'No tier provided' };
-        await billingManager.openCheckout(msg.tier, msg.interval || 'month');
-        return { ok: true };
+        const result = await billingManager.openCheckout(msg.tier || 'beta');
+        return { ok: result.success, error: result.error };
       }
 
       case 'cancelSubscription': {
@@ -1646,9 +1659,40 @@ export default defineBackground(() => {
   }
 
   async function getActiveTabId(): Promise<number> {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) throw new Error('No active tab found');
-    return tab.id;
+    // Try to get active tab first
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.id) {
+        return activeTab.id;
+      }
+    } catch (err) {
+      console.warn('[HyperAgent] Failed to get active tab:', err);
+    }
+
+    // If no active tab, try to find any available tab
+    try {
+      const allTabs = await chrome.tabs.query({});
+      const availableTab = allTabs.find(tab => tab.id && !tab.url?.startsWith('chrome://') && !tab.url?.startsWith('edge://'));
+      if (availableTab?.id) {
+        console.log('[HyperAgent] Using available tab:', availableTab.id, availableTab.url);
+        return availableTab.id;
+      }
+    } catch (err) {
+      console.warn('[HyperAgent] Failed to find available tab:', err);
+    }
+
+    // As a last resort, create a new tab
+    try {
+      const newTab = await chrome.tabs.create({ url: 'https://www.google.com', active: true });
+      if (newTab?.id) {
+        console.log('[HyperAgent] Created new tab:', newTab.id);
+        return newTab.id;
+      }
+    } catch (err) {
+      console.error('[HyperAgent] Failed to create new tab:', err);
+    }
+
+    throw new Error('No browser tab available');
   }
 
   async function getPageContext(tabId: number): Promise<PageContext> {
@@ -2099,8 +2143,10 @@ export default defineBackground(() => {
           await delay(300);
         }
 
-        // Increment recovery attempt counter
-        agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy!);
+        // Increment recovery attempt counter (strategy is set; we guarded above)
+        if (recoveryStrategy.strategy) {
+          agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy);
+        }
 
         result = await attempt();
 
@@ -2173,9 +2219,90 @@ export default defineBackground(() => {
 
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string) {
-    logger.log('info', 'Starting agent loop', { command: redact(command) });
+    // Initialize agent state
     agentState.setRunning(true);
     agentState.setAborted(false);
+    
+    // Change tab title to HyperAgent by executing a content script
+    const currentTabId = await getActiveTabId();
+    const currentTab = await chrome.tabs.get(currentTabId);
+    const originalTitle = currentTab.title || 'HyperAgent';
+    
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: currentTabId },
+        func: () => {
+          document.title = 'HyperAgent';
+        }
+      });
+    } catch (error) {
+      logger.log('warn', 'Failed to change tab title', { error });
+    }
+    
+    // Enhanced execution: Ask questions first if needed
+    const llmResponse = await llmClient.callLLM({ command, history: [] });
+    const { needsClarification, clarificationQuestion, needsNavigation, targetUrl, summary = '' } = llmResponse;
+    
+    if (needsClarification && clarificationQuestion) {
+      const reply = await askUserForInfo(clarificationQuestion);
+      if (!reply) {
+        // Restore original tab title
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: currentTabId },
+            func: (title: string) => {
+              document.title = title;
+            },
+            args: [originalTitle]
+          });
+        } catch (error) {
+          logger.log('warn', 'Failed to restore tab title', { error });
+        }
+        sendToSidePanel({
+          type: 'agentDone',
+          finalSummary: 'Execution cancelled due to lack of clarification',
+          success: false,
+          stepsUsed: 0
+        });
+        agentState.setRunning(false);
+        return;
+      }
+      return runAgentLoop(`${command} ${reply}`);
+    }
+    
+    // If needs navigation, go to the target URL
+    if (needsNavigation && targetUrl) {
+      await chrome.tabs.update({ url: targetUrl });
+      // Wait for page to load
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    
+    // Display confirmation before executing actions
+    const shouldContinue = await askUserConfirmation([{ type: 'runMacro', macroId: 'execute-task' }], 1, `I'm ready to execute: ${summary}`);
+    if (!shouldContinue) {
+      // Restore original tab title
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: currentTabId },
+          func: (title: string) => {
+            document.title = title;
+          },
+          args: [originalTitle]
+        });
+      } catch (error) {
+        logger.log('warn', 'Failed to restore tab title', { error });
+      }
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Execution cancelled by user',
+        success: false,
+        stepsUsed: 0
+      });
+      agentState.setRunning(false);
+      return;
+    }
+    
+    logger.log('info', 'Starting agent loop', { command: redact(command) });
 
     // Check usage limits before starting (billing-authoritative)
     const currentUsage = usageTracker.getCurrentUsage();
@@ -2256,6 +2383,118 @@ export default defineBackground(() => {
         status: 'running',
         url: tab.url || '',
       });
+
+      // Step 0: Analyze command and ask questions if needed
+      sendToSidePanel({
+        type: 'agentProgress',
+        status: 'Analyzing your request...',
+        step: 'plan',
+      });
+      
+      // First, check if we need to ask questions about the command
+      const intentResult = await llmClient.callLLM({ 
+        command, 
+        history, 
+        context: { 
+          url: tab.url || '', 
+          title: tab.title || '', 
+          bodyText: '', 
+          metaDescription: '', 
+          formCount: 0, 
+          semanticElements: [], 
+          timestamp: Date.now(), 
+          scrollPosition: { x: 0, y: 0 }, 
+          viewportSize: { width: 0, height: 0 }, 
+          pageHeight: 0,
+          isInitialQuery: true 
+        } 
+      });
+      
+      if (intentResult.needsClarification && intentResult.clarificationQuestion) {
+        // Ask user for clarification
+        const reply = await askUserForInfo(intentResult.clarificationQuestion);
+        if (!reply) {
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: 'Command canceled. Please provide more information.',
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+          return;
+        }
+        
+        // Add user's reply to history
+        history.push({
+          role: 'user',
+          userReply: reply,
+          context: { 
+            url: tab.url || '', 
+            title: tab.title || '', 
+            bodyText: '', 
+            metaDescription: '', 
+            formCount: 0, 
+            semanticElements: [], 
+            timestamp: Date.now(), 
+            scrollPosition: { x: 0, y: 0 }, 
+            viewportSize: { width: 0, height: 0 }, 
+            pageHeight: 0 
+          }
+        });
+        
+        // Re-analyze with additional info
+        const reanalyzeResult = await llmClient.callLLM({ 
+          command, 
+          history, 
+          context: { 
+            url: tab.url || '', 
+            title: tab.title || '', 
+            bodyText: '', 
+            metaDescription: '', 
+            formCount: 0, 
+            semanticElements: [], 
+            timestamp: Date.now(), 
+            scrollPosition: { x: 0, y: 0 }, 
+            viewportSize: { width: 0, height: 0 }, 
+            pageHeight: 0 
+          } 
+        });
+        
+        if (reanalyzeResult.needsClarification) {
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: 'Command still unclear. Please provide more specific instructions.',
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+          return;
+        }
+      }
+
+      // Check if we need to navigate first
+      if (intentResult.needsNavigation && intentResult.targetUrl) {
+        sendToSidePanel({
+          type: 'agentProgress',
+          status: `Navigating to ${intentResult.targetUrl}...`,
+          step: 'act',
+        });
+        await chrome.tabs.update(tabId, { url: intentResult.targetUrl });
+        
+        // Wait for navigation to complete
+        await new Promise<void>((resolve) => {
+          const listener = (tabId: number, info: chrome.tabs.TabChangeInfo) => {
+            if (info.status === 'complete' && tabId === tabId) {
+              chrome.tabs.onUpdated.removeListener(listener);
+              resolve();
+            }
+          };
+          chrome.tabs.onUpdated.addListener(listener);
+        });
+        
+        // Wait a bit for page to load
+        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 2000));
+      }
 
       for (let step = 1; step <= maxSteps; step++) {
         if (agentState.isAborted) {
@@ -2572,15 +2811,17 @@ export default defineBackground(() => {
       const tabs = await chrome.tabs.query({});
       return {
         success: true,
-        tabs: tabs.map(tab => ({
-          id: tab.id!,
-          url: tab.url || '',
-          title: tab.title || '',
-          active: tab.active,
-        })),
+        tabs: tabs
+          .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+          .map(tab => ({
+            id: tab.id,
+            url: tab.url || '',
+            title: tab.title || '',
+            active: tab.active,
+          })),
       };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
   }
 

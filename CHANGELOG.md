@@ -4,6 +4,31 @@ All notable changes to HyperAgent will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.0] - 2026-02-21
+
+### Added
+- $5 Beta subscription plan with premium features
+- Cryptocurrency payments (ETH, USDC on Ethereum, Base, Polygon)
+- Stripe payment integration
+- Enhanced AI brain with optimized token usage
+- Model selection in settings
+- Task failure notifications
+- Accessibility improvements (reduced motion, skip links, color blind support)
+- Example commands on first load
+- Privacy summary in onboarding
+
+### Changed
+- New unique pricing model (no action limits!)
+- Improved first-time user experience
+- Better subscription UI
+
+### Fixed
+- Multiple accessibility issues
+- Color contrast problems
+- Focus management
+
+---
+
 ## [3.0.0] - 2026-02-21
 
 ### Added

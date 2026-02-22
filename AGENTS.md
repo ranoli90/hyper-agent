@@ -4,7 +4,7 @@ Condensed development history. Full iteration details archived.
 
 ---
 
-## Current Version: 3.0.0
+## Current Version: 3.1.0
 
 ---
 
@@ -83,20 +83,21 @@ Condensed development history. Full iteration details archived.
 
 | File | Tests |
 |------|-------|
-| `billing.test.ts` | 34 |
-| `intent.test.ts` | 18 |
+| `background-handlers.test.ts` | 120 |
+| `billing.test.ts` | 39 |
 | `config.test.ts` | 16 |
+| `intent.test.ts` | 18 |
+| `llmClient.test.ts` | 34 |
 | `security.test.ts` | 10 |
-| `workflows.test.ts` | 3 |
 | `storage.test.ts` | 13 |
-| **Total** | **94** |
+| `workflows.test.ts` | 3 |
+| **Total** | **253** |
 
 ---
 
 ## Known Limitations
 
-1. **LLM Retry** - Infrastructure exists, not integrated
-2. **Marketplace** - Display only, no definitions
+1. **Marketplace** — Display only, no workflow definitions
 
 ---
 

@@ -2,6 +2,7 @@ import { loadSettings, saveSettings, DEFAULTS } from '../../shared/config';
 import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
+import { debounce } from '../../shared/utils';
 
 type SubscriptionTier = 'free' | 'premium' | 'unlimited';
 
@@ -37,6 +38,9 @@ const siteBlacklistInput = document.getElementById('site-blacklist') as HTMLText
 const enableSwarmInput = document.getElementById('enable-swarm') as HTMLInputElement;
 const enableAutonomousInput = document.getElementById('enable-autonomous') as HTMLInputElement;
 const enableLearningInput = document.getElementById('enable-learning') as HTMLInputElement;
+const modelSelectInput = document.getElementById('model-select') as HTMLSelectElement;
+const customModelInput = document.getElementById('custom-model') as HTMLInputElement;
+const customModelRow = document.getElementById('custom-model-row') as HTMLElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
 const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
@@ -144,9 +148,18 @@ async function loadCurrentSettings() {
     status: hasCustomKey ? 'custom' : 'missing',
   });
 
-  modelStatusText.textContent = `Model: ${DEFAULTS.MODEL_NAME}`;
-  const modelBadge = document.getElementById('model-badge-name');
-  if (modelBadge) modelBadge.textContent = DEFAULTS.MODEL_NAME;
+  const savedModel = settings.modelName || DEFAULTS.MODEL_NAME;
+  if (savedModel === 'custom' || !Array.from(modelSelectInput.options).some(opt => opt.value === savedModel)) {
+    modelSelectInput.value = 'custom';
+    customModelInput.value = savedModel === 'custom' ? '' : savedModel;
+    customModelRow.style.display = 'block';
+  } else {
+    modelSelectInput.value = savedModel;
+    customModelRow.style.display = 'none';
+  }
+
+  modelStatusText.textContent = `Model: ${savedModel}`;
+  updateTipsBanner(savedModel);
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -173,15 +186,45 @@ maxStepsInput.addEventListener('input', () => {
   maxStepsValue.textContent = maxStepsInput.value;
 });
 
+modelSelectInput.addEventListener('change', () => {
+  if (modelSelectInput.value === 'custom') {
+    customModelRow.style.display = 'block';
+  } else {
+    customModelRow.style.display = 'none';
+  }
+  updateTipsBanner(modelSelectInput.value === 'custom' ? customModelInput.value : modelSelectInput.value);
+});
+
+function updateTipsBanner(modelName: string) {
+  const tipsInfo = document.getElementById('tips-model-info');
+  if (!tipsInfo) return;
+  
+  const modelDescriptions: Record<string, string> = {
+    'google/gemini-2.0-flash-001': 'Using Gemini 2.0 Flash via OpenRouter - a fast multimodal model with vision capabilities.',
+    'google/gemini-2.0-flash-lite-001': 'Using Gemini 2.0 Flash Lite via OpenRouter - faster and cheaper with vision capabilities.',
+    'anthropic/claude-3.5-sonnet': 'Using Claude 3.5 Sonnet via OpenRouter - excellent reasoning and coding capabilities.',
+    'anthropic/claude-3-haiku': 'Using Claude 3 Haiku via OpenRouter - fast and efficient for simple tasks.',
+    'openai/gpt-4o-mini': 'Using GPT-4o Mini via OpenRouter - fast and cost-effective with vision capabilities.',
+    'openai/gpt-4o': 'Using GPT-4o via OpenRouter - powerful multimodal model with advanced reasoning.',
+    'meta-llama/llama-3.1-70b-instruct': 'Using Llama 3.1 70B via OpenRouter - open source model with strong performance.',
+    'custom': 'Using custom model via OpenRouter.'
+  };
+  
+  tipsInfo.textContent = modelDescriptions[modelName] || `Using ${modelName} via OpenRouter.`;
+}
+
 // ─── Save settings ──────────────────────────────────────────────
 btnSave.addEventListener('click', async () => {
   const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
+  const modelNameValue = modelSelectInput.value === 'custom' 
+    ? customModelInput.value.trim() || DEFAULTS.MODEL_NAME 
+    : modelSelectInput.value;
 
   await saveSettings({
     apiKey: apiKeyValue,
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: DEFAULTS.MODEL_NAME,
-    backupModel: DEFAULTS.BACKUP_MODEL,
+    modelName: modelNameValue,
+    backupModel: modelNameValue,
     maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
@@ -294,15 +337,6 @@ async function validateCurrentSettings() {
   updateApiStatus(result.valid, result.error);
 }
 
-// Debounced validation
-function debounce<T extends (...args: any[]) => any>(func: T, wait: number): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
-
 // Real-time validation on input
 apiKeyInput.addEventListener('input', debounce(async () => {
   const key = apiKeyInput.value.trim();
@@ -373,13 +407,13 @@ function renderSiteConfigs(configs: SiteConfig[]) {
   }
 
   siteConfigsList.innerHTML = userConfigs.map(config => `
-    <div class="site-config-item" data-domain="${config.domain}">
+    <div class="site-config-item" data-domain="${escapeHtml(config.domain)}">
       <div class="site-config-header">
-        <strong>${config.domain}</strong>
-        <button class="btn-edit" data-domain="${config.domain}">Edit</button>
+        <strong>${escapeHtml(config.domain)}</strong>
+        <button class="btn-edit" data-domain="${escapeHtml(config.domain)}">Edit</button>
       </div>
       <div class="site-config-details">
-        ${config.description ? `<span>${config.description}</span>` : ''}
+        ${config.description ? `<span>${escapeHtml(config.description)}</span>` : ''}
         <span>Max retries: ${config.maxRetries ?? DEFAULT_SITE_MAX_RETRIES}</span>
         <span>Scroll: ${config.scrollBeforeLocate ? 'On' : 'Off'}</span>
         <span>Wait: ${config.waitAfterAction ?? DEFAULT_SITE_WAIT_MS}ms</span>
@@ -398,6 +432,16 @@ function renderSiteConfigs(configs: SiteConfig[]) {
     });
   });
 
+}
+
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function isDefaultConfig(domain: string): boolean {

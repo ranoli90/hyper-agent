@@ -12,6 +12,7 @@ export interface ScheduledTask {
   lastRun?: number;
   nextRun?: number;
   createdAt: number;
+  lastError?: string;
 }
 
 export interface TaskExecutionResult {
@@ -83,6 +84,7 @@ class SchedulerEngineImpl {
       });
 
       task.lastRun = Date.now();
+      delete task.lastError;
 
       if (task.schedule.type === 'once') {
         task.enabled = false;
@@ -94,6 +96,36 @@ class SchedulerEngineImpl {
       await this.saveTasks();
     } catch (err: any) {
       console.error('[Scheduler] Task execution failed:', err);
+      task.lastError = err instanceof Error ? err.message : String(err);
+      task.lastRun = Date.now();
+
+      if (task.schedule.type === 'once') {
+        task.enabled = false;
+        chrome.alarms.clear(alarm.name);
+      } else {
+        task.nextRun = this.calculateNextRun(task);
+      }
+
+      this.tasks.set(task.id, task);
+      await this.saveTasks();
+
+      await this.notifyTaskFailure(task, err instanceof Error ? err : new Error(String(err)));
+    }
+  }
+
+  private async notifyTaskFailure(task: ScheduledTask, error: Error): Promise<void> {
+    try {
+      await chrome.notifications.create({
+        type: 'basic',
+        iconUrl: '/icons/128.png',
+        title: 'HyperAgent Task Failed',
+        message: `Task "${task.name}" failed: ${error.message}`,
+        priority: 2,
+        requireInteraction: true,
+        buttons: [{ title: 'Retry' }, { title: 'Dismiss' }],
+      });
+    } catch {
+      // Notifications may not be available
     }
   }
 

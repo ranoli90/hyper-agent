@@ -19,6 +19,7 @@ HyperAgent is a browser extension that provides AI-powered browser automation. T
 ### What is transmitted externally:
 - **LLM API Requests**: When you run commands, text and screenshots are sent to your configured LLM provider (e.g., OpenRouter, OpenAI, Google). This is required for the AI to function.
 - **Billing**: Payment processing via Stripe. We receive only subscription status, not payment details.
+- **Cryptocurrency Payments**: On-chain transactions only. We receive wallet address and transaction hash for verification. No personal data collected.
 
 ## Third-Party Services
 
@@ -26,6 +27,7 @@ HyperAgent is a browser extension that provides AI-powered browser automation. T
 |---------|---------|-------------|
 | OpenRouter/OpenAI/Google | LLM inference | Command text, screenshots, page context |
 | Stripe | Payment processing | Subscription tier only |
+| Blockchain Networks | Crypto payments | Wallet address (public) |
 
 ## Data Security
 
@@ -60,6 +62,7 @@ We will update this policy as needed. Significant changes will be announced in t
 | Page screenshots | Sent to LLM API (if vision enabled) | LLM provider | Yes (to LLM) |
 | Page content | Sent to LLM API | LLM provider | Yes (to LLM) |
 | Payment info | Stripe (not stored by HyperAgent) | Stripe only | No |
+| Crypto payment | Public blockchain | Public | Yes (on-chain) |
 
 ### Third-party services:
 
@@ -72,6 +75,12 @@ We will update this policy as needed. Significant changes will be announced in t
    - Purpose: Payment processing
    - Data sent: Subscription tier only
    - Card details never touch our servers
+
+3. **Cryptocurrency Payments**
+   - Purpose: Alternative payment method
+   - Networks: Ethereum, Base, Polygon
+   - Data: Wallet address and transaction hash (public blockchain data)
+   - No KYC or personal information required
 
 ### Your control:
 

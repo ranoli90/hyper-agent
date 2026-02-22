@@ -3,11 +3,11 @@ import { defineConfig } from 'wxt';
 export default defineConfig({
   manifest: {
     name: 'HyperAgent',
-    minimum_chrome_version: '88',
+    minimum_chrome_version: '114', // sidePanel API required
     author: { email: 'support@hyperagent.ai' },
     homepage_url: 'https://hyperagent.ai/privacy',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
-    version: '3.0.0',
+    version: '3.1.0',
     permissions: [
       'sidePanel',
       'tabs',
@@ -17,6 +17,7 @@ export default defineConfig({
       'unlimitedStorage',
       'contextMenus',
       'alarms',
+      'notifications',
     ],
     host_permissions: ['<all_urls>'],
     action: {
@@ -29,17 +30,6 @@ export default defineConfig({
         128: 'icons/128.png',
       },
     },
-    background: {
-      service_worker: 'background.js',
-      type: 'module',
-    },
-    content_scripts: [
-      {
-        matches: ['<all_urls>'],
-        js: ['content-scripts/content.js'],
-        run_at: 'document_idle',
-      },
-    ],
     side_panel: {
       default_path: 'sidepanel.html',
     },

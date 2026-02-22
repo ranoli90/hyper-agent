@@ -32,7 +32,7 @@ npm run dev
 |---------|---------|
 | `npm run dev` | Development with hot reload |
 | `npm run build` | Production build |
-| `npm run test:unit` | Unit tests (Vitest) - 80 tests |
+| `npm run test:unit` | Unit tests (Vitest) - 253 tests |
 | `npm run test:e2e` | E2E tests (Playwright) |
 | `npm run type-check` | TypeScript validation |
 | `npm run lint` | ESLint |

@@ -14,7 +14,7 @@
       <!-- Header -->
       <div class="settings-header">
         <div class="brand-mark">
-          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect width="48" height="48" rx="12" fill="url(#brand-gradient)"/>
             <path d="M24 12L32 20L24 28L16 20L24 12Z" fill="white" opacity="0.9"/>
             <path d="M24 20L32 28L24 36L16 28L24 20Z" fill="white" opacity="0.7"/>
@@ -27,8 +27,11 @@
             </defs>
           </svg>
         </div>
-        <h1>HyperAgent</h1>
-        <p class="tagline">Intelligent Browser Automation</p>
+        <div>
+          <h1>HyperAgent</h1>
+          <p class="tagline">Settings</p>
+        </div>
+        <p class="brand-tagline">By jobhuntin.com</p>
       </div>
 
       <!-- Status Indicator -->
@@ -43,173 +46,198 @@
         </div>
       </div>
 
-      <!-- Main Settings Grid -->
-      <div class="settings-grid">
+      <!-- Main Content -->
+      <div class="settings-content">
+        <div class="settings-grid">
+          <!-- Left Column -->
+          <div class="settings-column">
+            <div class="settings-card">
+              <h3>Configuration</h3>
 
-        <!-- Left Column -->
-        <div class="settings-column">
-          <div class="settings-card">
-            <h3>Configuration</h3>
+              <div class="form-row">
+                <label for="api-provider">Service Provider</label>
+                <select id="api-provider" class="compact-select">
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="google">Google Gemini</option>
+                  <option value="custom">Custom Endpoint</option>
+                </select>
+              </div>
 
-            <div class="form-row">
-              <label>Service Provider</label>
-              <select id="api-provider" class="compact-select">
-                <option value="openrouter">OpenRouter</option>
-                <option value="google">Google Gemini</option>
-                <option value="custom">Custom Endpoint</option>
-              </select>
+              <div class="form-row">
+                <label for="api-key">Access Token</label>
+                <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..." autocomplete="off" />
+              </div>
+
+              <div class="form-row">
+                <label for="model-select">AI Model</label>
+                <select id="model-select" class="compact-select">
+                  <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Fast)</option>
+                  <option value="google/gemini-2.0-flash-lite-001">Gemini 2.0 Flash Lite</option>
+                  <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                  <option value="anthropic/claude-3-haiku">Claude 3 Haiku (Fast)</option>
+                  <option value="openai/gpt-4o-mini">GPT-4o Mini (Fast)</option>
+                  <option value="openai/gpt-4o">GPT-4o</option>
+                  <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
+                  <option value="custom">Custom Model...</option>
+                </select>
+              </div>
+              <div class="form-row" id="custom-model-row" style="display: none;">
+                <label for="custom-model">Custom Model ID</label>
+                <input type="text" id="custom-model" class="compact-input" placeholder="provider/model-name" />
+              </div>
             </div>
 
-            <div class="form-row">
-              <label>Access Token</label>
-              <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..." autocomplete="off" />
-            </div>
+            <div class="settings-card">
+              <h3>Behavior</h3>
 
-            <div class="form-row model-info">
-              <label>Model</label>
-              <div class="model-status-box">
-                <span class="model-badge" id="model-badge-name">google/gemini-2.0-flash-001</span>
-                <span class="model-desc">Fast multimodal model via OpenRouter with vision capabilities.</span>
+              <div class="form-row">
+                <label for="max-steps">Maximum Steps</label>
+                <div class="slider-container">
+                  <input type="range" id="max-steps" min="3" max="20" value="12" class="slider" />
+                  <span id="max-steps-value" class="slider-value">12</span>
+                </div>
+              </div>
+
+              <div class="toggle-grid">
+                <label class="toggle-item">
+                  <input type="checkbox" id="enable-vision" checked />
+                  <span>Visual Analysis</span>
+                </label>
+
+                <label class="toggle-item">
+                  <input type="checkbox" id="auto-retry" checked />
+                  <span>Auto Recovery</span>
+                </label>
+
+                <label class="toggle-item">
+                  <input type="checkbox" id="require-confirm" />
+                  <span>Require Confirm</span>
+                </label>
+
+                <label class="toggle-item">
+                  <input type="checkbox" id="dry-run" />
+                  <span>Simulation Mode</span>
+                </label>
               </div>
             </div>
           </div>
 
-          <div class="settings-card">
-            <h3>Behavior</h3>
+          <!-- Right Column -->
+          <div class="settings-column">
+            <div class="settings-card">
+              <h3>Security</h3>
 
-            <div class="form-row">
-              <label>Maximum Steps</label>
-              <div class="slider-container">
-                <input type="range" id="max-steps" min="3" max="20" value="12" class="slider" />
-                <span id="max-steps-value" class="slider-value">12</span>
+              <div class="form-row">
+                <label for="site-blacklist">Restricted Domains</label>
+                <textarea id="site-blacklist" rows="3" class="compact-textarea" placeholder="bankofamerica.com&#10;chase.com"></textarea>
               </div>
             </div>
 
-            <div class="toggle-grid">
-              <label class="toggle-item">
-                <input type="checkbox" id="enable-vision" checked />
-                <span>Visual Analysis</span>
-              </label>
+            <div class="settings-card">
+              <h3>Intelligence</h3>
 
-              <label class="toggle-item">
-                <input type="checkbox" id="auto-retry" checked />
-                <span>Auto Recovery</span>
-              </label>
+              <div class="toggle-grid">
+                <label class="toggle-item">
+                  <input type="checkbox" id="enable-swarm" />
+                  <span>Swarm</span>
+                </label>
+                <label class="toggle-item">
+                  <input type="checkbox" id="enable-autonomous" />
+                  <span>Autonomous</span>
+                </label>
+                <label class="toggle-item">
+                  <input type="checkbox" id="enable-learning" checked />
+                  <span>Adaptive</span>
+                </label>
+              </div>
+            </div>
 
-              <label class="toggle-item">
-                <input type="checkbox" id="require-confirm" />
-                <span>Require Confirmation</span>
-              </label>
-
-              <label class="toggle-item">
-                <input type="checkbox" id="dry-run" />
-                <span>Simulation Mode</span>
-              </label>
+            <div class="settings-card">
+              <h3>Advanced</h3>
+              <button id="toggle-advanced" class="btn-secondary">Domain Overrides</button>
             </div>
           </div>
         </div>
 
-        <!-- Right Column -->
-        <div class="settings-column">
-          <div class="settings-card">
-            <h3>Security</h3>
+        <!-- Advanced Panel -->
+        <div id="advanced-panel" class="advanced-panel hidden">
+          <div class="settings-card full-width">
+            <h3>Domain-Specific Configuration</h3>
+            <p class="section-desc">Customize behavior for specific websites</p>
 
-            <div class="form-row">
-              <label>Restricted Domains</label>
-              <textarea id="site-blacklist" rows="3" class="compact-textarea"
-                placeholder="bankofamerica.com&#10;chase.com"></textarea>
+            <div class="advanced-grid">
+              <div class="form-row">
+                <label for="site-config-domain">Domain</label>
+                <input type="text" id="site-config-domain" placeholder="amazon.com" class="compact-input" />
+              </div>
+
+              <div class="form-row">
+                <label for="site-config-description">Description</label>
+                <input type="text" id="site-config-description" placeholder="E-commerce site" class="compact-input" />
+              </div>
+
+              <div class="form-row">
+                <label for="site-config-max-retries">Retry Attempts</label>
+                <div class="slider-container">
+                  <input type="range" id="site-config-max-retries" min="1" max="10" value="2" class="slider" />
+                  <span id="site-config-retries-value" class="slider-value">2</span>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <label for="site-config-wait">Action Delay (ms)</label>
+                <div class="slider-container">
+                  <input type="range" id="site-config-wait" min="0" max="2000" step="100" value="400" class="slider" />
+                  <span id="site-config-wait-value" class="slider-value">400</span>
+                </div>
+              </div>
+
+              <label class="toggle-item" style="grid-column: 1 / -1;">
+                <input type="checkbox" id="site-config-scroll" checked />
+                <span>Enable Auto-Scroll</span>
+              </label>
+
+              <div class="form-row full-width">
+                <label for="site-config-selectors">Custom Selectors</label>
+                <textarea id="site-config-selectors" rows="2" class="compact-textarea" placeholder="[data-product-id], .product-card"></textarea>
+              </div>
             </div>
-          </div>
 
-          <div class="settings-card">
-            <h3>Intelligence</h3>
-
-            <div class="toggle-grid">
-              <label class="toggle-item">
-                <input type="checkbox" id="enable-swarm" />
-                <span>Swarm Intelligence</span>
-              </label>
-              <label class="toggle-item">
-                <input type="checkbox" id="enable-autonomous" />
-                <span>Autonomous Mode</span>
-              </label>
-              <label class="toggle-item">
-                <input type="checkbox" id="enable-learning" checked />
-                <span>Adaptive Learning</span>
-              </label>
+            <div class="button-row">
+              <button id="btn-add-site-config" class="btn-secondary">Add Configuration</button>
+              <button id="btn-delete-site-config" class="btn-danger">Remove</button>
             </div>
-          </div>
 
-          <div class="settings-card">
-            <h3>Advanced</h3>
-
-            <button id="toggle-advanced" class="btn-secondary">Domain Overrides</button>
+            <div class="site-configs-list" id="site-configs-list">
+              <p class="empty-message">No site overrides configured</p>
+            </div>
           </div>
         </div>
-      </div>
 
-      <!-- Collapsible Advanced Settings -->
-      <div id="advanced-panel" class="advanced-panel hidden">
-        <div class="settings-card full-width">
-          <h3>Domain-Specific Configuration</h3>
-          <p class="section-desc">Customize behavior for specific websites</p>
-
-          <div class="advanced-grid">
-            <div class="form-row">
-              <label>Domain</label>
-              <input type="text" id="site-config-domain" placeholder="amazon.com" />
-            </div>
-
-            <div class="form-row">
-              <label>Description</label>
-              <input type="text" id="site-config-description" placeholder="E-commerce site" />
-            </div>
-
-            <div class="form-row">
-              <label>Retry Attempts</label>
-              <div class="slider-container">
-                <input type="range" id="site-config-max-retries" min="1" max="10" value="2" class="slider" />
-                <span id="site-config-retries-value" class="slider-value">2</span>
-              </div>
-            </div>
-
-            <div class="form-row">
-              <label>Action Delay (ms)</label>
-              <div class="slider-container">
-                <input type="range" id="site-config-wait" min="0" max="2000" step="100" value="400" class="slider" />
-                <span id="site-config-wait-value" class="slider-value">400</span>
-              </div>
-            </div>
-
-            <label class="toggle-item">
-              <input type="checkbox" id="site-config-scroll" checked />
-              <span>Enable Auto-Scroll</span>
-            </label>
-
-            <div class="form-row full-width">
-              <label>Custom Selectors</label>
-              <textarea id="site-config-selectors" rows="2" placeholder="[data-product-id], .product-card"></textarea>
-            </div>
+        <!-- Danger Zone -->
+        <div class="danger-zone">
+          <h3>Data Management</h3>
+          <div class="danger-actions">
+            <button id="btn-export-all" class="btn-secondary">Export All Data</button>
+            <button id="btn-delete-all-data" class="btn-danger">Delete All My Data</button>
+            <button id="clear-cache" class="btn-warning">Clear Cache</button>
           </div>
+        </div>
 
-          <div class="button-row">
-            <button id="btn-add-site-config" class="btn-secondary">Add Configuration</button>
-            <button id="btn-delete-site-config" class="btn-danger">Remove</button>
-          </div>
-
-          <div class="site-configs-list" id="site-configs-list">
-            <p class="empty-message">No site overrides configured</p>
-          </div>
+        <!-- Tips -->
+        <div class="tips-banner" id="tips-banner">
+          <strong>Info:</strong> <span id="tips-model-info">Using google/gemini-2.0-flash-001 via OpenRouter.</span>
         </div>
       </div>
 
       <!-- Save Button -->
       <div class="save-section">
         <button id="btn-save" class="btn-primary">Apply Changes</button>
-        <span id="save-status" class="hidden">Saved!</span>
+        <span id="save-status" class="save-status hidden">Saved!</span>
       </div>
     </div>
 
+    <!-- Confirm Modal -->
     <div id="confirm-modal" class="modal hidden">
       <div class="modal-content">
         <div class="modal-header">
@@ -218,11 +246,12 @@
         <p id="confirm-message" class="confirm-message"></p>
         <div class="modal-buttons">
           <button id="btn-cancel" class="btn-secondary">Cancel</button>
-          <button id="btn-confirm" class="btn-primary btn-danger-bg">Confirm</button>
+          <button id="btn-confirm" class="btn-danger">Confirm</button>
         </div>
       </div>
     </div>
 
+    <!-- Ask Modal -->
     <div id="ask-modal" class="modal hidden">
       <div class="modal-content">
         <div class="modal-header">
@@ -230,40 +259,19 @@
         </div>
         <p id="ask-question" class="ask-question"></p>
         <div class="input-wrapper">
-          <textarea id="ask-reply" rows="2" placeholder="Type your reply..."></textarea>
+          <textarea id="ask-reply" rows="3" placeholder="Type your reply..." class="compact-textarea"></textarea>
         </div>
-        <div class="modal-buttons mt-12">
+        <div class="modal-buttons">
           <button id="btn-ask-cancel" class="btn-secondary">Cancel</button>
           <button id="btn-ask-reply" class="btn-primary">Send Reply</button>
         </div>
       </div>
     </div>
 
-    <div class="danger-zone">
-      <h3>Data Management</h3>
-      <p class="section-desc">Export or delete your data (GDPR compliance)</p>
-      <div class="danger-actions">
-        <button id="btn-export-all" class="btn-secondary">Export All Data</button>
-        <button id="btn-delete-all-data" class="btn-danger">Delete All My Data</button>
-      </div>
-      <h3>Danger Zone</h3>
-      <div class="danger-actions">
-        <button id="clear-cache" class="btn-warning">Clear Cache</button>
-        <button id="reset-settings" class="btn-danger">Reset All Settings</button>
-      </div>
-    </div>
-
-    <!-- Tips -->
-    <div class="tips-banner">
-      <strong>Info:</strong> Using google/gemini-2.0-flash-001 via OpenRouter - a fast multimodal model with vision capabilities.
-    </div>
-
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  </div>
 
-    <script type="module" src="./main.ts"></script>
-  <footer style="text-align: center; padding: 20px; color: #666; font-size: 12px;">
-    <a href="https://hyperagent.ai/privacy" target="_blank" style="color: #666;">Privacy Policy</a>
-  </footer>
+  <script type="module" src="./main.ts"></script>
 </body>
 
 </html>

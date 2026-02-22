@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-// Mock chrome APIs before importing billing module
 const mockStorage: Record<string, any> = {};
 (globalThis as any).chrome = {
   storage: {
@@ -28,7 +27,7 @@ const mockStorage: Record<string, any> = {};
   },
 };
 
-import { BillingManager, PRICING_PLANS, type SubscriptionTier } from '../../shared/billing';
+import { BillingManager, SUBSCRIPTION_PLANS, type SubscriptionPlanId } from '../../shared/billing';
 
 describe('BillingManager', () => {
   let billing: BillingManager;
@@ -40,64 +39,77 @@ describe('BillingManager', () => {
   });
 
   describe('initialization', () => {
-    it('starts with free tier', () => {
-      expect(billing.getTier()).toBe('free');
+    it('starts with community tier', () => {
+      expect(billing.getTier()).toBe('community');
       expect(billing.isActive()).toBe(true);
     });
 
     it('loads saved state from storage', async () => {
       mockStorage['hyperagent_subscription'] = {
-        tier: 'premium',
+        plan: 'beta',
         status: 'active',
-        customerId: 'cus_123',
+        stripeCustomerId: 'cus_123',
       };
       const manager = new BillingManager();
       await manager.initialize();
-      expect(manager.getTier()).toBe('premium');
-      expect(manager.getState().customerId).toBe('cus_123');
+      expect(manager.getTier()).toBe('beta');
+      expect(manager.getState().stripeCustomerId).toBe('cus_123');
     });
 
     it('checks for pending payment success on init', async () => {
-      mockStorage['stripe_payment_success'] = {
-        tier: 'unlimited',
+      mockStorage['hyperagent_payment_success'] = {
+        type: 'stripe',
+        plan: 'beta',
         customerId: 'cus_456',
         subscriptionId: 'sub_789',
       };
       const manager = new BillingManager();
       await manager.initialize();
-      expect(manager.getTier()).toBe('unlimited');
-      expect(mockStorage['stripe_payment_success']).toBeUndefined();
+      expect(manager.getTier()).toBe('beta');
+      expect(mockStorage['hyperagent_payment_success']).toBeUndefined();
     });
   });
 
   describe('subscription management', () => {
     it('updates subscription tier and saves', async () => {
-      await billing.updateSubscription('premium', 'cus_test', 'sub_test');
-      expect(billing.getTier()).toBe('premium');
-      expect(billing.getState().customerId).toBe('cus_test');
+      await billing.updateSubscription('beta', {
+        stripeCustomerId: 'cus_test',
+        subscriptionId: 'sub_test',
+      });
+      expect(billing.getTier()).toBe('beta');
+      expect(billing.getState().stripeCustomerId).toBe('cus_test');
       expect(billing.getState().status).toBe('active');
       expect(chrome.storage.local.set).toHaveBeenCalled();
     });
 
     it('cancels subscription at period end', async () => {
-      await billing.updateSubscription('premium');
+      await billing.updateSubscription('beta');
       await billing.cancelSubscription();
       expect(billing.getState().cancelAtPeriodEnd).toBe(true);
-      expect(billing.getTier()).toBe('premium');
+      expect(billing.getTier()).toBe('beta');
     });
   });
 
   describe('license key activation', () => {
-    it('activates with valid premium key', async () => {
-      const result = await billing.activateWithLicenseKey('HA-PREMIUM-12345678-ABCDEFGH');
+    it('activates with valid beta key', async () => {
+      const key = billing.generateTestKey('beta');
+      const result = await billing.activateWithLicenseKey(key);
       expect(result.success).toBe(true);
-      expect(billing.getTier()).toBe('premium');
+      expect(billing.getTier()).toBe('beta');
     });
 
-    it('activates with valid unlimited key', async () => {
-      const result = await billing.activateWithLicenseKey('HA-UNLIMITED-12345678-ABCDEFGH');
+    it('activates with valid premium key (maps to beta)', async () => {
+      const key = billing.generateTestKey('premium');
+      const result = await billing.activateWithLicenseKey(key);
       expect(result.success).toBe(true);
-      expect(billing.getTier()).toBe('unlimited');
+      expect(billing.getTier()).toBe('beta');
+    });
+
+    it('activates with valid unlimited key (maps to beta)', async () => {
+      const key = billing.generateTestKey('unlimited');
+      const result = await billing.activateWithLicenseKey(key);
+      expect(result.success).toBe(true);
+      expect(billing.getTier()).toBe('beta');
     });
 
     it('rejects invalid key format', async () => {
@@ -115,50 +127,77 @@ describe('BillingManager', () => {
       const result = await billing.activateWithLicenseKey('');
       expect(result.success).toBe(false);
     });
+
+    it('rejects key with wrong checksum', async () => {
+      const result = await billing.activateWithLicenseKey('HA-BETA-12345678-12345678');
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects forged key without proper checksum', async () => {
+      const result = await billing.activateWithLicenseKey('HA-BETA-AAAAAAAA-BBBBBBBB');
+      expect(result.success).toBe(false);
+    });
+
+    it('rate limits after 5 failed attempts', async () => {
+      for (let i = 0; i < 5; i++) {
+        await billing.activateWithLicenseKey('HA-BETA-AAAAAAAA-BBBBBBBB');
+      }
+      const result = await billing.activateWithLicenseKey('HA-BETA-AAAAAAAA-BBBBBBBB');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Too many failed attempts');
+    });
+
+    it('clears rate limit after successful activation', async () => {
+      for (let i = 0; i < 3; i++) {
+        await billing.activateWithLicenseKey('HA-BETA-AAAAAAAA-BBBBBBBB');
+      }
+      const key = billing.generateTestKey('beta');
+      const result = await billing.activateWithLicenseKey(key);
+      expect(result.success).toBe(true);
+      
+      const newBilling = new BillingManager();
+      const key2 = newBilling.generateTestKey('premium');
+      const result2 = await newBilling.activateWithLicenseKey(key2);
+      expect(result2.success).toBe(true);
+    });
   });
 
   describe('feature gating', () => {
-    it('allows basic features for free tier', () => {
-      expect(billing.isFeatureAllowed('autonomous_mode')).toBe(true);
+    it('allows basic features for community tier', () => {
+      expect(billing.isFeatureAllowed('automation')).toBe(true);
+      expect(billing.isFeatureAllowed('extract')).toBe(true);
     });
 
-    it('blocks unlimited_actions for free tier', () => {
-      expect(billing.isFeatureAllowed('unlimited_actions')).toBe(false);
+    it('blocks priority_ai for community tier', () => {
+      expect(billing.isFeatureAllowed('priority_ai')).toBe(false);
     });
 
-    it('blocks api_access for free tier', () => {
-      expect(billing.isFeatureAllowed('api_access')).toBe(false);
+    it('blocks no_watermark for community tier', () => {
+      expect(billing.isFeatureAllowed('no_watermark')).toBe(false);
     });
 
-    it('allows advanced_workflows for premium', async () => {
-      await billing.updateSubscription('premium');
-      expect(billing.isFeatureAllowed('advanced_workflows')).toBe(true);
+    it('allows priority_ai for beta', async () => {
+      await billing.updateSubscription('beta');
+      expect(billing.isFeatureAllowed('priority_ai')).toBe(true);
     });
 
-    it('allows everything for unlimited', async () => {
-      await billing.updateSubscription('unlimited');
-      expect(billing.isFeatureAllowed('unlimited_actions')).toBe(true);
-      expect(billing.isFeatureAllowed('api_access')).toBe(true);
-      expect(billing.isFeatureAllowed('team_collaboration')).toBe(true);
+    it('allows all features for beta', async () => {
+      await billing.updateSubscription('beta');
+      expect(billing.isFeatureAllowed('priority_ai')).toBe(true);
+      expect(billing.isFeatureAllowed('no_watermark')).toBe(true);
+      expect(billing.isFeatureAllowed('unlimited_workflows')).toBe(true);
     });
   });
 
   describe('usage limits', () => {
-    it('returns correct limits for free tier', () => {
+    it('returns correct limits for community tier', () => {
       const limits = billing.getUsageLimit();
-      expect(limits.actions).toBe(100);
-      expect(limits.sessions).toBe(3);
+      expect(limits.actions).toBe(500);
+      expect(limits.sessions).toBe(10);
     });
 
-    it('returns correct limits for premium tier', async () => {
-      await billing.updateSubscription('premium');
-      const limits = billing.getUsageLimit();
-      expect(limits.actions).toBe(1000);
-      expect(limits.sessions).toBe(50);
-    });
-
-    it('returns unlimited for unlimited tier', async () => {
-      await billing.updateSubscription('unlimited');
+    it('returns unlimited for beta tier', async () => {
+      await billing.updateSubscription('beta');
       const limits = billing.getUsageLimit();
       expect(limits.actions).toBe(-1);
       expect(limits.sessions).toBe(-1);
@@ -170,19 +209,19 @@ describe('BillingManager', () => {
     });
 
     it('reports over action limit', () => {
-      const result = billing.isWithinLimits(100, 2);
+      const result = billing.isWithinLimits(500, 2);
       expect(result.allowed).toBe(false);
       expect(result.reason).toContain('action limit');
     });
 
     it('reports over session limit', () => {
-      const result = billing.isWithinLimits(50, 3);
+      const result = billing.isWithinLimits(50, 10);
       expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('session limit');
+      expect(result.reason).toContain('Session limit');
     });
 
-    it('unlimited tier always within limits', async () => {
-      await billing.updateSubscription('unlimited');
+    it('beta tier always within limits', async () => {
+      await billing.updateSubscription('beta');
       const result = billing.isWithinLimits(999999, 999999);
       expect(result.allowed).toBe(true);
     });
@@ -190,28 +229,30 @@ describe('BillingManager', () => {
 
   describe('usage percentage', () => {
     it('calculates correct percentages', () => {
-      const pct = billing.getUsagePercentage(50, 1);
-      expect(pct.actions).toBe(50);
-      expect(pct.sessions).toBeCloseTo(33.33, 0);
+      const pct = billing.getUsagePercentage(250);
+      expect(pct).toBe(50);
     });
 
     it('caps at 100%', () => {
-      const pct = billing.getUsagePercentage(200, 10);
-      expect(pct.actions).toBe(100);
-      expect(pct.sessions).toBe(100);
+      const pct = billing.getUsagePercentage(1000);
+      expect(pct).toBe(100);
     });
 
-    it('returns 0% for unlimited tier', async () => {
-      await billing.updateSubscription('unlimited');
-      const pct = billing.getUsagePercentage(5000, 500);
-      expect(pct.actions).toBe(0);
-      expect(pct.sessions).toBe(0);
+    it('returns 0% for beta tier', async () => {
+      await billing.updateSubscription('beta');
+      const pct = billing.getUsagePercentage(5000);
+      expect(pct).toBe(0);
     });
   });
 
   describe('checkout', () => {
     it('opens checkout with correct URL', async () => {
-      await billing.openCheckout('premium', 'month');
+      mockStorage['hyperagent_payment_config'] = {
+        stripePaymentLinkBeta: 'https://buy.stripe.com/test',
+      };
+      await billing.initialize();
+      const result = await billing.openCheckout('beta');
+      expect(result.success).toBe(true);
       expect(chrome.tabs.create).toHaveBeenCalledWith(
         expect.objectContaining({
           url: expect.stringContaining('buy.stripe.com'),
@@ -220,54 +261,57 @@ describe('BillingManager', () => {
     });
 
     it('stores pending checkout info', async () => {
-      await billing.openCheckout('unlimited', 'year');
-      expect(mockStorage['stripe_pending_checkout']).toBeDefined();
-      expect(mockStorage['stripe_pending_checkout'].tier).toBe('unlimited');
-      expect(mockStorage['stripe_pending_checkout'].interval).toBe('year');
+      mockStorage['hyperagent_payment_config'] = {
+        stripePaymentLinkBeta: 'https://buy.stripe.com/test',
+      };
+      await billing.initialize();
+      await billing.openCheckout('beta');
+      expect(mockStorage['hyperagent_pending_checkout']).toBeDefined();
+      expect(mockStorage['hyperagent_pending_checkout'].plan).toBe('beta');
     });
   });
 });
 
-describe('PRICING_PLANS', () => {
-  it('has 3 plans', () => {
-    expect(PRICING_PLANS).toHaveLength(3);
+describe('SUBSCRIPTION_PLANS', () => {
+  it('has 2 plans', () => {
+    expect(SUBSCRIPTION_PLANS).toHaveLength(2);
   });
 
-  it('has free, premium, and unlimited tiers', () => {
-    const tiers = PRICING_PLANS.map(p => p.tier);
-    expect(tiers).toContain('free');
-    expect(tiers).toContain('premium');
-    expect(tiers).toContain('unlimited');
+  it('has community and beta plans', () => {
+    const ids = SUBSCRIPTION_PLANS.map(p => p.id);
+    expect(ids).toContain('community');
+    expect(ids).toContain('beta');
   });
 
-  it('free plan costs $0', () => {
-    const free = PRICING_PLANS.find(p => p.tier === 'free');
-    expect(free?.priceMonthly).toBe(0);
-    expect(free?.priceYearly).toBe(0);
+  it('community plan costs $0', () => {
+    const community = SUBSCRIPTION_PLANS.find(p => p.id === 'community');
+    expect(community?.price).toBe(0);
   });
 
-  it('yearly pricing has discount', () => {
-    const premium = PRICING_PLANS.find(p => p.tier === 'premium');
-    expect(premium!.priceYearly).toBeLessThan(premium!.priceMonthly * 12);
-  });
-
-  it('premium plan has Stripe price IDs', () => {
-    const premium = PRICING_PLANS.find(p => p.tier === 'premium');
-    expect(premium?.stripePriceIdMonthly).toBeTruthy();
-    expect(premium?.stripePaymentLinkMonthly).toBeTruthy();
+  it('beta plan costs $5', () => {
+    const beta = SUBSCRIPTION_PLANS.find(p => p.id === 'beta');
+    expect(beta?.price).toBe(5);
   });
 
   it('all plans have features', () => {
-    PRICING_PLANS.forEach(plan => {
+    SUBSCRIPTION_PLANS.forEach(plan => {
       expect(plan.features.length).toBeGreaterThan(0);
     });
   });
 
-  it('all plans have limits defined', () => {
-    PRICING_PLANS.forEach(plan => {
-      expect(plan.limits).toBeDefined();
-      expect(typeof plan.limits.actions).toBe('number');
-      expect(typeof plan.limits.sessions).toBe('number');
+  it('all plans have workflow limits defined', () => {
+    SUBSCRIPTION_PLANS.forEach(plan => {
+      expect(typeof plan.workflowLimit).toBe('number');
     });
+  });
+
+  it('community has watermark', () => {
+    const community = SUBSCRIPTION_PLANS.find(p => p.id === 'community');
+    expect(community?.watermark).toBe(true);
+  });
+
+  it('beta has no watermark', () => {
+    const beta = SUBSCRIPTION_PLANS.find(p => p.id === 'beta');
+    expect(beta?.watermark).toBe(false);
   });
 });

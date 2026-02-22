@@ -1,0 +1,40 @@
+﻿
+[90mWXT[39m [90m[1m0.20.17[22m[39m
+[36mΓä╣[39m Building [36mchrome-mv3[39m for [36mproduction[39m with [32mVite 6.4.1[39m
+[Cache] Loaded 0 entries from storage
+[Cache] Loaded 0 entries from storage
+[Cache] Loaded 0 entries from storage
+[Swarm] Initialized 8 specialized AI agents
+[Swarm] Initialized 8 specialized AI agents
+[Background] Swarm coordinator initialized
+[Background] Reasoning engine initialized
+[Background] Persistent autonomous engine initialized
+[32mΓ£ö[39m Built extension in 15.5 s
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34mmanifest.json[39m                  [2m1.24 kB[22m  
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[32moptions.html[39m                   [2m11.35 kB[22m 
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[32mprivacy-policy.html[39m            [2m7.44 kB[22m  
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[32msidepanel.html[39m                 [2m20.77 kB[22m 
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[36mbackground.js[39m                  [2m322.94 kB[22m
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[36mchunks\options-B9C96Std.js[39m     [2m17.19 kB[22m 
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[36mchunks\sidepanel-B-9QAjrc.js[39m   [2m65.8 kB[22m  
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[36mchunks\utils-CKtLfrXj.js[39m       [2m8.08 kB[22m  
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[36mcontent-scripts\content.js[39m     [2m167.94 kB[22m
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[35massets\options-Cgf1K_77.css[39m    [2m24.16 kB[22m 
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[35massets\sidepanel-CPGXsxKB.css[39m  [2m41.72 kB[22m 
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micon\128.png[39m                   [2m82 B[22m     
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micon\16.png[39m                    [2m82 B[22m     
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micon\32.png[39m                    [2m82 B[22m     
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micon\48.png[39m                    [2m82 B[22m     
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micons\128.png[39m                  [2m443 B[22m    
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micons\16.png[39m                   [2m136 B[22m    
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micons\32.png[39m                   [2m159 B[22m    
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34micons\48.png[39m                   [2m191 B[22m    
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34mPERMISSIONS.md[39m                 [2m1.72 kB[22m  
+[90m  Γö£ΓöÇ[39m [2m.output\chrome-mv3\[22m[34mPRIVACY_POLICY.md[39m              [2m3.64 kB[22m  
+[90m  ΓööΓöÇ[39m [2m.output\chrome-mv3\[22m[34mscreenshots\README.md[39m          [2m3.89 kB[22m  
+[36m╬ú Total size:[39m 699.13 kB                                                 
+[32mΓ£ö[39m Finished in 16.4 s
+[Autonomous] System Status: 0 active sessions, $0 value generated, 0 tasks completed
+[Autonomous] System Status: 0 active sessions, $0 value generated, 0 tasks completed
+[Autonomous] System Status: 0 active sessions, $0 value generated, 0 tasks completed
+[Autonomous] System Status: 0 active sessions, $0 value generated, 0 tasks completed
