@@ -58,9 +58,9 @@ export class CircuitBreaker {
           try {
             const result = await fallback();
             return { success: true, result, circuitState: this.state };
-          } catch (fallbackError) {
-            console.error(`[CircuitBreaker:${this.config.name}] Fallback also failed:`, fallbackError);
-            return { success: false, error: fallbackError, circuitState: this.state };
+          } catch (error_) {
+            console.error(`[CircuitBreaker:${this.config.name}] Fallback also failed:`, error_);
+            return { success: false, error: error_, circuitState: this.state };
           }
         }
         return { success: false, error: new Error('Circuit breaker is open'), circuitState: this.state };
@@ -212,8 +212,8 @@ export class RetryManager {
         if (config.onRetry) {
           try {
             config.onRetry(attempts, error);
-          } catch (callbackError) {
-            console.warn('[RetryManager] Retry callback error:', callbackError);
+          } catch (error_) {
+            console.warn('[RetryManager] Retry callback error:', error_);
           }
         }
 
@@ -230,8 +230,8 @@ export class RetryManager {
     if (config.onFailure) {
       try {
         config.onFailure(lastError);
-      } catch (callbackError) {
-        console.warn('[RetryManager] Failure callback error:', callbackError);
+      } catch (error_) {
+        console.warn('[RetryManager] Failure callback error:', error_);
       }
     }
 

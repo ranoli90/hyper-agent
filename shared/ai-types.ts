@@ -89,10 +89,5 @@ export interface AutonomousResult {
   error?: string;
 }
 
-// ─── Enums & Types ─────────────────────────────────────────────────────
-export enum RiskLevel {
-  LOW = 'low',
-  MEDIUM = 'medium',
-  HIGH = 'high',
-  CRITICAL = 'critical',
-}
+// ─── Type Aliases ─────────────────────────────────────────────────────
+export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';

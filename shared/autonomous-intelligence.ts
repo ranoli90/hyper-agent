@@ -160,8 +160,8 @@ Current page context will be provided. Return 'SUCCESS' if the step appears comp
                                 if (verification.toUpperCase().includes('FAILED')) {
                                     throw new Error(`Verification failed: ${verification}`);
                                 }
-                            } catch (verifyError) {
-                                console.warn('[AutonomousIntelligence] Verification failed:', verifyError);
+                            } catch (error_) {
+                                console.warn('[AutonomousIntelligence] Verification failed:', error_);
                                 // Continue anyway for now
                             }
                         }
@@ -213,19 +213,19 @@ Current page context will be provided. Return 'SUCCESS' if the step appears comp
                     // Brief pause between steps
                     await new Promise(resolve => globalThis.setTimeout(resolve, 1000));
 
-                } catch (stepError: any) {
-                    console.error(`[AutonomousIntelligence] Step ${step.id} error:`, stepError);
+                } catch (error_: any) {
+                    console.error(`[AutonomousIntelligence] Step ${step.id} error:`, error_);
                     results.push({ 
                         stepId: step.id, 
                         success: false, 
-                        error: stepError.message 
+                        error: error_.message 
                     });
-                    learnings.push(`Step ${stepIndex}: ${step.description} - error: ${stepError.message}`);
+                    learnings.push(`Step ${stepIndex}: ${step.description} - error: ${error_.message}`);
 
                     // For critical errors, ask user
                     if (plan.confidence < 0.5) {
                         const userGuidance = await this.callbacks.onAskUser(
-                            `Critical error in step "${step.description}": ${stepError.message}. How should I handle this?`
+                            `Critical error in step "${step.description}": ${error_.message}. How should I handle this?`
                         );
                         learnings.push(`User guidance: ${userGuidance}`);
                     }

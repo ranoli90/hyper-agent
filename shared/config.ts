@@ -356,7 +356,7 @@ export function validateAndFilterImportData(settings: unknown): {
   if (STORAGE_KEYS.MAX_STEPS in filtered) {
     const v = filtered[STORAGE_KEYS.MAX_STEPS];
     const n = typeof v === 'number' ? v : Number.parseInt(String(v), 10);
-    if (isNaN(n) || n < VALIDATION.MAX_STEPS.MIN || n > VALIDATION.MAX_STEPS.MAX) {
+    if (Number.isNaN(n) || n < VALIDATION.MAX_STEPS.MIN || n > VALIDATION.MAX_STEPS.MAX) {
       errors.push(`maxSteps must be ${VALIDATION.MAX_STEPS.MIN}-${VALIDATION.MAX_STEPS.MAX}`);
       delete filtered[STORAGE_KEYS.MAX_STEPS];
     } else {

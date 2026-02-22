@@ -1,4 +1,5 @@
 import type { Action, PageContext, Locator, LocatorStrategy } from './types';
+import { type RiskLevel } from './ai-types';
 
 export interface Tool {
   id: string;
@@ -9,7 +10,7 @@ export interface Tool {
   execute: (params: Record<string, any>, context?: ToolContext) => Promise<ToolResult>;
   validate?: (params: Record<string, any>) => boolean;
   requiresConfirmation?: boolean;
-  riskLevel: 'low' | 'medium' | 'high';
+  riskLevel: RiskLevel;
   enabled: boolean;
 }
 
