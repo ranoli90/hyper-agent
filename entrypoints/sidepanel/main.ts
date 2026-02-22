@@ -919,6 +919,12 @@ function renderMarketplaceWorkflows() {
     );
   }
 
+  // Filter by price (free) if requested
+  const isFreeFilter = document.getElementById('filter-free') as HTMLInputElement;
+  if (isFreeFilter && isFreeFilter.checked) {
+    filtered = filtered.filter(w => w.price === 'Free');
+  }
+
   components.marketplaceList.innerHTML = '';
 
   if (filtered.length === 0) {
