@@ -370,7 +370,7 @@ const SUGGESTIONS = [
 
 function sanitizeInput(text: string): string {
   // Basic sanitization - remove null bytes, control characters except newlines
-  return text.replace(/\x00/g, '').replace(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return text.replaceAll(/\x00/g, '').replaceAll(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
 function showSuggestions(query: string) {
@@ -469,13 +469,13 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 
 function renderMarkdown(text: string): string {
   try {
-    let html = text.replace(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
+    let html = text.replaceAll(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
       return `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(code.trim())}</code></pre>`;
     });
-    html = html.replace(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
-    html = html.replace(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${escapeHtml(t)}</strong>`);
-    html = html.replace(/\*([^*]+)\*/g, (_, t) => `<em>${escapeHtml(t)}</em>`);
-    html = html.replace(
+    html = html.replaceAll(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
+    html = html.replaceAll(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${escapeHtml(t)}</strong>`);
+    html = html.replaceAll(/\*([^*]+)\*/g, (_, t) => `<em>${escapeHtml(t)}</em>`);
+    html = html.replaceAll(
       /\[([^\]]+)\]\(([^)]+)\)/g,
       (_, linkText, href) => {
         const safeHref = /^https?:\/\//i.test(href) ? escapeHtml(href) : '#';
@@ -485,7 +485,7 @@ function renderMarkdown(text: string): string {
 
     html = html
       .split('\n\n')
-      .map(p => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+      .map(p => `<p>${escapeHtml(p).replaceAll(/\n/g, '<br>')}</p>`)
       .join('');
     return html;
   } catch (err) {
@@ -496,11 +496,11 @@ function renderMarkdown(text: string): string {
 
 function escapeHtml(text: string): string {
   return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
+    .replaceAll(/&/g, '&amp;')
+    .replaceAll(/</g, '&lt;')
+    .replaceAll(/>/g, '&gt;')
+    .replaceAll(/"/g, '&quot;')
+    .replaceAll(/'/g, '&#x27;');
 }
 
 // Focus trap for modals (accessibility)
@@ -635,7 +635,7 @@ const flushHistoryOnHide = () => {
   if (document.visibilityState === 'hidden') saveHistoryImmediate();
 };
 document.addEventListener('visibilitychange', flushHistoryOnHide);
-window.addEventListener('beforeunload', () => saveHistoryImmediate());
+globalThis.addEventListener('beforeunload', () => saveHistoryImmediate());
 
 async function loadHistory() {
   try {
@@ -784,7 +784,14 @@ async function updateUsageDisplay() {
     if (actionsProgress) {
       const pct = limitActions === -1 ? 0 : Math.min(100, (actions / limitActions) * 100);
       actionsProgress.style.width = `${pct}%`;
-      actionsProgress.className = `progress-bar-fill${pct > 90 ? ' danger' : pct > 70 ? ' warning' : ''}`;
+      
+      let progressClass = 'progress-bar-fill';
+      if (pct > 90) {
+        progressClass += ' danger';
+      } else if (pct > 70) {
+        progressClass += ' warning';
+      }
+      actionsProgress.className = progressClass;
     }
 
     // Update banner
@@ -1378,10 +1385,10 @@ components.commandInput.addEventListener('keydown', e => {
 });
 
 // Offline indicator
-window.addEventListener('offline', () => {
+globalThis.addEventListener('offline', () => {
   showToast('You are offline. Some features may not work.', 'warning');
 });
-window.addEventListener('online', () => {
+globalThis.addEventListener('online', () => {
   showToast('Back online!', 'success');
 });
 const handleInput = debounce((e: Event) => {
@@ -1551,7 +1558,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
       } else if (typeof message.status === 'string') {
         const stepMatch = message.status.match(/Step\s+(\d+)\s*\/\s*(\d+)/i);
         if (stepMatch) {
-          const pct = (parseInt(stepMatch[1], 10) / parseInt(stepMatch[2], 10)) * 100;
+          const pct = (Number.parseInt(stepMatch[1], 10) / Number.parseInt(stepMatch[2], 10)) * 100;
           updateProgress(Math.min(95, pct));
         }
       }
@@ -1756,7 +1763,7 @@ if (components.btnConfirmCrypto) {
     const txHash = prompt('Enter your transaction hash:');
     if (!txHash) return;
     
-    const chainId = components.cryptoChainSelect ? parseInt(components.cryptoChainSelect.value) : 1;
+    const chainId = components.cryptoChainSelect ? Number.parseInt(components.cryptoChainSelect.value) : 1;
     const result = await billingManager.confirmCryptoPayment(txHash, 'user', chainId);
     
     if (result.success) {
@@ -1894,12 +1901,15 @@ async function toggleDarkMode() {
 
 async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
-  const useDark =
-    data.dark_mode === true
-      ? true
-      : data.dark_mode === false
-        ? false
-        : typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
+  let useDark: boolean;
+  
+  if (data.dark_mode === true) {
+    useDark = true;
+  } else if (data.dark_mode === false) {
+    useDark = false;
+  } else {
+    useDark = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
+  }
   if (useDark) {
     document.body.classList.add('dark-mode');
     const btn = document.getElementById('btn-dark-mode');

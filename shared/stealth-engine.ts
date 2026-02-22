@@ -54,8 +54,8 @@ export class StealthEngine {
      * Simulates human-like mouse movement using Bezier curves.
      */
     static async moveMouseStealthily(targetX: number, targetY: number): Promise<void> {
-        const startX = window.scrollX + (window.innerWidth / 2);
-        const startY = window.scrollY + (window.innerHeight / 2);
+        const startX = globalThis.scrollX + (globalThis.innerWidth / 2);
+        const startY = globalThis.scrollY + (globalThis.innerHeight / 2);
 
         // Generate a random control point for the Bezier curve
         const controlX = (startX + targetX) / 2 + (Math.random() - 0.5) * 400;
@@ -114,7 +114,7 @@ export class StealthEngine {
      */
     private static dispatchMouseEvent(type: string, x: number, y: number, target: EventTarget = document): void {
         const event = new MouseEvent(type, {
-            view: window,
+            view: globalThis as any,
             bubbles: true,
             cancelable: true,
             clientX: x,
@@ -139,10 +139,10 @@ export class StealthEngine {
 
             // Overwrite Chrome-specific attributes that bots look for to identify automation
             // Use defineProperty to handle read-only issues safely
-            if ((window as any).chrome) {
+            if ((globalThis as any).chrome) {
                 // Keep existing runtime but mask other signatures if possible
             } else {
-                Object.defineProperty(window, 'chrome', {
+                Object.defineProperty(globalThis, 'chrome', {
                     value: { runtime: {} },
                     writable: true,
                     configurable: true

@@ -89,7 +89,7 @@ Format: SCORE|CRITIQUE`;
 
             const evalResponse = await this.callReasoningLLM(evalPrompt);
             const [scoreStr, critique] = evalResponse.split('|');
-            const score = parseInt(scoreStr) || 0;
+            const score = Number.parseInt(scoreStr) || 0;
 
             console.log(`[Reasoning] Strategy ${strat.id} Score: ${score}. Critique: ${critique}`);
 
@@ -149,7 +149,7 @@ Return format: RISK_TYPE|PROBABILITY%`;
         const response = await this.callReasoningLLM(prompt);
         return response.split('\n').map(line => {
             const [type, prob] = line.split('|');
-            return { type: type?.trim() || 'UNKNOWN', probability: parseInt(prob) || 0 };
+            return { type: type?.trim() || 'UNKNOWN', probability: Number.parseInt(prob) || 0 };
         });
     }
 }

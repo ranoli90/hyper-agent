@@ -2,21 +2,27 @@
 // Comprehensive memory monitoring, leak detection, and automatic cleanup
 // for long-running Chrome extensions
 
+// ─── Type Aliases ────────────────────────────────────────────────
+
+type MemoryTrend = 'increasing' | 'decreasing' | 'stable';
+type MemoryLeakType = 'persistent_object' | 'growing_collection' | 'uncleaned_event_listener' | 'orphaned_timer';
+type MemoryLeakSeverity = 'low' | 'medium' | 'high' | 'critical';
+
 export interface MemorySnapshot {
   timestamp: number;
   usedJSHeapSize: number;
   totalJSHeapSize: number;
   jsHeapSizeLimit: number;
   usedPercentage: number;
-  trend: 'increasing' | 'decreasing' | 'stable';
+  trend: MemoryTrend;
   gcEvents: number;
   allocations: number;
 }
 
 export interface MemoryLeak {
   id: string;
-  type: 'persistent_object' | 'growing_collection' | 'uncleaned_event_listener' | 'orphaned_timer';
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  type: MemoryLeakType;
+  severity: MemoryLeakSeverity;
   description: string;
   location?: string;
   sizeEstimate?: number;
@@ -125,10 +131,10 @@ export class MemoryManager {
 
       if (diff > 1024 * 1024) {
         // 1MB increase
-        current.trend = 'increasing';
+        current.trend = 'increasing' as MemoryTrend;
       } else if (diff < -1024 * 1024) {
         // 1MB decrease
-        current.trend = 'decreasing';
+        current.trend = 'decreasing' as MemoryTrend;
       }
     }
 
@@ -360,11 +366,11 @@ export class MemoryManager {
 
   private reportDetectedLeaks(): void {
     const criticalLeaks = Array.from(this.detectedLeaks.values()).filter(
-      leak => leak.severity === 'critical'
+      leak => leak.severity === 'critical' as MemoryLeakSeverity
     );
 
     const highLeaks = Array.from(this.detectedLeaks.values()).filter(
-      leak => leak.severity === 'high'
+      leak => leak.severity === 'high' as MemoryLeakSeverity
     );
 
     if (criticalLeaks.length > 0) {
@@ -608,7 +614,7 @@ private clearAllCaches(): void {
     const trend = current?.trend || 'unknown';
 
     const leaks = Array.from(this.detectedLeaks.values());
-    const criticalLeaks = leaks.filter(l => l.severity === 'critical').length;
+    const criticalLeaks = leaks.filter(l => l.severity === 'critical' as MemoryLeakSeverity).length;
 
     return {
       currentUsage: current,

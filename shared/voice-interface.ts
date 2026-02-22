@@ -20,10 +20,10 @@ export class VoiceInterface {
 
     constructor(options: VoiceOptions) {
         this.options = options;
-        this.synthesis = window.speechSynthesis;
+        this.synthesis = globalThis.speechSynthesis;
 
-        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if ('webkitSpeechRecognition' in globalThis || 'SpeechRecognition' in globalThis) {
+            const SpeechRecognition = (globalThis as any).SpeechRecognition || (globalThis as any).webkitSpeechRecognition;
             this.recognition = new SpeechRecognition();
             this.recognition.continuous = false; // Stop after one sentence for command mode
             this.recognition.interimResults = true;

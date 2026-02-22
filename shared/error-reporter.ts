@@ -59,7 +59,7 @@ export function captureError(
     context,
     message,
     stack,
-    url: typeof window !== 'undefined' ? window.location?.href : undefined,
+    url: typeof globalThis !== 'undefined' ? (globalThis as any).window?.location?.href : undefined,
     userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
     timestamp: Date.now(),
     ...extra,
@@ -99,10 +99,10 @@ async function sendToExternalService(record: ErrorContext): Promise<void> {
 function redactSensitive(text: string): string {
   // Redact API keys, tokens, passwords
   return text
-    .replace(/sk-[a-zA-Z0-9]{20,}/g, 'sk-***REDACTED***')
-    .replace(/api[_-]?key["\s:=]+["']?[^"'&,]+/gi, 'api_key=***REDACTED***')
-    .replace(/token["\s:=]+["']?[^"'&,]+/gi, 'token=***REDACTED***')
-    .replace(/password["\s:=]+["']?[^"'&,]+/gi, 'password=***REDACTED***');
+    .replaceAll(/sk-[a-zA-Z0-9]{20,}/g, 'sk-***REDACTED***')
+    .replaceAll(/api[_-]?key["\s:=]+["']?[^"'&,]+/gi, 'api_key=***REDACTED***')
+    .replaceAll(/token["\s:=]+["']?[^"'&,]+/gi, 'token=***REDACTED***')
+    .replaceAll(/password["\s:=]+["']?[^"'&,]+/gi, 'password=***REDACTED***');
 }
 
 export function getErrorBuffer(): ErrorContext[] {

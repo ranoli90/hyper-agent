@@ -696,7 +696,7 @@ export class APICache extends AdvancedCache {
   private generateAPIKey(endpoint: string, params?: Record<string, any>): string {
     const paramString = params ? JSON.stringify(params) : '';
     return `api_${btoa(endpoint + paramString)
-      .replace(/[^a-zA-Z0-9]/g, '')
+      .replaceAll(/[^a-zA-Z0-9]/g, '')
       .substring(0, 32)}`;
   }
 }
@@ -741,14 +741,14 @@ export class AssetCache extends AdvancedCache<string> {
 
   async getAsset(url: string): Promise<string | null> {
     const cacheKey = `asset_${btoa(url)
-      .replace(/[^a-zA-Z0-9]/g, '')
+      .replaceAll(/[^a-zA-Z0-9]/g, '')
       .substring(0, 32)}`;
     return await this.get(cacheKey);
   }
 
   async setAsset(url: string, content: string): Promise<void> {
     const cacheKey = `asset_${btoa(url)
-      .replace(/[^a-zA-Z0-9]/g, '')
+      .replaceAll(/[^a-zA-Z0-9]/g, '')
       .substring(0, 32)}`;
     await this.set(cacheKey, content, {
       ttl: this.config.defaultTTL,

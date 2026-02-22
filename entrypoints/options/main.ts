@@ -7,8 +7,8 @@ import { debounce } from '../../shared/utils';
 type SubscriptionTier = 'free' | 'premium' | 'unlimited';
 
 async function handleStripePaymentReturn(): Promise<void> {
-  const hash = window.location.hash;
-  const params = new URLSearchParams(window.location.search);
+  const hash = globalThis.location.hash;
+  const params = new URLSearchParams(globalThis.location.search);
 
   if (hash.includes('payment_success') || params.has('payment_success')) {
   const tier = (params.get('tier') || /tier=([^&]+)/.exec(hash)?.[1]) as SubscriptionTier | null;
@@ -19,7 +19,7 @@ async function handleStripePaymentReturn(): Promise<void> {
       await chrome.storage.local.set({
         stripe_payment_success: { tier, customerId: customerId || undefined, subscriptionId: subscriptionId || undefined },
       });
-      window.history.replaceState({}, '', window.location.pathname);
+      globalThis.history.replaceState({}, '', globalThis.location.pathname);
       showNotification(`Payment successful! Your ${tier} subscription is now active.`, 'success');
     }
   }
@@ -225,7 +225,7 @@ btnSave.addEventListener('click', async () => {
     baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
     modelName: modelNameValue,
     backupModel: modelNameValue,
-    maxSteps: parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
+    maxSteps: Number.parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
     requireConfirm: requireConfirmInput.checked,
     dryRun: dryRunInput.checked,
     enableVision: enableVisionInput.checked,
@@ -437,11 +437,11 @@ function renderSiteConfigs(configs: SiteConfig[]) {
 function escapeHtml(str: string): string {
   if (!str) return '';
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+    .replaceAll(/&/g, '&amp;')
+    .replaceAll(/</g, '&lt;')
+    .replaceAll(/>/g, '&gt;')
+    .replaceAll(/"/g, '&quot;')
+    .replaceAll(/'/g, '&#039;');
 }
 
 function isDefaultConfig(domain: string): boolean {
@@ -480,9 +480,9 @@ btnAddSiteConfig.addEventListener('click', async () => {
   const config: SiteConfig = {
     domain,
     description: siteConfigDescInput.value.trim() || undefined,
-    maxRetries: parseInt(siteConfigMaxRetriesInput.value, 10),
+    maxRetries: Number.parseInt(siteConfigMaxRetriesInput.value, 10),
     scrollBeforeLocate: siteConfigScrollInput.checked,
-    waitAfterAction: parseInt(siteConfigWaitInput.value, 10),
+    waitAfterAction: Number.parseInt(siteConfigWaitInput.value, 10),
     customSelectors: siteConfigSelectorsInput.value.trim()
       ? siteConfigSelectorsInput.value.split(',').map(s => s.trim()).filter(Boolean)
       : undefined,

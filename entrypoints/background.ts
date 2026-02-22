@@ -48,6 +48,12 @@ import { autonomousIntelligence } from '../shared/autonomous-intelligence';
 import { globalLearning } from '../shared/global-learning';
 import { billingManager } from '../shared/billing';
 import { schedulerEngine } from '../shared/scheduler-engine';
+
+// ─── Type Aliases ────────────────────────────────────────────────
+
+type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type SubscriptionTier = 'free' | 'premium' | 'unlimited';
+
 import { getMemoryStats as getMemoryStatsUtil } from '../shared/memory';
 import { SnapshotManager } from '../shared/snapshot-manager';
 import { parseIntent, getSuggestions } from '../shared/intent';
@@ -65,7 +71,7 @@ interface UsageMetrics {
   autonomousSessions: number;
   totalSessionTime: number;
   lastActivity: number;
-  subscriptionTier: 'free' | 'premium' | 'unlimited';
+  subscriptionTier: SubscriptionTier;
   monthlyUsage: {
     actions: number;
     sessions: number;
@@ -146,7 +152,7 @@ class UsageTracker {
     this.scheduleSave();
   }
 
-  setSubscriptionTier(tier: 'free' | 'premium' | 'unlimited'): void {
+  setSubscriptionTier(tier: SubscriptionTier): void {
     this.metrics.subscriptionTier = tier;
     this.scheduleSave();
   }
@@ -199,7 +205,7 @@ const usageTracker = new UsageTracker();
  */
 class StructuredLogger {
   /** Current logging level threshold */
-  private readonly logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
+  private readonly logLevel: LogLevel = 'info';
   /** Maximum number of log entries to retain */
   private readonly maxEntries = 1000;
   /** Circular buffer of log entries */
@@ -211,7 +217,7 @@ class StructuredLogger {
    * @param message - Human-readable log message
    * @param data - Optional structured data for debugging
    */
-  log(level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: any): void {
+  log(level: LogLevel, message: string, data?: any): void {
     const entry: LogEntry = {
       timestamp: Date.now(),
       level,
@@ -226,8 +232,16 @@ class StructuredLogger {
     }
 
     // Console output based on log level
-    const consoleMethod =
-      level === 'debug' ? 'debug' : level === 'warn' ? 'warn' : level === 'error' ? 'error' : 'log';
+    let consoleMethod: keyof Console;
+    if (level === 'debug') {
+      consoleMethod = 'debug';
+    } else if (level === 'warn') {
+      consoleMethod = 'warn';
+    } else if (level === 'error') {
+      consoleMethod = 'error';
+    } else {
+      consoleMethod = 'log';
+    }
 
     console[consoleMethod](`[HyperAgent:${level.toUpperCase()}] ${message}`, data || '');
   }
@@ -237,7 +251,7 @@ class StructuredLogger {
    * @param level - Optional level filter
    * @returns Array of matching log entries
    */
-  getEntries(level?: 'debug' | 'info' | 'warn' | 'error'): LogEntry[] {
+  getEntries(level?: LogLevel): LogEntry[] {
     if (!level) return this.logEntries;
     return this.logEntries.filter(entry => entry.level === level);
   }
@@ -255,7 +269,7 @@ interface LogEntry {
   /** Timestamp when the log entry was created */
   timestamp: number;
   /** Severity level of the log entry */
-  level: 'debug' | 'info' | 'warn' | 'error';
+  level: LogLevel;
   /** Human-readable log message */
   message: string;
   /** Optional structured data for debugging */
@@ -267,7 +281,7 @@ interface LogEntry {
 // ─── Security helpers ─────────────────────────
 
 function safeInlineText(str: string, max = 500): string {
-  const s = (str || '').replace(/[\n\r\t]+/g, ' ').replace(/["'`]/g, '');
+  const s = (str || '').replaceAll(/[\n\r\t]+/g, ' ').replaceAll(/["'`]/g, '');
   return s.length > max ? s.slice(0, max) : s;
 }
 
@@ -726,64 +740,91 @@ billingManager.initialize().catch(e => console.warn('[Billing] init failed', e))
 
 // ─── Input validation ───────────────────────────────────────────────────
 
-/**
- * Validate incoming extension messages for security and correctness.
- *
- * Ensures messages conform to expected structure and contain required fields
- * before processing to prevent security vulnerabilities and runtime errors.
- *
- * @param message - The message to validate
- * @returns True if message is valid and properly structured
- */
+// Helper functions to reduce cognitive complexity of validateExtensionMessage
+function validateExecuteCommand(message: any): boolean {
+  const cmd = message.command;
+  const scheduled = message.scheduled;
+  return (
+    typeof cmd === 'string' &&
+    cmd.trim().length > 0 &&
+    cmd.length <= 10000 &&
+    (message.useAutonomous === undefined ||
+      typeof message.useAutonomous === 'boolean') &&
+    (scheduled === undefined || typeof scheduled === 'boolean')
+  );
+}
+
+function validateUserReply(message: any): boolean {
+  const reply = message.reply;
+  return typeof reply === 'string' && reply.length <= 10000;
+}
+
+function validateContextMenuCommand(message: any): boolean {
+  const cmd = message.command;
+  return typeof cmd === 'string' && cmd.trim().length > 0 && cmd.length <= 10000;
+}
+
+function validateClearSnapshot(message: any): boolean {
+  const cTaskId = message.taskId;
+  return cTaskId === undefined || (typeof cTaskId === 'string' && cTaskId.length > 0 && cTaskId.length <= 256);
+}
+
+function validateResumeSnapshot(message: any): boolean {
+  const taskId = message.taskId;
+  return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= 256;
+}
+
+function validateExecuteTool(message: any): boolean {
+  const toolId = message.toolId;
+  const params = message.params;
+  return typeof toolId === 'string' && toolId.length > 0 && toolId.length <= 64 &&
+    (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)));
+}
+
+function validateParseIntent(message: any): boolean {
+  const pCmd = message.command;
+  return typeof pCmd === 'string' && pCmd.length <= 10000;
+}
+
+function validateToggleScheduledTask(message: any): boolean {
+  const tId = message.taskId;
+  return typeof tId === 'string' && tId.length > 0 && tId.length <= 256 &&
+    (message.enabled === undefined || typeof message.enabled === 'boolean');
+}
+
+function validateDeleteScheduledTask(message: any): boolean {
+  const dId = message.taskId;
+  return typeof dId === 'string' && dId.length > 0 && dId.length <= 256;
+}
+
+function validateInstallWorkflow(message: any): boolean {
+  const wfId = message.workflowId;
+  return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= 64;
+}
+
+function validateActivateLicenseKey(message: any): boolean {
+  const key = message.key;
+  return typeof key === 'string' && key.length > 0 && key.length <= 256;
+}
+
 function validateExtensionMessage(message: any): message is ExtensionMessage {
   if (!message || typeof message !== 'object') return false;
   const { type } = message;
   if (typeof type !== 'string') return false;
 
   switch (type) {
-    case 'executeCommand': {
-      const cmd = message.command;
-      const scheduled = message.scheduled;
-      return (
-        typeof cmd === 'string' &&
-        cmd.trim().length > 0 &&
-        cmd.length <= 10000 &&
-        (message.useAutonomous === undefined ||
-          typeof message.useAutonomous === 'boolean') &&
-        (scheduled === undefined || typeof scheduled === 'boolean')
-      );
-    }
+    case 'executeCommand':
+      return validateExecuteCommand(message);
     case 'stopAgent':
-      return true;
-    case 'confirmResponse':
-      return typeof message.confirmed === 'boolean';
-    case 'userReply': {
-      const reply = message.reply;
-      return typeof reply === 'string' && reply.length <= 10000;
-    }
     case 'getAgentStatus':
     case 'clearHistory':
     case 'getMetrics':
-      return true;
-    case 'contextMenuCommand': {
-      const cmd = message.command;
-      return typeof cmd === 'string' && cmd.trim().length > 0 && cmd.length <= 10000;
-    }
     case 'captureScreenshot':
     case 'getToolStats':
     case 'getTools':
     case 'getSwarmStatus':
     case 'getSnapshot':
     case 'listSnapshots':
-      return true;
-    case 'clearSnapshot': {
-      const cTaskId = message.taskId;
-      return cTaskId === undefined || (typeof cTaskId === 'string' && cTaskId.length > 0 && cTaskId.length <= 256);
-    }
-    case 'resumeSnapshot': {
-      const taskId = message.taskId;
-      return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= 256;
-    }
     case 'getGlobalLearningStats':
     case 'getIntentSuggestions':
     case 'getUsage':
@@ -792,17 +833,6 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getSubscriptionState':
     case 'verifySubscription':
     case 'cancelSubscription':
-      return true;
-    case 'executeTool': {
-      const toolId = message.toolId;
-      const params = message.params;
-      return typeof toolId === 'string' && toolId.length > 0 && toolId.length <= 64 &&
-        (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)));
-    }
-    case 'parseIntent': {
-      const pCmd = message.command;
-      return typeof pCmd === 'string' && pCmd.length <= 10000;
-    }
     case 'getAPICache':
     case 'setAPICache':
     case 'invalidateCacheTag':
@@ -816,25 +846,30 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'sanitizeInput':
     case 'sanitizeUrl':
     case 'sanitizeBatch':
-    case 'toggleScheduledTask': {
-      const tId = message.taskId;
-      return typeof tId === 'string' && tId.length > 0 && tId.length <= 256 &&
-        (message.enabled === undefined || typeof message.enabled === 'boolean');
-    }
-    case 'deleteScheduledTask': {
-      const dId = message.taskId;
-      return typeof dId === 'string' && dId.length > 0 && dId.length <= 256;
-    }
-    case 'installWorkflow': {
-      const wfId = message.workflowId;
-      return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= 64;
-    }
-    case 'activateLicenseKey': {
-      const key = message.key;
-      return typeof key === 'string' && key.length > 0 && key.length <= 256;
-    }
     case 'openCheckout':
       return true;
+    case 'confirmResponse':
+      return typeof message.confirmed === 'boolean';
+    case 'userReply':
+      return validateUserReply(message);
+    case 'contextMenuCommand':
+      return validateContextMenuCommand(message);
+    case 'clearSnapshot':
+      return validateClearSnapshot(message);
+    case 'resumeSnapshot':
+      return validateResumeSnapshot(message);
+    case 'executeTool':
+      return validateExecuteTool(message);
+    case 'parseIntent':
+      return validateParseIntent(message);
+    case 'toggleScheduledTask':
+      return validateToggleScheduledTask(message);
+    case 'deleteScheduledTask':
+      return validateDeleteScheduledTask(message);
+    case 'installWorkflow':
+      return validateInstallWorkflow(message);
+    case 'activateLicenseKey':
+      return validateActivateLicenseKey(message);
     default:
       return false;
   }
@@ -1852,45 +1887,41 @@ export default defineBackground(() => {
     }
   }
 
-  async function executeAction(
-    tabId: number,
-    action: Action,
-    dryRun: boolean,
-    autoRetry: boolean,
-    pageUrl?: string
-  ): Promise<ActionResult> {
-    const startTime = Date.now();
+  // Helper functions to reduce cognitive complexity of executeAction
+function handleDryRun(action: Action, actionId: string, startTime: number, pageUrl?: string): ActionResult | null {
+  if (action.type === 'wait') {
+    return { success: true };
+  }
+  console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
+  trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
+  return { success: true };
+}
 
-    // Track action start
-    const actionId = trackActionStart(action, pageUrl);
+function validateActionPermissions(action: Action, pageUrl?: string): ActionResult | null {
+  const url = pageUrl || '';
+  const rateCheck = checkRateLimit(action.type);
+  if (!rateCheck.allowed) {
+    const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
+    return {
+      success: false,
+      error: `Rate limit exceeded. Try again in ${waitSec}s.`,
+      errorType: 'RATE_LIMIT' as ErrorType,
+    };
+  }
+  const actionCheck = checkActionAllowed(action, url);
+  if (!actionCheck.allowed) {
+    return {
+      success: false,
+      error: actionCheck.reason || 'Action not allowed by security policy.',
+      errorType: 'SECURITY_POLICY' as ErrorType,
+    };
+  }
+  return null;
+}
 
-    if (dryRun) {
-      console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
-      trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
-      return { success: true };
-    }
-
-    const url = pageUrl || '';
-    const rateCheck = await checkRateLimit(action.type);
-    if (!rateCheck.allowed) {
-      const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
-      return {
-        success: false,
-        error: `Rate limit exceeded. Try again in ${waitSec}s.`,
-        errorType: 'RATE_LIMIT' as ErrorType,
-      };
-    }
-    const actionCheck = await checkActionAllowed(action, url);
-    if (!actionCheck.allowed) {
-      return {
-        success: false,
-        error: actionCheck.reason || 'Action not allowed by security policy.',
-        errorType: 'SECURITY_POLICY' as ErrorType,
-      };
-    }
-
-    // Handle navigation in background
-    if (action.type === 'navigate') {
+async function handleNavigationActions(action: Action, tabId: number): Promise<ActionResult | null> {
+  switch (action.type) {
+    case 'navigate':
       try {
         await chrome.tabs.update(tabId, { url: action.url });
         await waitForTabLoad(tabId);
@@ -1902,9 +1933,7 @@ export default defineBackground(() => {
           errorType: 'NAVIGATION_ERROR' as ErrorType,
         };
       }
-    }
-
-    if (action.type === 'goBack') {
+    case 'goBack':
       try {
         await chrome.tabs.goBack(tabId);
         await waitForTabLoad(tabId);
@@ -1916,70 +1945,61 @@ export default defineBackground(() => {
           errorType: 'NAVIGATION_ERROR' as ErrorType,
         };
       }
-    }
+    default:
+      return null;
+  }
+}
 
-    if (action.type === 'wait') {
-      await delay(action.ms);
-      return { success: true };
-    }
-
-    // Handle tab actions in background (no content script needed)
-    if (action.type === 'openTab') {
+async function handleTabActions(action: Action, tabId: number): Promise<ActionResult | null> {
+  switch (action.type) {
+    case 'openTab':
       const result = await openTab(action.url, action.active);
       if (result.success && result.tabId) {
         return { success: true, extractedData: `Opened tab ${result.tabId}: ${action.url}` };
       }
       return { success: false, error: result.error || 'Failed to open tab' };
-    }
-
-    if (action.type === 'closeTab') {
-      const targetTabId = action.tabId ?? tabId;
-      const result = await closeTab(targetTabId);
-      if (result.success) {
-        return { success: true, extractedData: `Closed tab ${targetTabId}` };
+    case 'closeTab':
+      const closeTargetTabId = action.tabId ?? tabId;
+      const closeResult = await closeTab(closeTargetTabId);
+      if (closeResult.success) {
+        return { success: true, extractedData: `Closed tab ${closeTargetTabId}` };
       }
-      return { success: false, error: result.error || 'Failed to close tab' };
-    }
-
-    if (action.type === 'switchTab') {
-      let targetTabId = action.tabId;
-
-      // If no tabId provided, try to find by URL pattern
-      if (!targetTabId && action.urlPattern) {
+      return { success: false, error: closeResult.error || 'Failed to close tab' };
+    case 'switchTab':
+      let switchTargetTabId = action.tabId;
+      if (!switchTargetTabId && action.urlPattern) {
         const findResult = await findTabByUrl(action.urlPattern);
         if (!findResult.success || !findResult.tabId) {
           return { success: false, error: findResult.error || 'Tab not found' };
         }
-        targetTabId = findResult.tabId;
+        switchTargetTabId = findResult.tabId;
       }
-
-      if (!targetTabId) {
+      if (!switchTargetTabId) {
         return { success: false, error: 'No tabId or urlPattern provided for switchTab' };
       }
-
-      const result = await switchToTab(targetTabId);
-      if (result.success) {
-        return { success: true, extractedData: `Switched to tab ${targetTabId}` };
+      const switchResult = await switchToTab(switchTargetTabId);
+      if (switchResult.success) {
+        return { success: true, extractedData: `Switched to tab ${switchTargetTabId}` };
       }
-      return { success: false, error: result.error || 'Failed to switch tab' };
-    }
-
-    if (action.type === 'getTabs') {
-      const result = await getAllTabs();
-      if (result.success && result.tabs) {
-        return { success: true, extractedData: JSON.stringify(result.tabs) };
+      return { success: false, error: switchResult.error || 'Failed to switch tab' };
+    case 'getTabs':
+      const tabsResult = await getAllTabs();
+      if (tabsResult.success && tabsResult.tabs) {
+        return { success: true, extractedData: JSON.stringify(tabsResult.tabs) };
       }
-      return { success: false, error: result.error || 'Failed to get tabs' };
-    }
+      return { success: false, error: tabsResult.error || 'Failed to get tabs' };
+    default:
+      return null;
+  }
+}
 
-    // Handle runMacro action - execute a saved sequence of actions
-    if (action.type === 'runMacro') {
+async function handleWorkflowActions(action: Action, tabId: number, dryRun: boolean, autoRetry: boolean): Promise<ActionResult | null> {
+  switch (action.type) {
+    case 'runMacro':
       const macroAction = action as MacroAction;
       const macroResult = await executeMacro(macroAction.macroId, async (subAction: Action) => {
-        // Execute each action in the macro
         return await executeAction(tabId, subAction, dryRun, autoRetry);
       });
-
       if (macroResult.success) {
         return {
           success: true,
@@ -1987,10 +2007,7 @@ export default defineBackground(() => {
         };
       }
       return { success: false, error: macroResult.error || 'Macro execution failed' };
-    }
-
-    // Handle runWorkflow action - execute a saved workflow with conditional logic
-    if (action.type === 'runWorkflow') {
+    case 'runWorkflow':
       const workflowAction = action as WorkflowAction;
       const getContextFn = async (): Promise<PageContext> => {
         try {
@@ -2021,7 +2038,6 @@ export default defineBackground(() => {
         },
         getContextFn
       );
-
       if (workflowResult.success) {
         return {
           success: true,
@@ -2029,191 +2045,244 @@ export default defineBackground(() => {
         };
       }
       return { success: false, error: workflowResult.error || 'Workflow execution failed' };
-    }
+    default:
+      return null;
+  }
+}
 
-    // Higher-order function for the content script action to allow retries
-    const attempt = async (): Promise<ActionResult> => {
-      try {
-        const response = await chrome.tabs.sendMessage(tabId, {
-          type: 'executeActionOnPage',
-          action,
-        });
-        // Validate response structure
-        if (!response || typeof response !== 'object') {
-          return {
-            success: false,
-            error: 'Invalid response from content script',
-            errorType: 'ACTION_FAILED' as ErrorType,
-          };
-        }
-        if (typeof response.success !== 'boolean') {
-          return {
-            success: false,
-            error: 'Response missing success field',
-            errorType: 'ACTION_FAILED' as ErrorType,
-          };
-        }
-        return response as ActionResult;
-      } catch (err: any) {
-        return {
-          success: false,
-          error: `Content script error: ${err.message}`,
-          errorType: 'ACTION_FAILED' as ErrorType,
-        };
-      }
-    };
-
-    let result: ActionResult = await attempt();
-
-    // Ensure result is always valid
-    if (!result) {
-      result = {
+// Higher-order function for the content script action to allow retries
+const attempt = async (tabId: number, action: Action): Promise<ActionResult> => {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: 'executeActionOnPage',
+      action,
+    });
+    // Validate response structure
+    if (!response || typeof response !== 'object') {
+      return {
         success: false,
-        error: 'Unknown action error',
+        error: 'Invalid response from content script',
         errorType: 'ACTION_FAILED' as ErrorType,
       };
     }
-
-    // Auto-retry with enhanced error classification and recovery tracking
-    if (!result.success && autoRetry) {
-      // Validate and sanitize error type
-      const validErrorTypes: ErrorType[] = [
-        'ELEMENT_NOT_FOUND',
-        'ELEMENT_NOT_VISIBLE',
-        'ELEMENT_DISABLED',
-        'ACTION_FAILED',
-        'TIMEOUT',
-        'NAVIGATION_ERROR',
-        'UNKNOWN',
-      ];
-      let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
-      if (!validErrorTypes.includes(errorType)) {
-        errorType = 'ACTION_FAILED' as ErrorType;
-      }
-
-      const currentAttempt = agentState.getRecoveryAttempt(action);
-
-      // Check if we've exceeded max recovery attempts
-      if (currentAttempt >= agentState.maxRecoveryAttempts) {
-        agentState.logRecoveryOutcome(action, errorType, 'max-attempts-exceeded', 'failed');
-        agentState.clearRecoveryAttempt(action);
-        trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
-        return result;
-      }
-
-      // Use intelligent failure recovery system
-      const failureAnalysis = failureRecovery.analyzeFailure(errorType, result.error || '', action);
-      const recoveryStrategy = failureRecovery.getRecoveryStrategy(
-        failureAnalysis,
-        currentAttempt + 1
-      );
-
-      console.log(
-        `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
-      );
-
-      // Check if recovery is possible
-      if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
-        agentState.logRecoveryOutcome(action, errorType, 'no-strategy', 'failed');
-        agentState.clearRecoveryAttempt(action);
-        trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
-        return result;
-      }
-
-      // Execute recovery strategy
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ['/content-scripts/content.js'],
-        });
-
-        // Wait if specified by recovery strategy
-        if (recoveryStrategy.waitMs) {
-          await delay(recoveryStrategy.waitMs);
-        }
-
-        // Execute pre-recovery action if specified (e.g., scroll)
-        if (recoveryStrategy.action) {
-          await chrome.tabs.sendMessage(tabId, {
-            type: 'executeActionOnPage',
-            action: recoveryStrategy.action,
-          });
-          await delay(300);
-        }
-
-        // Increment recovery attempt counter (strategy is set; we guarded above)
-        if (recoveryStrategy.strategy) {
-          agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy);
-        }
-
-        result = await attempt();
-
-        // If succeeded, log successful recovery
-        if (result.success) {
-          // Record successful recovery for learning
-          failureRecovery.recordRecovery(
-            {
-              action,
-              error: result.error || '',
-              errorType,
-              attempt: currentAttempt + 1,
-              pageUrl: pageUrl || '',
-              timestamp: Date.now(),
-            },
-            true
-          );
-
-          agentState.logRecoveryOutcome(
-            action,
-            errorType || 'UNKNOWN',
-            recoveryStrategy.strategy,
-            'recovered'
-          );
-          agentState.clearRecoveryAttempt(action);
-        }
-      } catch (err) {
-        // Injection failed — log and return original error
-        failureRecovery.recordRecovery(
-          {
-            action,
-            error: String(err),
-            errorType,
-            attempt: currentAttempt + 1,
-            pageUrl: pageUrl || '',
-            timestamp: Date.now(),
-          },
-          false
-        );
-
-        agentState.logRecoveryOutcome(
-          action,
-          errorType || 'UNKNOWN',
-          recoveryStrategy.strategy ?? 'injection-failed',
-          'injection-failed'
-        );
-        agentState.clearRecoveryAttempt(action);
-      }
+    if (typeof response.success !== 'boolean') {
+      return {
+        success: false,
+        error: 'Response missing success field',
+        errorType: 'ACTION_FAILED' as ErrorType,
+      };
     }
+    return response as ActionResult;
+  } catch (err: any) {
+    return {
+      success: false,
+      error: `Content script error: ${err.message}`,
+      errorType: 'ACTION_FAILED' as ErrorType,
+    };
+  }
+};
 
-    // Track metrics for the action result
-    trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
+async function executeAction(
+  tabId: number,
+    action: Action,
+    dryRun: boolean,
+    autoRetry: boolean,
+    pageUrl?: string
+  ): Promise<ActionResult> {
+  const startTime = Date.now();
+  const actionId = trackActionStart(action, pageUrl);
 
-    // Track usage for billing
-    if (result.success) {
-      usageTracker.trackAction(action.type);
-    }
+  // Handle dry run
+  const dryRunResult = handleDryRun(action, actionId, startTime, pageUrl);
+  if (dryRunResult) return dryRunResult;
 
-    // Feed outcome into global learning so the system improves over time
-    if (pageUrl) {
-      const domain = new URL(pageUrl).hostname;
-      globalLearning.learn(domain, action.type, result.success, {
-        errorType: result.errorType,
-        duration: Date.now() - startTime,
-      }).catch(() => {});
-    }
+  // Validate permissions
+  const validationResult = validateActionPermissions(action, pageUrl);
+  if (validationResult) return validationResult;
 
+  // Handle navigation actions
+  const navigationResult = await handleNavigationActions(action, tabId);
+  if (navigationResult) return navigationResult;
+
+  // Handle tab actions
+  const tabResult = await handleTabActions(action, tabId);
+  if (tabResult) return tabResult;
+
+  // Handle workflow actions
+  const workflowResult = await handleWorkflowActions(action, tabId, dryRun, autoRetry);
+  if (workflowResult) return workflowResult;
+
+  // Handle wait action
+  if (action.type === 'wait') {
+    await delay(action.ms);
+    return { success: true };
+  }
+
+  // Execute content script action
+  let result: ActionResult = await attempt(tabId, action);
+
+  // Ensure result is always valid
+  if (!result) {
+    result = {
+      success: false,
+      error: 'Unknown action error',
+      errorType: 'ACTION_FAILED' as ErrorType,
+    };
+  }
+
+  // Auto-retry with enhanced error classification and recovery tracking
+  if (!result.success && autoRetry) {
+    result = await handleAutoRetry(action, result, tabId, actionId, startTime, pageUrl);
+  }
+
+  // Track metrics for the action result
+  trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
+
+  // Track usage for billing
+  if (result.success) {
+    usageTracker.trackAction(action.type);
+  }
+
+  // Feed outcome into global learning so the system improves over time
+  if (pageUrl) {
+    const domain = new URL(pageUrl).hostname;
+    globalLearning.learn(domain, action.type, result.success, {
+      errorType: result.errorType,
+      duration: Date.now() - startTime,
+    }).catch(() => {});
+  }
+
+  return result;
+}
+
+async function handleAutoRetry(
+  action: Action, 
+  result: ActionResult, 
+  tabId: number, 
+  actionId: string, 
+  startTime: number, 
+  pageUrl?: string
+): Promise<ActionResult> {
+  // Validate and sanitize error type
+  const validErrorTypes: ErrorType[] = [
+    'ELEMENT_NOT_FOUND',
+    'ELEMENT_NOT_VISIBLE',
+    'ELEMENT_DISABLED',
+    'ACTION_FAILED',
+    'TIMEOUT',
+    'NAVIGATION_ERROR',
+    'UNKNOWN',
+  ];
+  let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
+  if (!validErrorTypes.includes(errorType)) {
+    errorType = 'ACTION_FAILED' as ErrorType;
+  }
+
+  const currentAttempt = agentState.getRecoveryAttempt(action);
+
+  // Check if we've exceeded max recovery attempts
+  if (currentAttempt >= agentState.maxRecoveryAttempts) {
+    agentState.logRecoveryOutcome(action, errorType, 'max-attempts-exceeded', 'failed');
+    agentState.clearRecoveryAttempt(action);
+    trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
     return result;
   }
+
+  // Use intelligent failure recovery system
+  const failureAnalysis = failureRecovery.analyzeFailure(errorType, result.error || '', action);
+  const recoveryStrategy = failureRecovery.getRecoveryStrategy(
+    failureAnalysis,
+    currentAttempt + 1
+  );
+
+  console.log(
+    `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
+  );
+
+  // Check if recovery is possible
+  if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
+    agentState.logRecoveryOutcome(action, errorType, 'no-strategy', 'failed');
+    agentState.clearRecoveryAttempt(action);
+    trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
+    return result;
+  }
+
+  // Execute recovery strategy
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['/content-scripts/content.js'],
+    });
+
+    // Wait if specified by recovery strategy
+    if (recoveryStrategy.waitMs) {
+      await delay(recoveryStrategy.waitMs);
+    }
+
+    // Execute pre-recovery action if specified (e.g., scroll)
+    if (recoveryStrategy.action) {
+      await chrome.tabs.sendMessage(tabId, {
+        type: 'executeActionOnPage',
+        action: recoveryStrategy.action,
+      });
+      await delay(300);
+    }
+
+    // Increment recovery attempt counter (strategy is set; we guarded above)
+    if (recoveryStrategy.strategy) {
+      agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy);
+    }
+
+    result = await attempt(tabId, action);
+
+    // If succeeded, log successful recovery
+    if (result.success) {
+      // Record successful recovery for learning
+      failureRecovery.recordRecovery(
+        {
+          action,
+          error: result.error || '',
+          errorType,
+          attempt: currentAttempt + 1,
+          pageUrl: pageUrl || '',
+          timestamp: Date.now(),
+        },
+        true
+      );
+
+      agentState.logRecoveryOutcome(
+        action,
+        errorType || 'UNKNOWN',
+        recoveryStrategy.strategy,
+        'recovered'
+      );
+      agentState.clearRecoveryAttempt(action);
+    }
+  } catch (err) {
+    // Injection failed — log and return original error
+    failureRecovery.recordRecovery(
+      {
+        action,
+        error: String(err),
+        errorType,
+        attempt: currentAttempt + 1,
+        pageUrl: pageUrl || '',
+        timestamp: Date.now(),
+      },
+      false
+    );
+
+    agentState.logRecoveryOutcome(
+      action,
+      errorType || 'UNKNOWN',
+      recoveryStrategy.strategy ?? 'injection-failed',
+      'injection-failed'
+    );
+    agentState.clearRecoveryAttempt(action);
+  }
+
+  return result;
+}
 
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string) {

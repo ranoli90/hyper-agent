@@ -2,16 +2,21 @@
 // Enterprise-grade retry and circuit breaker system for resilient operations
 // in distributed systems and API integrations
 
+// ─── Type Aliases ────────────────────────────────────────────────
+
+type CircuitBreakerState = 'closed' | 'open' | 'half-open';
+type OperationError = Error | unknown;
+
 export interface RetryConfig {
   maxAttempts: number;
   initialDelay: number; // milliseconds
   maxDelay: number; // milliseconds
   backoffMultiplier: number; // exponential backoff multiplier
   jitterEnabled: boolean; // add randomness to prevent thundering herd
-  retryCondition?: (error: Error | unknown) => boolean; // custom retry logic
+  retryCondition?: (error: OperationError) => boolean; // custom retry logic
   timeout?: number; // per-attempt timeout
-  onRetry?: (attempt: number, error: Error | unknown) => void; // retry callback
-  onFailure?: (error: Error | unknown) => void; // final failure callback
+  onRetry?: (attempt: number, error: OperationError) => void; // retry callback
+  onFailure?: (error: OperationError) => void; // final failure callback
 }
 
 export interface CircuitBreakerConfig {
@@ -25,15 +30,15 @@ export interface CircuitBreakerConfig {
 export interface RetryResult<T> {
   success: boolean;
   result?: T;
-  error?: Error | unknown;
+  error?: OperationError;
   attempts: number;
   totalDuration: number;
-  circuitBreakerState?: 'closed' | 'open' | 'half-open';
+  circuitBreakerState?: CircuitBreakerState;
 }
 
 // ─── Circuit Breaker Implementation ────────────────────────────────────
 export class CircuitBreaker {
-  private state: 'closed' | 'open' | 'half-open' = 'closed';
+  private state: CircuitBreakerState = 'closed';
   private failures = 0;
   private successes = 0;
   private lastFailureTime = 0;
@@ -44,7 +49,7 @@ export class CircuitBreaker {
   async execute<T>(
     operation: () => Promise<T>,
     fallback?: () => Promise<T>
-  ): Promise<{ success: boolean; result?: T; error?: Error | unknown; circuitState: string }> {
+  ): Promise<{ success: boolean; result?: T; error?: OperationError; circuitState: string }> {
     if (this.state === 'open') {
       if (Date.now() < this.nextAttemptTime) {
         // Circuit is open, use fallback or fail
@@ -61,7 +66,7 @@ export class CircuitBreaker {
         return { success: false, error: new Error('Circuit breaker is open'), circuitState: this.state };
       } else {
         // Time to try again - move to half-open
-        this.state = 'half-open';
+        this.state = 'half-open' as CircuitBreakerState;
         console.log(`[CircuitBreaker:${this.config.name}] Attempting recovery (half-open)`);
       }
     }
@@ -82,32 +87,32 @@ export class CircuitBreaker {
     if (this.state === 'half-open') {
       this.successes++;
       if (this.successes >= this.config.successThreshold) {
-        this.state = 'closed';
+        this.state = 'closed' as CircuitBreakerState;
         this.successes = 0;
         console.log(`[CircuitBreaker:${this.config.name}] Circuit closed (recovery successful)`);
       }
     }
   }
 
-  private onFailure(_error: Error | unknown): void {
+  private onFailure(_error: OperationError): void {
     this.failures++;
     this.lastFailureTime = Date.now();
 
     if (this.state === 'half-open') {
       // Half-open failure - back to open
-      this.state = 'open';
+      this.state = 'open' as CircuitBreakerState;
       this.nextAttemptTime = Date.now() + this.config.recoveryTimeout;
       this.successes = 0;
       console.log(`[CircuitBreaker:${this.config.name}] Recovery failed, circuit remains open`);
     } else if (this.failures >= this.config.failureThreshold) {
       // Closed to open transition
-      this.state = 'open';
+      this.state = 'open' as CircuitBreakerState;
       this.nextAttemptTime = Date.now() + this.config.recoveryTimeout;
       console.log(`[CircuitBreaker:${this.config.name}] Circuit opened (failure threshold reached)`);
     }
   }
 
-  getState(): 'closed' | 'open' | 'half-open' {
+  getState(): CircuitBreakerState {
     return this.state;
   }
 
@@ -128,12 +133,12 @@ export class CircuitBreaker {
   }
 
   reset(): void {
-    this.state = 'closed';
+    this.state = 'closed' as CircuitBreakerState;
     this.failures = 0;
     this.successes = 0;
     this.lastFailureTime = 0;
     this.nextAttemptTime = 0;
-    console.log(`[CircuitBreaker:${this.config.name}] Circuit reset`);
+    console.log(`[CircuitBreaker:${this.config.name}] Circuit reset to closed`);
   }
 }
 
@@ -147,7 +152,7 @@ export class RetryManager {
     circuitBreakerKey?: string
   ): Promise<RetryResult<T>> {
     const startTime = Date.now();
-    let lastError: Error | unknown;
+    let lastError: OperationError;
     let attempts = 0;
 
     // Get or create circuit breaker
@@ -264,7 +269,7 @@ export class RetryManager {
     });
   }
 
-  private shouldRetry(error: Error | unknown, config: RetryConfig, attempt: number): boolean {
+  private shouldRetry(error: OperationError, config: RetryConfig, attempt: number): boolean {
     // Check max attempts
     if (attempt >= config.maxAttempts) {
       return false;
@@ -450,7 +455,7 @@ export async function withCircuitBreaker<T>(
   operation: () => Promise<T>,
   config?: Partial<CircuitBreakerConfig>,
   fallback?: () => Promise<T>
-): Promise<{ success: boolean; result?: T; error?: Error | unknown; circuitState: string }> {
+): Promise<{ success: boolean; result?: T; error?: OperationError; circuitState: string }> {
   let circuitBreaker = retryManager.getCircuitBreaker(name);
 
   if (!circuitBreaker) {

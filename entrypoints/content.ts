@@ -176,7 +176,7 @@ export default defineContentScript({
     async function loadSiteConfig() {
       if (siteConfigLoaded) return;
       try {
-        const hostname = window.location.hostname;
+        const hostname = globalThis.location.hostname;
         currentSiteConfig = await getSiteConfig(hostname);
         siteConfigLoaded = true;
         if (currentSiteConfig) {
@@ -192,10 +192,10 @@ export default defineContentScript({
     function isVisible(el: HTMLElement): boolean {
       if (!el.offsetParent && el.tagName !== 'HTML' && el.tagName !== 'BODY') {
         // Fixed/sticky elements have null offsetParent but are visible
-        const style = window.getComputedStyle(el);
+        const style = globalThis.getComputedStyle(el);
         if (style.position !== 'fixed' && style.position !== 'sticky') return false;
       }
-      const style = window.getComputedStyle(el);
+      const style = globalThis.getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 && rect.height === 0) return false;
@@ -331,15 +331,15 @@ export default defineContentScript({
       }
 
       return {
-        url: window.location.href,
+        url: globalThis.location.href,
         title: document.title,
         bodyText,
         metaDescription,
         formCount,
         semanticElements,
         timestamp: Date.now(),
-        scrollPosition: { x: window.scrollX, y: window.scrollY },
-        viewportSize: { width: window.innerWidth, height: window.innerHeight },
+        scrollPosition: { x: globalThis.scrollX, y: globalThis.scrollY },
+        viewportSize: { width: globalThis.innerWidth, height: globalThis.innerHeight },
         pageHeight: document.documentElement.scrollHeight,
         // Vision-first fallback: if too few semantic elements, flag for screenshot
         needsScreenshot: semanticElements.length < DEFAULTS.VISION_FALLBACK_THRESHOLD,
@@ -393,7 +393,7 @@ export default defineContentScript({
       switch (strategy) {
         case 'index': {
           // Resolve by our stable index
-          const idx = parseInt(value, 10);
+          const idx = Number.parseInt(value, 10);
           // First try the WeakRef registry
           const ref = indexedElements.get(idx);
           if (ref?.deref()) {
@@ -555,7 +555,7 @@ export default defineContentScript({
       const words = lower.split(/\s+/);
       const actionIdx = words.findIndex(w => actionWords.includes(w));
       if (actionIdx >= 0 && actionIdx < words.length - 1) {
-        result.text = words.slice(actionIdx + 1, actionIdx + 4).join(' ').replace(/[^\w\s]/g, '').trim();
+        result.text = words.slice(actionIdx + 1, actionIdx + 4).join(' ').replaceAll(/[^\w\s]/g, '').trim();
       }
       return result;
     }
@@ -644,7 +644,7 @@ export default defineContentScript({
       if (el) return el;
 
       for (let i = 0; i < maxRetries; i++) {
-        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+        globalThis.scrollBy({ top: scrollAmount, behavior: 'smooth' });
         await delay(600);
         refreshElementIndices();
         el = resolveLocator(locator);
@@ -652,14 +652,14 @@ export default defineContentScript({
       }
 
       for (let i = 0; i < maxRetries; i++) {
-        window.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
+        globalThis.scrollBy({ top: -scrollAmount, behavior: 'smooth' });
         await delay(600);
         refreshElementIndices();
         el = resolveLocator(locator);
         if (el) return el;
       }
 
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      globalThis.scrollTo({ top: 0, behavior: 'smooth' });
       await delay(1500);
       refreshElementIndices();
       return resolveLocator(locator);
@@ -1015,18 +1015,18 @@ export default defineContentScript({
             else if (action.direction === 'up') scrollOpts.top = -amount;
             else if (action.direction === 'right') scrollOpts.left = amount;
             else if (action.direction === 'left') scrollOpts.left = -amount;
-            window.scrollBy(scrollOpts);
+            globalThis.scrollBy(scrollOpts);
             return { success: true };
           }
 
           // navigate/goBack are handled by background executeAction; content never receives them.
           // Kept for potential direct performAction flows (e.g. future workflow injection).
           case 'navigate': {
-            window.location.href = action.url;
+            globalThis.location.href = action.url;
             return { success: true };
           }
           case 'goBack': {
-            window.history.back();
+            globalThis.history.back();
             return { success: true };
           }
 
@@ -1283,7 +1283,7 @@ export default defineContentScript({
               const result = await performAction(action);
               // Log action outcome to memory (non-blocking)
               saveActionOutcome(
-                window.location.href,
+                globalThis.location.href,
                 message.action,
                 result.success,
                 result.errorType
@@ -1304,11 +1304,11 @@ export default defineContentScript({
               return {
                 type: 'getSiteConfigResponse',
                 config: currentSiteConfig,
-                hostname: window.location.hostname
+                hostname: globalThis.location.hostname
               };
             }
             case 'startModerator': {
-              if (window.location.hostname.includes('tiktok.com')) {
+              if (globalThis.location.hostname.includes('tiktok.com')) {
                 const started = await tiktokModerator.start();
                 return { success: started };
               } else {
@@ -1333,6 +1333,6 @@ export default defineContentScript({
       }
     );
 
-    console.log('[HyperAgent] Content script loaded on', window.location.href);
+    console.log('[HyperAgent] Content script loaded on', globalThis.location.href);
   },
 });

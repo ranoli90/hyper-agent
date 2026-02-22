@@ -1,5 +1,11 @@
 import type { PageContext } from './types';
 
+// ─── Type Aliases ────────────────────────────────────────────────
+
+type ClarificationResultType = 'clarification_needed' | 'workflow_executed' | 'error';
+type Priority = 'low' | 'medium' | 'high' | 'critical';
+type SuggestionPriority = 'low' | 'medium' | 'high';
+
 export enum TaskType {
   CAR_SALES_POSTING = 'car_sales_posting',
   JOB_APPLICATION = 'job_application',
@@ -22,12 +28,12 @@ interface ClarificationMetrics {
 }
 
 export interface ClarificationResult {
-  type: 'clarification_needed' | 'workflow_executed' | 'error';
+  type: ClarificationResultType;
   question?: string;
   taskType?: TaskType;
   missingFields?: string[];
   sessionId?: string;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
+  priority?: Priority;
   progress?: string;
   message?: string;
   workflowResult?: WorkflowResult; // This will be properly typed when we define workflow results
@@ -42,7 +48,7 @@ export interface ClarificationContext {
   currentQuestionIndex: number;
   conversationHistory: ClarificationExchange[];
   confidence: number;
-  priority: 'low' | 'medium' | 'high' | 'critical';
+  priority: Priority;
 }
 
 export interface ClarificationExchange {
@@ -192,7 +198,7 @@ export class IntelligentClarificationEngine {
         currentQuestionIndex: 0,
         conversationHistory: [],
         confidence: 0.1,
-        priority: 'low',
+        priority: 'low' as Priority,
       };
     }
   }
@@ -507,8 +513,8 @@ export class IntelligentClarificationEngine {
     return carInfo;
   }
 
-  private determineTaskPriority(taskType: TaskType): 'low' | 'medium' | 'high' | 'critical' {
-    const priorities: Record<string, 'low' | 'medium' | 'high' | 'critical'> = {
+  private determineTaskPriority(taskType: TaskType): Priority {
+    const priorities: Record<string, Priority> = {
       [TaskType.FINANCIAL_TASK]: 'critical',
       [TaskType.HEALTHCARE_TASK]: 'critical',
       [TaskType.LEGAL_TASK]: 'high',
@@ -597,7 +603,7 @@ export class IntelligentClarificationEngine {
 
     return (
       questionTemplates[nextField as keyof typeof questionTemplates] ||
-      `Please provide information about: ${nextField.replace(/_/g, ' ')}`
+      `Please provide information about: ${nextField.replaceAll(/_/g, ' ')}`
     );
   }
 
@@ -840,19 +846,19 @@ export class PersistentOperationEngine {
       {
         type: 'follow_up',
         description: 'Follow up with car listing inquiries',
-        priority: 'high' as const,
+        priority: 'high' as SuggestionPriority,
         action: 'check_responses',
       },
       {
         type: 'optimization',
         description: 'Optimize listing for better visibility',
-        priority: 'medium' as const,
+        priority: 'medium' as SuggestionPriority,
         action: 'improve_listing',
       },
       {
         type: 'expansion',
         description: 'Post to additional platforms',
-        priority: 'medium' as const,
+        priority: 'medium' as SuggestionPriority,
         action: 'expand_reach',
       },
     ];
@@ -907,7 +913,7 @@ export interface SessionMetrics {
 export interface Suggestion {
   type: string;
   description: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: SuggestionPriority;
   action: string;
   context?: any;
 }

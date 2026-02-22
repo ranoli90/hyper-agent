@@ -443,7 +443,7 @@ function extractMinimalContext(context: PageContext): MinimalContext {
     .filter(el => /^h[1-6]$/i.test(el.tag))
     .slice(0, 10)
     .map(el => ({
-      level: parseInt(el.tag.slice(1)),
+      level: Number.parseInt(el.tag.slice(1)),
       text: (el.visibleText || '').slice(0, 80),
     }));
   
@@ -1006,7 +1006,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
         console.error(`[HyperAgent] Completion error ${response?.status ?? 'unknown'}:`, errorText);
         if (response?.status === 429) {
           const retryAfter = response?.headers?.get('Retry-After');
-          const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
+          const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
           throw new Error(`Rate limit exceeded. Try again in ${waitSec} seconds.`);
         }
         const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
@@ -1094,7 +1094,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           console.error(`[HyperAgent] API error ${response?.status ?? 'unknown'}:`, errorText);
           if (response?.status === 429) {
             const retryAfter = response?.headers?.get('Retry-After');
-            const waitSec = retryAfter ? parseInt(retryAfter, 10) : 60;
+            const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
             throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
           }
           const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
