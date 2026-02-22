@@ -260,25 +260,21 @@ export class TikTokModerator {
     }
 
     private sendStats() {
-        try {
-            chrome.runtime.sendMessage({
-                type: 'moderatorStats',
-                stats: this.stats
-            });
-        } catch {
+        chrome.runtime.sendMessage({
+            type: 'moderatorStats',
+            stats: this.stats
+        }).catch(() => {
             // Ignore if sidepanel is closed
-        }
+        });
     }
 
     private sendLog(log: ModerationLog) {
-        try {
-            chrome.runtime.sendMessage({
-                type: 'moderationLog',
-                log: log
-            });
-        } catch {
+        chrome.runtime.sendMessage({
+            type: 'moderationLog',
+            log: log
+        }).catch(() => {
             // Ignore if sidepanel is closed
-        }
+        });
     }
 
     private notifyUI(_message: string) {
