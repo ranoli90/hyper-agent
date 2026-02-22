@@ -736,7 +736,7 @@ initializePersistentAutonomous();
 usageTracker.loadMetrics();
 
 // Initialize billing manager so subscription state is available
-billingManager.initialize().catch(e => console.warn('[Billing] init failed', e));
+await billingManager.initialize().catch(e => console.warn('[Billing] init failed', e));
 
 // ─── Input validation ───────────────────────────────────────────────────
 
@@ -982,12 +982,12 @@ export default defineBackground(() => {
               title: 'Ask HyperAgent about selection',
               contexts: ['selection'],
             });
-          } catch (menuErr) {
-            logger.log('warn', 'Context menu creation failed', { error: (menuErr as Error)?.message });
+          } catch (error_) {
+            logger.log('warn', 'Context menu creation failed', { error: (error_ as Error)?.message });
           }
         });
-      } catch (removeErr) {
-        logger.log('warn', 'Context menu removeAll failed', { error: (removeErr as Error)?.message });
+      } catch (error_) {
+        logger.log('warn', 'Context menu removeAll failed', { error: (error_ as Error)?.message });
       }
 
       const settings = await loadSettings();
@@ -1952,20 +1952,22 @@ async function handleNavigationActions(action: Action, tabId: number): Promise<A
 
 async function handleTabActions(action: Action, tabId: number): Promise<ActionResult | null> {
   switch (action.type) {
-    case 'openTab':
+    case 'openTab': {
       const result = await openTab(action.url, action.active);
       if (result.success && result.tabId) {
         return { success: true, extractedData: `Opened tab ${result.tabId}: ${action.url}` };
       }
       return { success: false, error: result.error || 'Failed to open tab' };
-    case 'closeTab':
+    }
+    case 'closeTab': {
       const closeTargetTabId = action.tabId ?? tabId;
       const closeResult = await closeTab(closeTargetTabId);
       if (closeResult.success) {
         return { success: true, extractedData: `Closed tab ${closeTargetTabId}` };
       }
       return { success: false, error: closeResult.error || 'Failed to close tab' };
-    case 'switchTab':
+    }
+    case 'switchTab': {
       let switchTargetTabId = action.tabId;
       if (!switchTargetTabId && action.urlPattern) {
         const findResult = await findTabByUrl(action.urlPattern);
@@ -1982,12 +1984,14 @@ async function handleTabActions(action: Action, tabId: number): Promise<ActionRe
         return { success: true, extractedData: `Switched to tab ${switchTargetTabId}` };
       }
       return { success: false, error: switchResult.error || 'Failed to switch tab' };
-    case 'getTabs':
+    }
+    case 'getTabs': {
       const tabsResult = await getAllTabs();
       if (tabsResult.success && tabsResult.tabs) {
         return { success: true, extractedData: JSON.stringify(tabsResult.tabs) };
       }
       return { success: false, error: tabsResult.error || 'Failed to get tabs' };
+    }
     default:
       return null;
   }
@@ -1995,7 +1999,7 @@ async function handleTabActions(action: Action, tabId: number): Promise<ActionRe
 
 async function handleWorkflowActions(action: Action, tabId: number, dryRun: boolean, autoRetry: boolean): Promise<ActionResult | null> {
   switch (action.type) {
-    case 'runMacro':
+    case 'runMacro': {
       const macroAction = action as MacroAction;
       const macroResult = await executeMacro(macroAction.macroId, async (subAction: Action) => {
         return await executeAction(tabId, subAction, dryRun, autoRetry);
@@ -2007,7 +2011,8 @@ async function handleWorkflowActions(action: Action, tabId: number, dryRun: bool
         };
       }
       return { success: false, error: macroResult.error || 'Macro execution failed' };
-    case 'runWorkflow':
+    }
+    case 'runWorkflow': {
       const workflowAction = action as WorkflowAction;
       const getContextFn = async (): Promise<PageContext> => {
         try {
@@ -2045,6 +2050,7 @@ async function handleWorkflowActions(action: Action, tabId: number, dryRun: bool
         };
       }
       return { success: false, error: workflowResult.error || 'Workflow execution failed' };
+    }
     default:
       return null;
   }
@@ -2084,11 +2090,11 @@ const attempt = async (tabId: number, action: Action): Promise<ActionResult> => 
 
 async function executeAction(
   tabId: number,
-    action: Action,
-    dryRun: boolean,
-    autoRetry: boolean,
-    pageUrl?: string
-  ): Promise<ActionResult> {
+  action: Action,
+  dryRun: boolean,
+  autoRetry: boolean,
+  pageUrl?: string
+): Promise<ActionResult> {
   const startTime = Date.now();
   const actionId = trackActionStart(action, pageUrl);
 
@@ -2723,12 +2729,12 @@ async function handleAutoRetry(
                     result.success = false;
                     result.error = `Visual Failure: ${isVerified.reason || 'Verification failed'}`;
                   }
-                } catch (verifyErr: any) {
-                  logger.log('warn', 'Vision verification error', { error: verifyErr.message });
+                } catch (error_: any) {
+                  logger.log('warn', 'Vision verification error', { error: error_.message });
                 }
               }
-            } catch (screenErr: any) {
-              logger.log('warn', 'Screenshot capture failed', { error: screenErr.message });
+            } catch (error_: any) {
+              logger.log('warn', 'Screenshot capture failed', { error: error_.message });
             }
           }
 
