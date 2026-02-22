@@ -430,15 +430,23 @@ function showSuggestions(query: string) {
 
 // ─── Chat Interface ─────────────────────────────────────────────
 function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status' | 'thinking') {
-  if (!components.chatHistory) return null;
+  if (!components.chatHistory) {
+    console.error('[HyperAgent] Chat history component not found');
+    return null;
+  }
   clearExampleCommands();
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
-  if (type === 'agent') {
-    div.innerHTML = renderMarkdown(content);
-  } else {
-    div.textContent = content;
+  try {
+    if (type === 'agent') {
+      div.innerHTML = renderMarkdown(content);
+    } else {
+      div.textContent = content;
+    }
+  } catch (err) {
+    console.error('[HyperAgent] Error rendering message:', err);
+    div.textContent = 'Error rendering message';
   }
 
   components.chatHistory.appendChild(div);
@@ -939,8 +947,8 @@ function renderMarketplaceWorkflows() {
       btnLabel = '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
       btnClass = 'install-btn locked';
     } else {
-      btnLabel = 'Coming Soon'; btnDisabled = 'disabled';
-      btnClass = 'install-btn coming-soon';
+      btnLabel = 'Install';
+      btnClass = 'install-btn';
     }
 
     const card = document.createElement('div');
@@ -971,10 +979,6 @@ function renderMarketplaceWorkflows() {
       const workflowId = target.dataset.workflowId;
       if (!workflowId) return;
 
-      if (target.classList.contains('coming-soon')) {
-        showToast('Workflows coming soon!', 'info');
-        return;
-      }
       if (target.classList.contains('locked')) {
         switchTab('subscription');
         showToast('Upgrade required for this workflow', 'warning');
@@ -1202,224 +1206,117 @@ function loadVisionTab() {
 let swarmListenersAttached = false;
 // ─── Swarm Tab ───────────────────────────────────────────────────
 async function loadSwarmTab() {
-  const swarmState = document.getElementById('swarm-state');
   const agentList = document.getElementById('agent-list');
-  const agentCount = document.getElementById('agent-count');
-  const missionsCompleted = document.getElementById('missions-completed');
-  const swarmSuccessRate = document.getElementById('swarm-success-rate');
   const activeMissions = document.getElementById('active-missions');
-  const recoveredTasks = document.getElementById('recovered-tasks');
-  const snapshotsList = document.getElementById('snapshots-list');
-  const useCasesButton = document.getElementById('use-cases-button');
   const activeMissionsList = document.getElementById('active-missions-list');
   const missionHistoryList = document.getElementById('mission-history-list');
-  const btnClearActiveMissions = document.getElementById('btn-clear-active-missions');
-  const btnClearMissionHistory = document.getElementById('btn-clear-mission-history');
-  const autoScaleAgents = document.getElementById('auto-scale-agents') as HTMLInputElement;
-  const missionTimeout = document.getElementById('mission-timeout') as HTMLSelectElement;
+  const snapshotsList = document.getElementById('snapshots-list');
 
-  // Add click handler for use cases button
-  if (useCasesButton && !swarmListenersAttached) {
-    useCasesButton.addEventListener('click', () => {
-      components.commandInput.value = 'Compare laptop prices on Amazon, Best Buy, and Newegg';
-      components.commandInput.focus();
-      showToast('Use case example loaded', 'info');
-    });
-  }
-
-  // Add click handlers for clear buttons
-  if (btnClearActiveMissions && !swarmListenersAttached) {
-    btnClearActiveMissions.addEventListener('click', async () => {
-      const confirmed = confirm('Clear all active missions?');
-      if (confirmed) {
-        // Clear active missions (placeholder for actual API call)
-        if (activeMissionsList) {
-          activeMissionsList.innerHTML = '';
-          if (activeMissions) activeMissions.textContent = '0';
-        }
-        showToast('Active missions cleared', 'success');
-      }
-    });
-  }
-
-  if (btnClearMissionHistory && !swarmListenersAttached) {
-    btnClearMissionHistory.addEventListener('click', async () => {
-      const confirmed = confirm('Clear mission history?');
-      if (confirmed) {
-        // Clear mission history (placeholder for actual API call)
-        if (missionHistoryList) {
-          missionHistoryList.innerHTML = '';
-          if (missionsCompleted) missionsCompleted.textContent = '0';
-        }
-        showToast('Mission history cleared', 'success');
-      }
-    });
-  }
-
-  // Add event listeners for configuration changes
-  if (autoScaleAgents && !swarmListenersAttached) {
-    autoScaleAgents.addEventListener('change', async (e: Event) => {
-      const enabled = (e.target as HTMLInputElement).checked;
-      // Save configuration (placeholder for actual API call)
-      showToast(`Auto-scale agents ${enabled ? 'enabled' : 'disabled'}`, 'success');
-    });
-  }
-
-  if (missionTimeout && !swarmListenersAttached) {
-    missionTimeout.addEventListener('change', async (e: Event) => {
-      const timeout = (e.target as HTMLSelectElement).value;
-      // Save configuration (placeholder for actual API call)
-      showToast(`Mission timeout set to ${timeout} seconds`, 'success');
-    });
+  if (!agentList || !activeMissions || !activeMissionsList || !missionHistoryList || !snapshotsList) {
+    return;
   }
 
   try {
-    // Get swarm status
-    const swarmResponse = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
-    if (swarmResponse?.ok) {
-      if (swarmState) {
-        swarmState.textContent = swarmResponse.status?.initialized ? 'Active' : 'Initializing...';
-      }
-      // Populate agent list from live coordinator
-      const agents = swarmResponse.status?.agents || [];
-      if (agentList) {
-        agentList.innerHTML = agents.length > 0
-          ? agents.map((a: { displayName?: string; role?: string; status?: string; description?: string }) => `
-              <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="font-semibold text-sm">${escapeHtml(a.displayName || a.role || '')}</span>
-                  <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                    <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                    ${escapeHtml(a.status || 'Ready')}
-                  </span>
-                </div>
-                <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">${escapeHtml(a.description || 'Performs specialized tasks within the swarm')}</p>
-              </div>
-            `).join('')
-          : '<p class="empty-state">No agents initialized.</p>';
-      }
-      if (agentCount) agentCount.textContent = String(agents.length);
-    }
-
-    // Get global learning stats
-    const statsResponse = await chrome.runtime.sendMessage({ type: 'getGlobalLearningStats' });
-    if (statsResponse?.ok && statsResponse.stats) {
-      const stats = statsResponse.stats;
-      if (missionsCompleted) missionsCompleted.textContent = stats.totalPatterns || '0';
-      if (swarmSuccessRate)
-        swarmSuccessRate.textContent = `${Math.round((stats.avgSuccessRate || 0) * 100)}%`;
-    }
-
-    // Get snapshots
-    const snapshotsResponse = await chrome.runtime.sendMessage({ type: 'listSnapshots' });
-    if (snapshotsResponse?.ok && snapshotsResponse.snapshots && snapshotsList) {
-      if (snapshotsResponse.snapshots.length > 0) {
-        snapshotsList.innerHTML = '';
-        snapshotsResponse.snapshots.slice(0, 5).forEach((snapshot: any) => {
-          const item = document.createElement('div');
-          item.className = 'snapshot-item';
-          const safeTaskId = escapeHtml(String(snapshot.taskId || ''));
-          const safeCmd = escapeHtml((snapshot.command || 'Unknown mission').substring(0, 50));
-          const step = Number(snapshot.currentStep) || 0;
-          const total = Number(snapshot.totalSteps) || 0;
-          const timeStr = snapshot.timestamp ? new Date(snapshot.timestamp).toLocaleString() : '';
-          item.innerHTML = `
-            <div class="snapshot-command">${safeCmd}...</div>
-            <div class="snapshot-meta">
-              <span>Step ${step}/${total}</span>
-              <span>${escapeHtml(timeStr)}</span>
-            </div>
-            <div class="snapshot-actions">
-              <button class="btn-small btn-resume" data-task-id="${safeTaskId}">Resume</button>
-              <button class="btn-small btn-danger btn-delete-snapshot" data-task-id="${safeTaskId}">Delete</button>
-            </div>
-          `;
-          snapshotsList.appendChild(item);
-        });
-
-        // Attach click handlers for Resume and Delete
-        snapshotsList.querySelectorAll('.btn-resume').forEach(resumeBtn => {
-          resumeBtn.addEventListener('click', async () => {
-            const taskId = (resumeBtn as HTMLButtonElement).dataset.taskId;
-            if (taskId) {
-              const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
-              if (resp?.ok) {
-                showToast('Resuming mission...', 'success');
-                loadSwarmTab();
-              } else {
-                showToast(resp?.error || 'Failed to resume', 'error');
-              }
-            }
-          });
-        });
-        snapshotsList.querySelectorAll('.btn-delete-snapshot').forEach(deleteBtn => {
-          deleteBtn.addEventListener('click', async () => {
-            const taskId = (deleteBtn as HTMLButtonElement).dataset.taskId;
-            if (taskId) {
-              const resp = await chrome.runtime.sendMessage({ type: 'deleteSnapshot', taskId });
-              if (resp?.ok) {
-                showToast('Snapshot deleted', 'success');
-                loadSwarmTab();
-              } else {
-                showToast(resp?.error || 'Failed to delete', 'error');
-              }
-            }
-          });
-        });
-      } else {
-        snapshotsList.innerHTML = `
-          <p class="empty-state">No saved missions.</p>
-          <p class="hint">Use commands like "extract data from website" to create snapshots.</p>
-        `;
-      }
-    }
-
-    // Load active missions (placeholder data for now)
-    if (activeMissionsList) {
-      const activeMissionsData = [
-        { id: '1', name: 'Extracting product prices', progress: 25 },
-        { id: '2', name: 'Analyzing competitor data', progress: 60 },
-        { id: '3', name: 'Scraping reviews', progress: 85 }
-      ];
-
-      activeMissionsList.innerHTML = activeMissionsData.map(mission => `
+    // Load agent status from background
+    const swarmStatus = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
+    if (swarmStatus?.ok && swarmStatus.status?.agents) {
+      agentList.innerHTML = swarmStatus.status.agents.map((agent: any) => `
         <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
           <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
+            <div class="w-2 h-2 rounded-full ${agent.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}"></div>
+            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${agent.displayName}</span>
           </div>
-          <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>${mission.progress}%</span>
-            <div class="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-              <div class="h-full bg-emerald-500 rounded-full" style="width: ${mission.progress}%"></div>
-            </div>
+          <span class="text-xs text-zinc-500 dark:text-zinc-400">${agent.status}</span>
+        </div>
+      `).join('');
+    } else {
+      agentList.innerHTML = '<p class="empty-state">Swarm intelligence not available</p>';
+    }
+
+    // Load saved snapshots
+    const snapshots = await chrome.runtime.sendMessage({ type: 'listSnapshots' });
+    if (snapshots?.ok && snapshots.snapshots?.length > 0) {
+      snapshotsList.innerHTML = snapshots.snapshots.map((snap: any) => `
+        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
+          <div class="flex items-center gap-2">
+            <div class="w-2 h-2 rounded-full bg-blue-500"></div>
+            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(snap.command.slice(0, 30))}...</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn-small" data-task-id="${snap.taskId}" data-action="resume">Resume</button>
+            <button class="btn-small btn-danger" data-task-id="${snap.taskId}" data-action="delete">Delete</button>
           </div>
         </div>
       `).join('');
 
-      if (activeMissions) activeMissions.textContent = activeMissionsData.length.toString();
+      snapshotsList.querySelectorAll('.btn-small').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const taskId = (btn as HTMLButtonElement).dataset.taskId;
+          const action = (btn as HTMLButtonElement).dataset.action;
+          if (taskId && action === 'resume') {
+            const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
+            if (resp?.ok) {
+              showToast('Resuming mission...', 'info');
+            } else {
+              showToast(resp?.error || 'Failed to resume', 'error');
+            }
+          } else if (taskId && action === 'delete') {
+            const resp = await chrome.runtime.sendMessage({ type: 'clearSnapshot', taskId });
+            if (resp?.ok) {
+              showToast('Snapshot deleted', 'success');
+              loadSwarmTab();
+            } else {
+              showToast(resp?.error || 'Failed to delete', 'error');
+            }
+          }
+        });
+      });
+    } else {
+      snapshotsList.innerHTML = `
+        <p class="empty-state">No saved missions.</p>
+        <p class="hint">Use commands like "extract data from website" to create snapshots.</p>
+      `;
     }
 
-    // Load mission history (placeholder data for now)
-    if (missionHistoryList) {
-      const missionHistoryData = [
-        { id: '1', name: 'Product price extraction', status: 'Completed', time: '2 min ago' },
-        { id: '2', name: 'Competitor analysis', status: 'Completed', time: '5 min ago' },
-        { id: '3', name: 'Review scraping', status: 'Failed', time: '10 min ago' }
-      ];
-
-      missionHistoryList.innerHTML = missionHistoryData.map(mission => `
-        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-          <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full ${mission.status === 'Completed' ? 'bg-emerald-500' : 'bg-red-500'}"></div>
-            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>${mission.status}</span>
-            <span>${mission.time}</span>
+    // Load active missions (from real data)
+    const activeMissionsData: Array<{ name: string; progress: number }> = []; // Replace with real data from background
+    activeMissionsList.innerHTML = activeMissionsData.map(mission => `
+      <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <span>${mission.progress}%</span>
+          <div class="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
+            <div class="h-full bg-emerald-500 rounded-full" style="width: ${mission.progress}%"></div>
           </div>
         </div>
-      `).join('');
+      </div>
+    `).join('');
+
+    if (activeMissions) activeMissions.textContent = activeMissionsData.length.toString();
+
+    // Load mission history (from real data)
+    const missionHistoryData: Array<{ name: string; status: string; time: string }> = []; // Replace with real data from background
+    missionHistoryList.innerHTML = missionHistoryData.map(mission => `
+      <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
+        <div class="flex items-center gap-2">
+          <div class="w-2 h-2 rounded-full ${mission.status === 'Completed' ? 'bg-emerald-500' : 'bg-red-500'}"></div>
+          <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
+        </div>
+        <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <span>${mission.status}</span>
+          <span>${mission.time}</span>
+        </div>
+      </div>
+    `).join('');
+
+    if (missionHistoryData.length === 0) {
+      missionHistoryList.innerHTML = `
+        <p class="empty-state">No mission history.</p>
+        <p class="hint">Complete missions to see history.</p>
+      `;
     }
 
     swarmListenersAttached = true;
@@ -1431,6 +1328,7 @@ async function loadSwarmTab() {
       agentList.innerHTML = '<p class="empty-state">Failed to load swarm status. Check your connection.</p>';
     }
   }
+}
 
 // ─── Event Listeners ────────────────────────────────────────────
 components.btnExecute.addEventListener('click', () => {
