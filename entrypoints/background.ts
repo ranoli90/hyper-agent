@@ -1897,9 +1897,9 @@ function handleDryRun(action: Action, actionId: string, startTime: number, pageU
   return { success: true };
 }
 
-function validateActionPermissions(action: Action, pageUrl?: string): ActionResult | null {
+async function validateActionPermissions(action: Action, pageUrl?: string): Promise<ActionResult | null> {
   const url = pageUrl || '';
-  const rateCheck = checkRateLimit(action.type);
+  const rateCheck = await checkRateLimit(action.type);
   if (!rateCheck.allowed) {
     const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
     return {
@@ -1908,7 +1908,7 @@ function validateActionPermissions(action: Action, pageUrl?: string): ActionResu
       errorType: 'RATE_LIMIT' as ErrorType,
     };
   }
-  const actionCheck = checkActionAllowed(action, url);
+  const actionCheck = await checkActionAllowed(action, url);
   if (!actionCheck.allowed) {
     return {
       success: false,
@@ -2103,8 +2103,8 @@ async function executeAction(
   if (dryRunResult) return dryRunResult;
 
   // Validate permissions
-  const validationResult = validateActionPermissions(action, pageUrl);
-  if (validationResult) return validationResult;
+  const validationResult = await validateActionPermissions(action, pageUrl);
+  if (validationResult !== null) return validationResult;
 
   // Handle navigation actions
   const navigationResult = await handleNavigationActions(action, tabId);
