@@ -352,13 +352,19 @@
               <input id="marketplace-search-input" type="text" placeholder="Search workflows..." class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-sm shadow-sm" />
             </div>
 
-            <div id="marketplace-categories" class="flex gap-2 overflow-x-auto hide-scrollbar">
-              <button class="category-btn active px-3 py-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-full text-xs font-medium" data-category="all">All</button>
-              <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="data">Data Extraction</button>
-              <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="communication">Communication</button>
-              <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="research">Research</button>
-              <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="ecommerce">E-commerce</button>
-              <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="social">Social Media</button>
+            <div class="flex items-center justify-between">
+              <div id="marketplace-categories" class="flex gap-2 overflow-x-auto hide-scrollbar">
+                <button class="category-btn active px-3 py-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-full text-xs font-medium" data-category="all">All</button>
+                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="data">Data Extraction</button>
+                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="communication">Communication</button>
+                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="research">Research</button>
+                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="ecommerce">E-commerce</button>
+                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="social">Social Media</button>
+              </div>
+              <label class="flex items-center gap-2 text-xs text-zinc-500 cursor-pointer">
+                <input type="checkbox" id="filter-free" class="w-3 h-3 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500" />
+                <span>Free only</span>
+              </label>
             </div>
 
             <div id="marketplace-list" class="flex flex-col gap-3">

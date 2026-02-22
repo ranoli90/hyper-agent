@@ -916,6 +916,11 @@ async function loadMarketplace() {
       renderMarketplaceWorkflows();
     });
   });
+
+  const freeFilter = document.getElementById('filter-free') as HTMLInputElement;
+  if (freeFilter) {
+    freeFilter.addEventListener('change', renderMarketplaceWorkflows);
+  }
 }
 
 function renderMarketplaceWorkflows() {
