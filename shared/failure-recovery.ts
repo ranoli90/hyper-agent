@@ -46,9 +46,9 @@ export interface RecoveryResult {
 }
 
 class FailureRecoverySystemImpl {
-  private recoveryHistory: RecoveryContext[] = [];
-  private maxHistory = 100;
-  private strategyStats: Map<StrategyType, { attempts: number; successes: number }> = new Map();
+  private readonly recoveryHistory: RecoveryContext[] = [];
+  private readonly maxHistory = 100;
+  private readonly strategyStats: Map<StrategyType, { attempts: number; successes: number }> = new Map();
 
   constructor() {
     Object.values(StrategyType).forEach(s => {

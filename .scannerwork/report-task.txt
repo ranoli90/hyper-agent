@@ -1,0 +1,7 @@
+organization=ranoli90
+projectKey=ranoli90_hyper-agent
+serverUrl=https://sonarcloud.io
+serverVersion=8.0.0.81686
+dashboardUrl=https://sonarcloud.io/dashboard?id=ranoli90_hyper-agent
+ceTaskId=AZyD-AyYEvRUB9GawSjc
+ceTaskUrl=https://sonarcloud.io/api/ce/task?id=AZyD-AyYEvRUB9GawSjc

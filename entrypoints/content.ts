@@ -60,10 +60,7 @@ function createVisualCursor() {
 }
 
 function moveVisualCursor(x: number, y: number) {
-  let cursor = document.getElementById('hyperagent-visual-cursor');
-  if (!cursor) {
-    cursor = createVisualCursor();
-  }
+  let cursor = document.getElementById('hyperagent-visual-cursor') ?? createVisualCursor();
   
   cursor.style.left = `${x - 10}px`;
   cursor.style.top = `${y - 10}px`;
@@ -77,7 +74,7 @@ function hideVisualCursor() {
   }
 }
 function safeKey(key: string, max = 32): string {
-  const s = (key || '').slice(0, max);
+  const s = (key ?? '').slice(0, max);
   return /^[\w\-\s]+$/.test(s) ? s : 'Unidentified';
 }
 
@@ -211,7 +208,7 @@ export default defineContentScript({
 
       // Meta description
       const metaDesc = document.querySelector('meta[name="description"]');
-      const metaDescription = metaDesc?.getAttribute('content')?.slice(0, 300) || '';
+      const metaDescription = metaDesc?.getAttribute('content')?.slice(0, 300) ?? '';
 
       // Form count
       const formCount = document.querySelectorAll('form').length;
@@ -399,9 +396,9 @@ export default defineContentScript({
           const idx = parseInt(value, 10);
           // First try the WeakRef registry
           const ref = indexedElements.get(idx);
-          if (ref) {
+          if (ref?.deref()) {
             const el = ref.deref();
-            if (el && el.isConnected) return el;
+            if (el?.isConnected) return el;
           }
           // Fallback to data attribute
           const el = document.querySelector(`[data-ha-index="${idx}"]`);
@@ -432,7 +429,7 @@ export default defineContentScript({
           const lower = value.toLowerCase();
           const matches: HTMLElement[] = [];
           all.forEach((el) => {
-            const label = el.getAttribute('aria-label')?.toLowerCase() || '';
+            const label = el.getAttribute('aria-label')?.toLowerCase() ?? '';
             if (label.includes(lower)) matches.push(el as HTMLElement);
           });
           return matches[index ?? 0] || null;
@@ -516,13 +513,13 @@ export default defineContentScript({
       let targetRole = '';
 
       if (typeof originalLocator === 'object') {
-        searchText = originalLocator.value || '';
+        searchText = originalLocator.value ?? '';
         if (originalLocator.strategy === 'role') targetRole = searchText;
       } else if (typeof originalLocator === 'string') {
         searchText = originalLocator;
       }
 
-      const desc = ((action as any).description || '').toLowerCase();
+      const desc = ((action as any).description ?? '').toLowerCase();
       const actionKeywords = extractKeywords(desc);
 
       // Try fuzzy text match
@@ -759,7 +756,7 @@ export default defineContentScript({
 
       // Check if we've exceeded max retries
       const actionKey = `${action.type}-${JSON.stringify(action).slice(0, 50)}`;
-      const currentAttempts = activeRecoveryAttempts.get(actionKey) || 0;
+      const currentAttempts = activeRecoveryAttempts.get(actionKey) ?? 0;
 
       if (currentAttempts >= strategy.maxRetries) {
         console.log(`[HyperAgent] Max retries exceeded for strategy: ${strategy.name}`);
@@ -1115,9 +1112,9 @@ export default defineContentScript({
             const applyFilter = (data: string): string => {
               if (!filter) return data;
               if (!isSafeRegex(filter)) return data; // Unsafe/invalid pattern ignored
-              try {
+            try {
                 const regex = new RegExp(filter, 'gi');
-                const matches = data.match(regex);
+                const matches = regex.exec(data);
                 return matches ? matches.join('\n') : '';
               } catch {
                 return data; // Invalid regex, return raw data
@@ -1296,7 +1293,7 @@ export default defineContentScript({
             case 'captureScreenshot': {
               try {
                 const resp = await chrome.runtime.sendMessage({ type: 'captureScreenshot' } as any);
-                const dataUrl = resp?.dataUrl || '';
+                const dataUrl = resp?.dataUrl ?? '';
                 return { type: 'captureScreenshotResponse', dataUrl };
               } catch {
                 return { type: 'captureScreenshotResponse', dataUrl: '' };

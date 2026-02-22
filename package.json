@@ -21,7 +21,9 @@
     "lint:fix": "eslint . --ext .ts,.tsx,.js,.jsx --fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "tsc --noEmit",
-    "test:all": "npm run test:unit && npm run test"
+    "test:all": "npm run test:unit && npm run test",
+    "test:coverage": "vitest run --coverage",
+    "sonar": "node sonarqube-scanner.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -39,6 +41,7 @@
     "globals": "^17.3.0",
     "postcss": "^8.5.6",
     "prettier": "^3.2.5",
+    "sonarqube-scanner": "^4.3.4",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.5.0",
     "vitest": "^4.0.18",

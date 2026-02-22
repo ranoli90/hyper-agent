@@ -247,7 +247,7 @@ export function parseIntent(command: string): CommandIntent[] {
         try {
           const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           const regex = new RegExp(`${escaped}\\s+(.+)`,'i');
-          const match = normalized.match(regex);
+          const match = regex.exec(normalized);
           if (match && match[1]) {
             target = match[1].trim();
             break;
@@ -282,7 +282,7 @@ export function parseIntent(command: string): CommandIntent[] {
   // If no patterns matched, treat entire command as a target for navigate/search
   if (intents.length === 0) {
     // Check if it looks like a URL
-    const isUrl = normalized.match(/^https?:\/\//) || normalized.match(/\.(com|org|net|edu|gov|io|co)/);
+    const isUrl = /^https?:\/\//.test(normalized) || /\.(com|org|net|edu|gov|io|co)/.test(normalized);
     if (isUrl) {
       intents.push({
         action: 'navigate',

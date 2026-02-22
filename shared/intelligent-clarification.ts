@@ -56,11 +56,11 @@ export interface ClarificationExchange {
 export type WorkflowResult = Record<string, unknown>;
 
 export class IntelligentClarificationEngine {
-  private clarificationContexts: Map<string, ClarificationContext> = new Map();
+  private readonly clarificationContexts: Map<string, ClarificationContext> = new Map();
   private readonly MAX_CONTEXTS = 50; // Limit active clarification sessions
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
   private readonly MAX_CLARIFICATION_ROUNDS = 10; // Prevent infinite clarification loops
-  private metrics: ClarificationMetrics = {
+  private readonly metrics: ClarificationMetrics = {
     totalSessions: 0,
     successfulClarifications: 0,
     failedClarifications: 0,
@@ -442,9 +442,7 @@ export class IntelligentClarificationEngine {
   private cleanupExpiredSessions(): void {
     const cutoff = Date.now() - 30 * 60 * 1000;
     for (const [sessionId, context] of this.clarificationContexts) {
-      const lastActivity = context.conversationHistory.length > 0
-        ? context.conversationHistory[context.conversationHistory.length - 1].timestamp
-        : 0;
+      const lastActivity = context.conversationHistory.at(-1)?.timestamp ?? 0;
       if (lastActivity < cutoff) {
         this.clarificationContexts.delete(sessionId);
       }
@@ -460,13 +458,13 @@ export class IntelligentClarificationEngine {
 
     // Extract information from command using pattern matching and NLP
     const extractors: Record<string, (text: string) => string | undefined> = {
-      year: (text: string) => text.match(/(?:19|20)\d{2}/)?.[0],
+      year: (text: string) => /(?:19|20)\d{2}/.exec(text)?.[0],
       mileage: (text: string) =>
-        text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
-      price: (text: string) => text.match(/\$[\d,]+(?:\.\d{2})?/)?.[0],
+        /\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i.exec(text)?.[0],
+      price: (text: string) => /\$[\d,]+(?:\.\d{2})?/.exec(text)?.[0],
       phone: (text: string) =>
-        text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
-      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
+        /(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/.exec(text)?.[0],
+      email: (text: string) => /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.exec(text)?.[0],
     };
 
     // Apply extractors
@@ -500,7 +498,7 @@ export class IntelligentClarificationEngine {
     };
 
     for (const [field, pattern] of Object.entries(carPatterns)) {
-      const match = text.match(pattern);
+      const match = pattern.exec(text);
       if (match) {
         carInfo.set(field, match[0]);
       }
@@ -656,13 +654,13 @@ export class IntelligentClarificationEngine {
 
     // Apply the same extractors as before
     const extractors = {
-      year: (text: string) => text.match(/(?:19|20)\d{2}/)?.[0],
+      year: (text: string) => /(?:19|20)\d{2}/.exec(text)?.[0],
       mileage: (text: string) =>
-        text.match(/\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i)?.[0],
-      price: (text: string) => text.match(/\$[\d,]+(?:\.\d{2})?/)?.[0],
+        /\d{1,3}(?:,?\d{3})*\s*(?:miles?|km|kilometers?)/i.exec(text)?.[0],
+      price: (text: string) => /\$[\d,]+(?:\.\d{2})?/.exec(text)?.[0],
       phone: (text: string) =>
-        text.match(/(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/)?.[0],
-      email: (text: string) => text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0],
+        /(\+?\d{1,3}[-.\s]?)?\(?(\d{3})\)?[-.\s]?(\d{3})[-.\s]?(\d{4})/.exec(text)?.[0],
+      email: (text: string) => /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/.exec(text)?.[0],
     };
 
     for (const [field, extractor] of Object.entries(extractors)) {

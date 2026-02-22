@@ -11,9 +11,9 @@ async function handleStripePaymentReturn(): Promise<void> {
   const params = new URLSearchParams(window.location.search);
 
   if (hash.includes('payment_success') || params.has('payment_success')) {
-    const tier = (params.get('tier') || hash.match(/tier=([^&]+)/)?.[1]) as SubscriptionTier | null;
-    const customerId = params.get('customerId') || hash.match(/customerId=([^&]+)/)?.[1];
-    const subscriptionId = params.get('subscriptionId') || hash.match(/subscriptionId=([^&]+)/)?.[1];
+  const tier = (params.get('tier') || /tier=([^&]+)/.exec(hash)?.[1]) as SubscriptionTier | null;
+  const customerId = params.get('customerId') || /customerId=([^&]+)/.exec(hash)?.[1];
+  const subscriptionId = params.get('subscriptionId') || /subscriptionId=([^&]+)/.exec(hash)?.[1];
 
     if (tier && (tier === 'premium' || tier === 'unlimited')) {
       await chrome.storage.local.set({
@@ -545,8 +545,8 @@ function attachDangerZoneHandlers() {
 
     await storageRemove(keysToRemove);
     const allItems = await storageGet(null);
-    const keysToDelete = Object.entries(allItems)
-      .filter(([, value]) => typeof value === 'string' && /anthropic|claude/i.test(value as string))
+const keysToDelete = Object.entries(allItems)
+      .filter(([, value]) => typeof value === 'string' && /anthropic|claude/i.test(value))
       .map(([key]) => key);
 
     if (keysToDelete.length) {

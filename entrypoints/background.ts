@@ -199,9 +199,9 @@ const usageTracker = new UsageTracker();
  */
 class StructuredLogger {
   /** Current logging level threshold */
-  private logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
+  private readonly logLevel: 'debug' | 'info' | 'warn' | 'error' = 'info';
   /** Maximum number of log entries to retain */
-  private maxEntries = 1000;
+  private readonly maxEntries = 1000;
   /** Circular buffer of log entries */
   private logEntries: LogEntry[] = [];
 
@@ -281,7 +281,7 @@ function safeInlineText(str: string, max = 500): string {
  */
 class MessageRateLimiter {
   /** Rate limit tracking per sender */
-  private messageCounts = new Map<string, { count: number; resetTime: number }>();
+  private readonly messageCounts = new Map<string, { count: number; resetTime: number }>();
   /** Maximum messages allowed per minute per sender */
   private readonly maxMessagesPerMinute = 120; // Reasonable limit for extension
   /** Rate limit window duration in milliseconds */
@@ -369,7 +369,7 @@ class AgentStateManager {
 
   // Recovery state
   /** Tracks recovery attempts per action to prevent infinite loops */
-  private recoveryAttempts = new Map<
+  private readonly recoveryAttempts = new Map<
     string,
     { attempt: number; strategy: string; timestamp: number }
   >();
@@ -737,28 +737,28 @@ billingManager.initialize().catch(e => console.warn('[Billing] init failed', e))
  */
 function validateExtensionMessage(message: any): message is ExtensionMessage {
   if (!message || typeof message !== 'object') return false;
-  const { type } = message as any;
+  const { type } = message;
   if (typeof type !== 'string') return false;
 
   switch (type) {
     case 'executeCommand': {
-      const cmd = (message as any).command;
-      const scheduled = (message as any).scheduled;
+      const cmd = message.command;
+      const scheduled = message.scheduled;
       return (
         typeof cmd === 'string' &&
         cmd.trim().length > 0 &&
         cmd.length <= 10000 &&
-        ((message as any).useAutonomous === undefined ||
-          typeof (message as any).useAutonomous === 'boolean') &&
+        (message.useAutonomous === undefined ||
+          typeof message.useAutonomous === 'boolean') &&
         (scheduled === undefined || typeof scheduled === 'boolean')
       );
     }
     case 'stopAgent':
       return true;
     case 'confirmResponse':
-      return typeof (message as any).confirmed === 'boolean';
+      return typeof message.confirmed === 'boolean';
     case 'userReply': {
-      const reply = (message as any).reply;
+      const reply = message.reply;
       return typeof reply === 'string' && reply.length <= 10000;
     }
     case 'getAgentStatus':
@@ -766,7 +766,7 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'getMetrics':
       return true;
     case 'contextMenuCommand': {
-      const cmd = (message as any).command;
+      const cmd = message.command;
       return typeof cmd === 'string' && cmd.trim().length > 0 && cmd.length <= 10000;
     }
     case 'captureScreenshot':
@@ -777,11 +777,11 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'listSnapshots':
       return true;
     case 'clearSnapshot': {
-      const cTaskId = (message as any).taskId;
+      const cTaskId = message.taskId;
       return cTaskId === undefined || (typeof cTaskId === 'string' && cTaskId.length > 0 && cTaskId.length <= 256);
     }
     case 'resumeSnapshot': {
-      const taskId = (message as any).taskId;
+      const taskId = message.taskId;
       return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= 256;
     }
     case 'getGlobalLearningStats':
@@ -794,14 +794,13 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'cancelSubscription':
       return true;
     case 'executeTool': {
-      const tMsg = message as any;
-      const toolId = tMsg.toolId;
-      const params = tMsg.params;
+      const toolId = message.toolId;
+      const params = message.params;
       return typeof toolId === 'string' && toolId.length > 0 && toolId.length <= 64 &&
         (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)));
     }
     case 'parseIntent': {
-      const pCmd = (message as any).command;
+      const pCmd = message.command;
       return typeof pCmd === 'string' && pCmd.length <= 10000;
     }
     case 'getAPICache':
@@ -818,21 +817,20 @@ function validateExtensionMessage(message: any): message is ExtensionMessage {
     case 'sanitizeUrl':
     case 'sanitizeBatch':
     case 'toggleScheduledTask': {
-      const tMsg = message as any;
-      const tId = tMsg.taskId;
+      const tId = message.taskId;
       return typeof tId === 'string' && tId.length > 0 && tId.length <= 256 &&
-        (tMsg.enabled === undefined || typeof tMsg.enabled === 'boolean');
+        (message.enabled === undefined || typeof message.enabled === 'boolean');
     }
     case 'deleteScheduledTask': {
-      const dId = (message as any).taskId;
+      const dId = message.taskId;
       return typeof dId === 'string' && dId.length > 0 && dId.length <= 256;
     }
     case 'installWorkflow': {
-      const wfId = (message as any).workflowId;
+      const wfId = message.workflowId;
       return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= 64;
     }
     case 'activateLicenseKey': {
-      const key = (message as any).key;
+      const key = message.key;
       return typeof key === 'string' && key.length > 0 && key.length <= 256;
     }
     case 'openCheckout':
@@ -2168,7 +2166,7 @@ export default defineBackground(() => {
           agentState.logRecoveryOutcome(
             action,
             errorType || 'UNKNOWN',
-            recoveryStrategy.strategy!,
+            recoveryStrategy.strategy,
             'recovered'
           );
           agentState.clearRecoveryAttempt(action);
@@ -2190,7 +2188,7 @@ export default defineBackground(() => {
         agentState.logRecoveryOutcome(
           action,
           errorType || 'UNKNOWN',
-          recoveryStrategy.strategy!,
+          recoveryStrategy.strategy ?? 'injection-failed',
           'injection-failed'
         );
         agentState.clearRecoveryAttempt(action);

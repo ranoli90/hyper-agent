@@ -103,7 +103,7 @@ class RateLimiter {
 class CostTracker {
   private sessionTokens = 0;
   private sessionCost = 0;
-  private warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
+  private readonly warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
 
   trackCost(_model: string, usage: any): void {
     if (usage?.total_tokens) {
@@ -249,7 +249,7 @@ function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentT
   if (isSimple && !multiStep) complexity = 'simple';
   if (isComplex || multiStep || stepCount > 5) complexity = 'complex';
   
-  const actionMatch = commandLower.match(/^(click|type|fill|scroll|navigate|extract|press|select|hover|focus)/);
+  const actionMatch = /^(click|type|fill|scroll|navigate|extract|press|select|hover|focus)/.exec(commandLower);
   const actionType = actionMatch ? actionMatch[1] : 'unknown';
   
   return {
@@ -351,9 +351,9 @@ interface CachedResponse {
 }
 
 class SemanticCache {
-  private cache = new Map<string, CachedResponse>();
-  private maxSize = 50;
-  private similarityThreshold = 0.95;
+  private readonly cache = new Map<string, CachedResponse>();
+  private readonly maxSize = 50;
+  private readonly similarityThreshold = 0.95;
   
   async get(query: string, getEmbedding: (text: string) => Promise<number[]>): Promise<CachedResponse | null> {
     if (this.cache.size === 0) return null;
@@ -666,7 +666,7 @@ function extractJSON(text: string): unknown {
   }
 
   // Try stripping markdown code fences
-  const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  const fenceMatch = /```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/.exec(trimmed);
   if (fenceMatch) {
     try {
       return JSON.parse(fenceMatch[1].trim());
@@ -889,8 +889,8 @@ function validateResponse(raw: unknown): LLMResponse {
 
 // ─── Enhanced LLM Client with Autonomous Intelligence ─────────────────
 export class EnhancedLLMClient implements LLMClientInterface {
-  private cache = new Map<string, any>();
-  private swarmCoordinator: SwarmCoordinator;
+  private readonly cache = new Map<string, any>();
+  private readonly swarmCoordinator: SwarmCoordinator;
 
   constructor() {
     this.swarmCoordinator = new SwarmCoordinator();

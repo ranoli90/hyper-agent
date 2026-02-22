@@ -1180,7 +1180,7 @@ function loadVisionTab() {
 
   if (!visionContainer || !visionOverlays) return;
 
-  if (components.visionSnapshot && components.visionSnapshot.src && components.visionSnapshot.src !== '') {
+  if (components.visionSnapshot?.src && components.visionSnapshot.src !== '') {
     components.visionSnapshot.classList.remove('hidden');
     components.visionPlaceholder.classList.add('hidden');
   }
@@ -1601,7 +1601,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
         message.actions.forEach((action: any) => {
           if (action && typeof action === 'object') {
             const li = document.createElement('li');
-            const desc = (action as any).description || `${action.type} action`;
+            const desc = action.description ?? `${action.type} action`;
             li.textContent = typeof desc === 'string' ? desc : 'Unknown action';
             components.confirmList.appendChild(li);
           }

@@ -41,12 +41,12 @@ export interface MemoryConfig {
 export class MemoryManager {
   private config: MemoryConfig;
   private snapshots: MemorySnapshot[] = [];
-  private detectedLeaks: Map<string, MemoryLeak> = new Map();
-  private eventListeners = new WeakMap<object, Set<string>>();
-  private timers = new Set<number>();
-  private intervals = new Set<number>();
-  private observers = new Set<MutationObserver | IntersectionObserver | PerformanceObserver>();
-  private weakRefs = new Set<WeakRef<object>>();
+  private readonly detectedLeaks: Map<string, MemoryLeak> = new Map();
+  private readonly eventListeners = new WeakMap<object, Set<string>>();
+  private readonly timers = new Set<number>();
+  private readonly intervals = new Set<number>();
+  private readonly observers = new Set<MutationObserver | IntersectionObserver | PerformanceObserver>();
+  private readonly weakRefs = new Set<WeakRef<object>>();
   private monitoringInterval?: ReturnType<typeof setInterval>;
   private cleanupInterval?: ReturnType<typeof setInterval>;
   private leakCheckInterval?: ReturnType<typeof setInterval>;

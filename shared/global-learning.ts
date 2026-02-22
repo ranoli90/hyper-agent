@@ -32,9 +32,9 @@ const PATTERN_MIN_OCCURRENCES = 3;
 const PATTERN_MIN_SUCCESS_RATE = 0.6;
 
 class GlobalLearningImpl {
-  private patterns: Map<string, GlobalPattern> = new Map();
+  private readonly patterns: Map<string, GlobalPattern> = new Map();
   private lastSync: number = 0;
-  private syncInterval: number = 60 * 60 * 1000; // 1 hour
+  private readonly syncInterval: number = 60 * 60 * 1000; // 1 hour
   private version: string = '1.0.0';
 
   constructor() {

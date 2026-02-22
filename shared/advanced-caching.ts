@@ -37,8 +37,8 @@ export interface CacheStats {
 }
 
 export class AdvancedCache<T = any> {
-  private memoryCache = new Map<string, CacheEntry<T>>();
-  private persistentCache = new Map<string, CacheEntry<T>>();
+  private readonly memoryCache = new Map<string, CacheEntry<T>>();
+  private readonly persistentCache = new Map<string, CacheEntry<T>>();
   protected config: CacheConfig;
   private stats = {
     hits: 0,
@@ -314,7 +314,7 @@ export class AdvancedCache<T = any> {
       case 'lru':
         // Least Recently Used
         entriesToEvict = entries
-          .sort(([, a], [, b]) => a.lastAccessed - b.lastAccessed)
+          .toSorted(([, a], [, b]) => a.lastAccessed - b.lastAccessed)
           .slice(0, Math.ceil(entries.length * 0.1)) // Evict 10%
           .map(([key]) => key);
         break;
@@ -322,7 +322,7 @@ export class AdvancedCache<T = any> {
       case 'lfu':
         // Least Frequently Used
         entriesToEvict = entries
-          .sort(([, a], [, b]) => a.accessCount - b.accessCount)
+          .toSorted(([, a], [, b]) => a.accessCount - b.accessCount)
           .slice(0, Math.ceil(entries.length * 0.1))
           .map(([key]) => key);
         break;
@@ -335,7 +335,7 @@ export class AdvancedCache<T = any> {
       case 'size':
         // Largest entries
         entriesToEvict = entries
-          .sort(([, a], [, b]) => b.size - a.size)
+          .toSorted(([, a], [, b]) => b.size - a.size)
           .slice(0, Math.ceil(entries.length * 0.1))
           .map(([key]) => key);
         break;
@@ -797,7 +797,7 @@ export const generalCache = new AdvancedCache({
 
 // ─── Cache Manager for Orchestrating Multiple Caches ──────────────────
 export class CacheManager {
-  private caches = new Map<string, AdvancedCache>();
+  private readonly caches = new Map<string, AdvancedCache>();
 
   registerCache(name: string, cache: AdvancedCache): void {
     this.caches.set(name, cache);
