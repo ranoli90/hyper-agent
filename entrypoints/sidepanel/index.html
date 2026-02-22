@@ -707,7 +707,7 @@
         secondaryBtns.forEach(btn => {
           btn.addEventListener('click', (e) => {
             const target = e.target.dataset.target;
-            const correspondingPrimary = document.querySelector(\`#tabs-nav .tab-btn[data-tab="\${target}"]\`);
+            const correspondingPrimary = document.querySelector(`#tabs-nav .tab-btn[data-tab="${target}"]`);
             if (correspondingPrimary) correspondingPrimary.click();
           });
         });
