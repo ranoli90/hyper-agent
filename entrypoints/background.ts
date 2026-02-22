@@ -96,17 +96,26 @@ class UsageTracker {
   };
 
   private saveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private loadPromise: Promise<void> | null = null;
+  private initialized = false;
 
   async loadMetrics(): Promise<void> {
-    try {
-      const data = await chrome.storage.local.get('usage_metrics');
-      if (data.usage_metrics) {
-        this.metrics = { ...this.metrics, ...data.usage_metrics };
-        this.checkMonthlyReset();
+    if (this.initialized && this.loadPromise) return this.loadPromise;
+    this.loadPromise = (async () => {
+      try {
+        const data = await chrome.storage.local.get('usage_metrics');
+        if (data.usage_metrics) {
+          this.metrics = { ...this.metrics, ...data.usage_metrics };
+          this.checkMonthlyReset();
+        }
+        this.initialized = true;
+      } catch (err) {
+        console.warn('[UsageTracker] Failed to load metrics:', err);
+        this.loadPromise = null;
+        throw err;
       }
-    } catch (err) {
-      console.warn('[UsageTracker] Failed to load metrics:', err);
-    }
+    })();
+    return this.loadPromise;
   }
 
   async saveMetrics(): Promise<void> {
@@ -138,6 +147,7 @@ class UsageTracker {
   }
 
   trackAction(_actionType: string): void {
+    this.checkMonthlyReset();
     this.metrics.actionsExecuted++;
     this.metrics.monthlyUsage.actions++;
     this.metrics.lastActivity = Date.now();
@@ -145,6 +155,7 @@ class UsageTracker {
   }
 
   trackAutonomousSession(duration: number): void {
+    this.checkMonthlyReset();
     this.metrics.autonomousSessions++;
     this.metrics.totalSessionTime += duration;
     this.metrics.monthlyUsage.sessions++;
@@ -194,6 +205,26 @@ class UsageTracker {
 }
 
 const usageTracker = new UsageTracker();
+
+// ─── Agent Loop Lock (Issue #14) ─────────────────────────────────────
+let agentLoopRunning = false;
+
+// ─── Original Tab Titles (Issue #12, #18) ────────────────────────────
+const originalTabTitles = new Map<number, string>();
+
+function saveOriginalTabTitle(tabId: number, title: string): void {
+  if (!originalTabTitles.has(tabId)) {
+    originalTabTitles.set(tabId, title);
+  }
+}
+
+function getOriginalTabTitle(tabId: number): string {
+  return originalTabTitles.get(tabId) || 'HyperAgent';
+}
+
+function clearOriginalTabTitle(tabId: number): void {
+  originalTabTitles.delete(tabId);
+}
 
 // ─── Enhanced Background Script with Production Features ─────────────────
 
@@ -736,7 +767,13 @@ initializePersistentAutonomous();
 usageTracker.loadMetrics();
 
 // Initialize billing manager so subscription state is available
-await billingManager.initialize().catch(e => console.warn('[Billing] init failed', e));
+(async () => {
+  try {
+    await billingManager.initialize();
+  } catch (e) {
+    console.warn('[Billing] init failed', e);
+  }
+})();
 
 // ─── Input validation ───────────────────────────────────────────────────
 
@@ -907,9 +944,15 @@ export default defineBackground(() => {
     5 * 60 * 1000
   ); // Every 5 minutes
 
-  // ─── Tab closed during agent: abort and notify (13.6) ─────────────
+  // ─── Tab closed during agent: abort and notify (Issue #66) ─────────────
   chrome.tabs.onRemoved.addListener((closedTabId) => {
-    if (!agentState.isRunning || agentState.currentAgentTabId !== closedTabId) return;
+    // Only act if this is the current agent tab
+    if (agentState.currentAgentTabId !== closedTabId) return;
+    if (!agentState.isRunning) return;
+    
+    // Clear saved title for this tab
+    clearOriginalTabTitle(closedTabId);
+    
     agentState.setAborted(true);
     if (agentState.hasPendingConfirm) agentState.resolveConfirm(false);
     if (agentState.hasPendingReply) agentState.resolveReply('');
@@ -923,6 +966,9 @@ export default defineBackground(() => {
   });
 
   // ─── On install: configure side panel ───────────────────────────
+  // Track intervals for cleanup (Issue #27)
+  const backgroundIntervals: Set<ReturnType<typeof setInterval>> = new Set();
+
   chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
       await chrome.storage.local.set({ hyperagent_show_onboarding: true });
@@ -935,8 +981,8 @@ export default defineBackground(() => {
         .fetchGlobalWisdom()
         .catch(e => logger.log('error', 'Global learning fetch failed', e));
 
-      // Set up periodic sync
-      globalThis.setInterval(
+      // Set up periodic sync with tracked interval (Issue #27)
+      const globalLearningInterval = globalThis.setInterval(
         () => {
           globalLearning
             .publishPatterns()
@@ -947,6 +993,7 @@ export default defineBackground(() => {
         },
         1000 * 60 * 60
       ); // Every hour
+      backgroundIntervals.add(globalLearningInterval);
 
       logger.log('info', 'HyperAgent background initialized');
       // Check storage quota on startup
@@ -1062,7 +1109,19 @@ export default defineBackground(() => {
    * This uses Tree of Thoughts reasoning, advanced planning, and adaptive learning.
    */
   async function runAutonomousLoop(command: string) {
-    if (agentState.isRunning) return;
+    // Prevent concurrent execution (Issue #14)
+    if (agentLoopRunning) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Agent is already running. Please wait for the current task to complete.',
+        success: false,
+        stepsUsed: 0,
+      });
+      return;
+    }
+
+    // Load metrics first to ensure current usage data (Issue #16)
+    await usageTracker.loadMetrics();
 
     // Check autonomous mode access via billing
     const autoUsage = usageTracker.getCurrentUsage();
@@ -1096,6 +1155,33 @@ export default defineBackground(() => {
     const tabId = await getActiveTabId();
     agentState.setCurrentAgentTabId(tabId);
     const tab = await chrome.tabs.get(tabId);
+    
+    // Save original title (Issue #12)
+    saveOriginalTabTitle(tabId, tab.title || 'HyperAgent');
+
+    // Check domain blacklist for autonomous mode (Issue #29)
+    const pageUrl = tab.url || '';
+    if (pageUrl && isSiteBlacklisted(pageUrl, settings.siteBlacklist)) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Site blacklisted.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+    const domainAllowed = await checkDomainAllowed(pageUrl);
+    if (!domainAllowed) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Domain not allowed by privacy settings.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
 
     try {
       // 1. Initialize Autonomous Engine with Callbacks
@@ -1112,6 +1198,8 @@ export default defineBackground(() => {
           return await askUserConfirmation(actions, step, summary);
         },
         executeAction: async action => {
+          // Track each action executed in autonomous mode (Issue #11)
+          usageTracker.trackAction(action.type);
           return await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
         },
         captureScreenshot: async () => {
@@ -1190,8 +1278,19 @@ export default defineBackground(() => {
         stepsUsed: 0,
       });
     } finally {
+      // Restore tab title (Issue #12)
+      const savedTitle = getOriginalTabTitle(tabId);
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (title: string) => { document.title = title; },
+          args: [savedTitle]
+        });
+      } catch {}
+      clearOriginalTabTitle(tabId);
+      
       agentState.setRunning(false);
-      // Track session usage
+      // Track session usage even on failure (Issue #17)
       const sessionDuration = Date.now() - sessionStart;
       usageTracker.trackAutonomousSession(sessionDuration);
     }
@@ -1298,6 +1397,20 @@ export default defineBackground(() => {
         }
         if (agentState.hasPendingReply) {
           agentState.resolveReply('');
+        }
+        const stopTabId = agentState.currentAgentTabId;
+        if (stopTabId) {
+          const originalTitle = getOriginalTabTitle(stopTabId);
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: stopTabId },
+              func: (title: string) => { document.title = title; },
+              args: [originalTitle]
+            });
+            clearOriginalTabTitle(stopTabId);
+          } catch (err) {
+            logger.log('warn', 'Failed to restore tab title on stop', { error: err });
+          }
         }
         return { ok: true };
       }
@@ -1445,16 +1558,21 @@ export default defineBackground(() => {
       case 'openCheckout': {
         const msg = message as any;
         const result = await billingManager.openCheckout(msg.tier || 'beta');
+        if (result.success) {
+          usageTracker.setSubscriptionTier(billingManager.getTierMapping());
+        }
         return { ok: result.success, error: result.error };
       }
 
       case 'cancelSubscription': {
         await billingManager.cancelSubscription();
+        usageTracker.setSubscriptionTier(billingManager.getTierMapping());
         return { ok: true };
       }
 
       case 'verifySubscription': {
         const valid = await billingManager.verifySubscription();
+        usageTracker.setSubscriptionTier(billingManager.getTierMapping());
         return { ok: true, valid, state: billingManager.getState() };
       }
 
@@ -1789,12 +1907,35 @@ export default defineBackground(() => {
   }
 
   /** Returns full data URL for display, or raw base64 for LLM/context (legacy). Use format: 'dataUrl' for img.src, 'base64' for context. */
-  async function captureScreenshot(outputFormat: 'dataUrl' | 'base64' = 'base64'): Promise<string> {
+  async function captureScreenshot(outputFormat: 'dataUrl' | 'base64' = 'base64', tabId?: number): Promise<string> {
     try {
-      const dataUrl = await chrome.tabs.captureVisibleTab(undefined as any, {
+      const targetTabId = tabId ?? agentState.currentAgentTabId ?? await getActiveTabId();
+      const targetTab = await chrome.tabs.get(targetTabId);
+      if (!targetTab.windowId) {
+        throw new Error('Target tab has no windowId');
+      }
+
+      const [previousActive] = await chrome.tabs.query({ active: true, windowId: targetTab.windowId });
+      const previousActiveId = previousActive?.id;
+      const needsFocus = previousActiveId !== targetTabId;
+
+      if (needsFocus) {
+        await chrome.tabs.update(targetTabId, { active: true });
+        await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
+        await waitForTabLoad(targetTabId);
+        // Give Chrome a moment to paint the activated tab
+        await delay(200);
+      }
+
+      const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId, {
         format: 'jpeg',
         quality: 60,
       });
+
+      if (needsFocus && previousActiveId && previousActiveId !== targetTabId) {
+        await chrome.tabs.update(previousActiveId, { active: true }).catch(() => {});
+      }
+
       if (outputFormat === 'dataUrl') return dataUrl;
       return dataUrl.replace(/^data:image\/\w+;base64,/, '');
     } catch (err) {
@@ -1847,11 +1988,19 @@ export default defineBackground(() => {
         summary,
       } as MsgConfirmActions);
 
-      globalThis.setTimeout(() => {
+      // Store timeout ID so we can clear it when confirmation is resolved (Issue #70)
+      const timeoutId = globalThis.setTimeout(() => {
         if (agentState.hasPendingConfirm) {
           agentState.resolveConfirm(false);
         }
       }, DEFAULTS.CONFIRM_TIMEOUT_MS);
+      
+      // Clear timeout if confirmation is resolved before timeout fires
+      const originalResolver = agentState['state'].pendingConfirmResolve;
+      agentState.setConfirmResolver((confirmed: boolean) => {
+        globalThis.clearTimeout(timeoutId);
+        if (originalResolver) originalResolver(confirmed);
+      });
     });
   }
 
@@ -1860,11 +2009,19 @@ export default defineBackground(() => {
       agentState.setReplyResolver(resolve);
       sendToSidePanel({ type: 'askUser', question });
 
-      globalThis.setTimeout(() => {
+      // Store timeout ID so we can clear it when reply is resolved (Issue #70)
+      const timeoutId = globalThis.setTimeout(() => {
         if (agentState.hasPendingReply) {
           agentState.resolveReply('');
         }
       }, 120000); // 2 min timeout for user replies
+      
+      // Clear timeout if reply is resolved before timeout fires
+      const originalResolver = agentState['state'].pendingUserReplyResolve;
+      agentState.setReplyResolver((reply: string) => {
+        globalThis.clearTimeout(timeoutId);
+        if (originalResolver) originalResolver(reply);
+      });
     });
   }
 
@@ -1919,9 +2076,47 @@ async function validateActionPermissions(action: Action, pageUrl?: string): Prom
   return null;
 }
 
+// Validate URL for navigation (Issue #71)
+function isValidNavigationUrl(url: string): { valid: boolean; error?: string } {
+  if (!url || typeof url !== 'string') {
+    return { valid: false, error: 'URL is required' };
+  }
+  
+  // Allow relative URLs and common protocols
+  const allowedProtocols = ['http:', 'https:', 'chrome:', 'chrome-extension:', 'about:'];
+  
+  try {
+    // Try to parse as absolute URL
+    const parsed = new URL(url);
+    if (!allowedProtocols.includes(parsed.protocol)) {
+      return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed for navigation` };
+    }
+    return { valid: true };
+  } catch {
+    // If it fails to parse, check if it's a relative URL or looks like a domain
+    if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
+      return { valid: true }; // Relative URLs are OK
+    }
+    // Check if it looks like a domain (no protocol, has dots or is localhost)
+    if (/^[\w.-]+(:\d+)?(\/.*)?$/.test(url) || url === 'about:blank') {
+      return { valid: true };
+    }
+    return { valid: false, error: 'Invalid URL format' };
+  }
+}
+
 async function handleNavigationActions(action: Action, tabId: number): Promise<ActionResult | null> {
   switch (action.type) {
-    case 'navigate':
+    case 'navigate': {
+      // Validate URL before navigation (Issue #71)
+      const urlValidation = isValidNavigationUrl(action.url);
+      if (!urlValidation.valid) {
+        return {
+          success: false,
+          error: `Invalid URL: ${urlValidation.error}`,
+          errorType: 'NAVIGATION_ERROR' as ErrorType,
+        };
+      }
       try {
         await chrome.tabs.update(tabId, { url: action.url });
         await waitForTabLoad(tabId);
@@ -1933,6 +2128,7 @@ async function handleNavigationActions(action: Action, tabId: number): Promise<A
           errorType: 'NAVIGATION_ERROR' as ErrorType,
         };
       }
+    }
     case 'goBack':
       try {
         await chrome.tabs.goBack(tabId);
@@ -2292,21 +2488,80 @@ async function handleAutoRetry(
 
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string) {
+    // Prevent concurrent execution (Issue #14)
+    if (agentLoopRunning) {
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'Agent is already running. Please wait for the current task to complete.',
+        success: false,
+        stepsUsed: 0,
+      });
+      return;
+    }
+
     // Initialize agent state
     agentState.setRunning(true);
     agentState.setAborted(false);
     
-    // Change tab title to HyperAgent by executing a content script
+    // Get current tab info before starting
     const currentTabId = await getActiveTabId();
     const currentTab = await chrome.tabs.get(currentTabId);
     const originalTitle = currentTab.title || 'HyperAgent';
     
+    // Save original title for proper restoration (Issue #12)
+    saveOriginalTabTitle(currentTabId, originalTitle);
+    
+    // Helper to restore tab title on any exit
+    const restoreTabTitle = async () => {
+      try {
+        const savedTitle = getOriginalTabTitle(currentTabId);
+        await chrome.scripting.executeScript({
+          target: { tabId: currentTabId },
+          func: (title: string) => { document.title = title; },
+          args: [savedTitle]
+        });
+        clearOriginalTabTitle(currentTabId);
+      } catch (error) {
+        logger.log('warn', 'Failed to restore tab title', { error });
+      }
+    };
+
+    // Await metrics load to ensure we have current usage data (Issue #16)
+    await usageTracker.loadMetrics();
+
+    // Validate API key before any LLM calls
+    const settings = await loadSettings();
+    if (!settings.apiKey) {
+      await restoreTabTitle();
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: 'API key not set. Open settings (gear icon) and add your API key.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+
+    // Check usage limits before starting (billing-authoritative)
+    const currentUsage = usageTracker.getCurrentUsage();
+    const billingCheck = billingManager.isWithinLimits(currentUsage.actions, currentUsage.sessions);
+    if (!billingCheck.allowed) {
+      await restoreTabTitle();
+      sendToSidePanel({
+        type: 'agentDone',
+        finalSummary: billingCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
+        success: false,
+        stepsUsed: 0,
+      });
+      agentState.setRunning(false);
+      return;
+    }
+    
     try {
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
-        func: () => {
-          document.title = 'HyperAgent';
-        }
+        func: () => { document.title = 'HyperAgent'; }
       });
     } catch (error) {
       logger.log('warn', 'Failed to change tab title', { error });
@@ -2319,18 +2574,7 @@ async function handleAutoRetry(
     if (needsClarification && clarificationQuestion) {
       const reply = await askUserForInfo(clarificationQuestion);
       if (!reply) {
-        // Restore original tab title
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: currentTabId },
-            func: (title: string) => {
-              document.title = title;
-            },
-            args: [originalTitle]
-          });
-        } catch (error) {
-          logger.log('warn', 'Failed to restore tab title', { error });
-        }
+        await restoreTabTitle();
         sendToSidePanel({
           type: 'agentDone',
           finalSummary: 'Execution cancelled due to lack of clarification',
@@ -2340,31 +2584,19 @@ async function handleAutoRetry(
         agentState.setRunning(false);
         return;
       }
-      return runAgentLoop(`${command} ${reply}`);
+      // Await recursive call to avoid state leak - finally runs after nested call completes
+      return await runAgentLoop(`${command} ${reply}`);
     }
     
     // If needs navigation, go to the target URL
     if (needsNavigation && targetUrl) {
-      await chrome.tabs.update({ url: targetUrl });
-      // Wait for page to load
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      await navigateTabAndWait(currentTabId, targetUrl);
     }
     
     // Display confirmation before executing actions
     const shouldContinue = await askUserConfirmation([{ type: 'runMacro', macroId: 'execute-task' }], 1, `I'm ready to execute: ${summary}`);
     if (!shouldContinue) {
-      // Restore original tab title
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: currentTabId },
-          func: (title: string) => {
-            document.title = title;
-          },
-          args: [originalTitle]
-        });
-      } catch (error) {
-        logger.log('warn', 'Failed to restore tab title', { error });
-      }
+      await restoreTabTitle();
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Execution cancelled by user',
@@ -2377,38 +2609,13 @@ async function handleAutoRetry(
     
     logger.log('info', 'Starting agent loop', { command: redact(command) });
 
-    // Check usage limits before starting (billing-authoritative)
-    const currentUsage = usageTracker.getCurrentUsage();
-    const billingCheck = billingManager.isWithinLimits(currentUsage.actions, currentUsage.sessions);
-    if (!billingCheck.allowed) {
-      sendToSidePanel({
-        type: 'agentDone',
-        finalSummary: billingCheck.reason || 'Usage limit reached. Upgrade in the Subscription tab.',
-        success: false,
-        stepsUsed: 0,
-      });
-      agentState.setRunning(false);
-      return;
-    }
-
-    const settings = await loadSettings();
-    if (!settings.apiKey) {
-      sendToSidePanel({
-        type: 'agentDone',
-        finalSummary: 'API key not set. Open settings (gear icon) and add your API key.',
-        success: false,
-        stepsUsed: 0,
-      });
-      agentState.setRunning(false);
-      return;
-    }
     const maxSteps = settings.maxSteps;
-    const tabId = await getActiveTabId();
-    agentState.setCurrentAgentTabId(tabId);
+    agentState.setCurrentAgentTabId(currentTabId);
 
-    const tab = await chrome.tabs.get(tabId);
+    const tab = await chrome.tabs.get(currentTabId);
     const pageUrl = tab.url || '';
     if (pageUrl && isSiteBlacklisted(pageUrl, settings.siteBlacklist)) {
+      await restoreTabTitle();
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Site blacklisted.',
@@ -2420,6 +2627,7 @@ async function handleAutoRetry(
     }
     const domainAllowed = await checkDomainAllowed(pageUrl);
     if (!domainAllowed) {
+      await restoreTabTitle();
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Domain not allowed by privacy settings.',
@@ -2552,21 +2760,7 @@ async function handleAutoRetry(
           status: `Navigating to ${intentResult.targetUrl}...`,
           step: 'act',
         });
-        await chrome.tabs.update(tabId, { url: intentResult.targetUrl });
-        
-        // Wait for navigation to complete
-        await new Promise<void>((resolve) => {
-          const listener = (tabId: number, info: chrome.tabs.TabChangeInfo) => {
-            if (info.status === 'complete' && tabId === tabId) {
-              chrome.tabs.onUpdated.removeListener(listener);
-              resolve();
-            }
-          };
-          chrome.tabs.onUpdated.addListener(listener);
-        });
-        
-        // Wait a bit for page to load
-        await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 2000));
+        await navigateTabAndWait(currentTabId, intentResult.targetUrl);
       }
 
       for (let step = 1; step <= maxSteps; step++) {
@@ -2610,7 +2804,7 @@ async function handleAutoRetry(
           status: `Step ${step}/${maxSteps}: Analyzing page...`,
           step: 'observe',
         });
-        let context = await getPageContext(tabId);
+        let context = await getPageContext(currentTabId);
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
           const screenshotDataUrl = await captureScreenshot('dataUrl');
@@ -2704,7 +2898,7 @@ async function handleAutoRetry(
           }
 
           const result = await executeAction(
-            tabId,
+            currentTabId,
             action,
             settings.dryRun,
             settings.autoRetry,
@@ -2752,7 +2946,34 @@ async function handleAutoRetry(
           consecutiveFailures = 0;
         }
 
-        history.push({ role: 'user', context, command });
+        // Compact history if it gets too large to reduce token usage
+        const COMPACT_AFTER_STEPS = 5;
+        const MIN_COMPACTED_ENTRIES = 2;
+        if (history.length >= COMPACT_AFTER_STEPS * 2) {
+          const compactedHistory: HistoryEntry[] = [];
+          for (let i = 0; i < history.length; i += 2) {
+            const userEntry = history[i];
+            const assistantEntry = history[i + 1];
+            if (i < MIN_COMPACTED_ENTRIES * 2) {
+              compactedHistory.push(userEntry, assistantEntry);
+            } else if (userEntry && assistantEntry) {
+              compactedHistory.push({
+                role: 'assistant',
+                response: { 
+                  summary: (assistantEntry as any).response?.summary || 'Step completed',
+                  actions: []
+                },
+                actionsExecuted: (assistantEntry as any).actionsExecuted || []
+              });
+            }
+          }
+          history.length = 0;
+          history.push(...compactedHistory);
+        }
+
+        // Clone context before pushing to avoid mutations affecting history
+        const contextClone = { ...context };
+        history.push({ role: 'user', context: contextClone, command });
         history.push({ role: 'assistant', response: llmResponse, actionsExecuted: actionResults });
 
         // Save snapshot after each step for resume
@@ -2775,7 +2996,13 @@ async function handleAutoRetry(
           timestamp: Date.now(),
           status: 'running',
           url: tab.url || '',
-        }).catch(() => {});
+        }).catch((err) => {
+          logger.log('warn', 'Snapshot save failed', { error: err?.message });
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Warning: Could not save progress (storage may be full)',
+          });
+        });
 
         if (llmResponse.done || llmResponse.actions.length === 0) {
           await SnapshotManager.save({
@@ -2813,6 +3040,7 @@ async function handleAutoRetry(
         stepsUsed: history.length,
       });
     } finally {
+      await restoreTabTitle();
       agentState.setRunning(false);
     }
   }
@@ -2832,6 +3060,12 @@ async function handleAutoRetry(
     } catch (err: any) {
       return { success: false, error: err.message };
     }
+  }
+
+  async function navigateTabAndWait(tabId: number, url: string): Promise<void> {
+    await chrome.tabs.update(tabId, { url });
+    await waitForTabLoad(tabId);
+    await delay(1500);
   }
 
   async function closeTab(tabId: number): Promise<{ success: boolean; error?: string }> {

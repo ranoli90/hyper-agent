@@ -641,10 +641,14 @@ async function loadHistory() {
   try {
     const data = await chrome.storage.local.get('chat_history_backup');
     if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
-      // Chat history was already rendered by our own renderMarkdown function,
-      // so we just need to verify it's safe HTML, not re-sanitize it
-      // This prevents double-encoding issues
-      components.chatHistory.innerHTML = data.chat_history_backup;
+      // Sanitize HTML before inserting to prevent XSS (Issue #81)
+      // We only allow a limited set of tags that our renderMarkdown function produces
+      const result = inputSanitizer.sanitize(data.chat_history_backup, {
+        allowHtml: true,
+        allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'],
+        allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
+      });
+      components.chatHistory.innerHTML = result.sanitizedValue;
       scrollToBottom();
     }
     showExampleCommandsIfNeeded();
@@ -765,14 +769,14 @@ function navigateHistory(direction: 'up' | 'down'): string | null {
   return state.commandHistory[state.historyIndex] || null;
 }
 
-let selectedBillingInterval: 'month' | 'year' = 'month';
+let _selectedBillingInterval: 'month' | 'year' = 'month';
 
 async function updateUsageDisplay() {
   try {
     const response = await chrome.runtime.sendMessage({ type: 'getUsage' });
     if (!response?.usage) return;
-    const { actions, sessions } = response.usage;
-    const { actions: limitActions, sessions: limitSessions, tier } = response.limits;
+    const { actions, sessions: _sessions } = response.usage;
+    const { actions: limitActions, sessions: _limitSessions, tier } = response.limits;
 
     // Update text
     const actionsLabel = limitActions === -1 ? `${actions} / ∞` : `${actions} / ${limitActions}`;
@@ -892,6 +896,10 @@ let marketplaceListenersAttached = false;
 let installedWorkflowIds: Set<string> = new Set();
 
 async function loadMarketplace() {
+  // Reset flag to re-attach listeners when switching back to marketplace
+  // (DOM nodes are replaced on tab switch, so stale listeners must be rebound)
+  marketplaceListenersAttached = false;
+
   // Load installed workflows from background
   try {
     const resp = await chrome.runtime.sendMessage({ type: 'getInstalledWorkflows' });
@@ -1233,7 +1241,7 @@ function loadVisionTab() {
 }
 
 // ─── Swarm Tab ───────────────────────────────────────────────────
-let swarmListenersAttached = false;
+let _swarmListenersAttached = false;
 // ─── Swarm Tab ───────────────────────────────────────────────────
 async function loadSwarmTab() {
   const agentList = document.getElementById('agent-list');
@@ -1349,7 +1357,7 @@ async function loadSwarmTab() {
       `;
     }
 
-    swarmListenersAttached = true;
+    _swarmListenersAttached = true;
 
   } catch (err) {
     console.error('[HyperAgent] Failed to load swarm tab:', err);
@@ -1526,7 +1534,15 @@ document.addEventListener('keydown', e => {
     components.confirmModal.classList.add('hidden');
     components.askModal.classList.add('hidden');
     components.suggestions.classList.add('hidden');
-    document.getElementById('onboarding-modal')?.classList.add('hidden');
+    
+    // Close onboarding modal and persist dismissal (Issue #39)
+    const onboardingModal = document.getElementById('onboarding-modal');
+    if (onboardingModal && !onboardingModal.classList.contains('hidden')) {
+      onboardingModal.classList.add('hidden');
+      chrome.storage.local.remove('hyperagent_show_onboarding').catch(() => {});
+    }
+    
+    // Always cleanup focus trap - don't check if modal is open first
     if (state.cleanupFocusTrap) {
       state.cleanupFocusTrap();
       state.cleanupFocusTrap = null;
@@ -1534,6 +1550,11 @@ document.addEventListener('keydown', e => {
     if (state.confirmResolve) {
       state.confirmResolve(false);
       state.confirmResolve = null;
+    }
+    if (state.askResolve) {
+      state.askResolve('');
+      state.askResolve = null;
+      chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
     }
   }
 });

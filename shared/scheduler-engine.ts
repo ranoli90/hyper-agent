@@ -25,14 +25,23 @@ export interface TaskExecutionResult {
 class SchedulerEngineImpl {
   private tasks: Map<string, ScheduledTask> = new Map();
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
+  private readonly MIN_INTERVAL_MINUTES = 1;
 
   async initialize(): Promise<void> {
+    // Use promise-based lock (Issue #117)
     if (this.initialized) return;
-
-    await this.loadTasks();
-    this.setupAlarmListener();
-    this.initialized = true;
-    console.log('[Scheduler] Initialized with', this.tasks.size, 'tasks');
+    if (this.initPromise) return this.initPromise;
+    
+    this.initPromise = (async () => {
+      await this.loadTasks();
+      this.setupAlarmListener();
+      this.setupNotificationListener();
+      this.initialized = true;
+      console.log('[Scheduler] Initialized with', this.tasks.size, 'tasks');
+    })();
+    
+    return this.initPromise;
   }
 
   private async loadTasks(): Promise<void> {
@@ -77,6 +86,12 @@ class SchedulerEngineImpl {
     console.log('[Scheduler] Executing task:', task.name);
 
     try {
+      // Check extension context is valid (Issue #116)
+      if (!chrome.runtime?.id) {
+        console.warn('[Scheduler] Extension context invalid, skipping task');
+        return;
+      }
+      
       await chrome.runtime.sendMessage({
         type: 'executeCommand',
         command: task.command,
@@ -129,6 +144,24 @@ class SchedulerEngineImpl {
     }
   }
 
+  // Handle notification button clicks (Issue #192)
+  private setupNotificationListener(): void {
+    chrome.notifications.onButtonClicked.addListener(async (notificationId, buttonIndex) => {
+      if (buttonIndex === 0) { // Retry
+        // Find the task that failed and re-enable it
+        for (const task of this.tasks.values()) {
+          if (task.lastError && !task.enabled) {
+            task.enabled = true;
+            delete task.lastError;
+            this.scheduleAlarm(task);
+            await this.saveTasks();
+            break;
+          }
+        }
+      }
+    });
+  }
+
   private scheduleAlarm(task: ScheduledTask): void {
     const alarmName = `task_${task.id}`;
 
@@ -147,9 +180,11 @@ class SchedulerEngineImpl {
 
       case 'interval':
         if (task.schedule.intervalMinutes) {
+          // Clamp to minimum interval (Issue #193)
+          const intervalMinutes = Math.max(this.MIN_INTERVAL_MINUTES, task.schedule.intervalMinutes);
           chrome.alarms.create(alarmName, {
-            delayInMinutes: 1,
-            periodInMinutes: task.schedule.intervalMinutes,
+            delayInMinutes: this.MIN_INTERVAL_MINUTES,
+            periodInMinutes: intervalMinutes,
           });
         }
         break;

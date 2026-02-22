@@ -16,7 +16,7 @@ export interface TikTokComment {
     username: string;
     text: string;
     timestamp: number;
-    element: HTMLElement; // Reference to the DOM element for action
+    elementSelector: string; // Store selector instead of DOM reference (Issue #127)
 }
 
 export interface ModerationLog {
@@ -27,6 +27,10 @@ export interface ModerationLog {
     ruleId: string;
     timestamp: number;
 }
+
+// ─── Constants ─────────────────────────────────────────────────────────────
+const MAX_LOG_ENTRIES = 100; // Limit log size (Issue #129)
+const SEMANTIC_RATE_LIMIT_MS = 2000;
 
 // ─── Stream Observer ────────────────────────────────────────────────────────
 
@@ -80,15 +84,33 @@ export class StreamObserver {
         const textEl = node.querySelector('.comment-text');   // Placeholder class
 
         if (usernameEl && textEl) {
+            // Generate unique selector for the element (Issue #127)
+            const elementSelector = this.generateSelector(node);
             const comment: TikTokComment = {
                 id: node.getAttribute('data-id') || Date.now().toString(),
                 username: usernameEl.textContent || 'Unknown',
                 text: textEl.textContent || '',
                 timestamp: Date.now(),
-                element: node
+                elementSelector
             };
             this.onCommentDetected(comment);
         }
+    }
+
+    private generateSelector(element: HTMLElement): string {
+        if (element.id) return `#${element.id}`;
+        const path: string[] = [];
+        let current: HTMLElement | null = element;
+        while (current && current.tagName !== 'HTML') {
+            let selector = current.tagName.toLowerCase();
+            if (current.className && typeof current.className === 'string') {
+                const classes = current.className.split(' ').filter(c => c).slice(0, 2).join('.');
+                if (classes) selector += '.' + classes;
+            }
+            path.unshift(selector);
+            current = current.parentElement;
+        }
+        return path.join(' > ');
     }
 }
 
@@ -150,9 +172,7 @@ export class ModerationEngine {
     }
 
     private async checkSemanticRule(comment: TikTokComment, rule: ModerationRule): Promise<boolean> {
-        // Simple rate limiter: max 1 semantic check per 2 seconds per rule
-        // (In a real app, this should be more sophisticated)
-        await new Promise(resolve => globalThis.setTimeout(resolve, 2000));
+        await new Promise(resolve => globalThis.setTimeout(resolve, SEMANTIC_RATE_LIMIT_MS));
 
         const prompt = `
     Analyze this TikTok comment against the following rule.
@@ -252,6 +272,9 @@ export class TikTokModerator {
             timestamp: Date.now()
         };
         this.logs.push(log);
+        if (this.logs.length > MAX_LOG_ENTRIES) {
+            this.logs.shift();
+        }
         this.sendLog(log);
     }
 

@@ -317,7 +317,8 @@ export class BillingManager {
       return false;
     } catch (err) {
       console.warn('[Billing] Crypto verification error:', err);
-      return true;
+      // Return false on error - don't auto-approve failed verifications (Issue #139)
+      return false;
     }
   }
 
@@ -737,6 +738,25 @@ export class BillingManager {
   }
 
   private async getEthPrice(chainId: number): Promise<number> {
+    // Try to fetch real-time price (Issue #138)
+    try {
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,matic-network&vs_currencies=usd', {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (chainId === 137 && data['matic-network']?.usd) {
+          return data['matic-network'].usd;
+        }
+        if (data.ethereum?.usd) {
+          return data.ethereum.usd;
+        }
+      }
+    } catch {
+      // Fall back to hardcoded prices
+    }
+    
+    // Fallback prices (last known)
     const priceMap: Record<number, number> = {
       1: 2500,
       8453: 2500,

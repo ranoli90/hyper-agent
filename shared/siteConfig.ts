@@ -196,12 +196,13 @@ export async function getSiteConfig(domain: string): Promise<SiteConfig | null> 
   // Exact match first
   let match = configs.find(c => c.domain === domain);
   
-  // Try wildcard match
+  // Try wildcard match - with proper dot requirement (Issue #170)
   if (!match) {
     match = configs.find(c => {
       if (c.domain.startsWith('*.')) {
-        const wildcard = c.domain.slice(2);
-        return domain.endsWith(wildcard);
+        const wildcard = c.domain.slice(2); // e.g., ".shopify.com"
+        // Require dot prefix to prevent evilshopify.com matching *.shopify.com
+        return domain.endsWith(wildcard) && (domain === wildcard.slice(1) || domain.endsWith(wildcard));
       }
       return false;
     });

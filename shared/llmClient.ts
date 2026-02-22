@@ -19,7 +19,6 @@ import type {
   LLMRequest,
   LLMClientInterface,
   CompletionRequest,
-  SemanticElement,
 } from './types';
 import { DEFAULTS, loadSettings } from './config';
 
@@ -428,7 +427,7 @@ interface MinimalContext {
   title: string;
 }
 
-function extractMinimalContext(context: PageContext): MinimalContext {
+function _extractMinimalContext(context: PageContext): MinimalContext {
   const interactive = context.semanticElements
     .filter(el => ['button', 'a', 'input', 'select', 'textarea'].includes(el.tag.toLowerCase()))
     .slice(0, 50)
@@ -477,7 +476,7 @@ interface StrategicContext {
   stepCount: number;
 }
 
-function enhanceWithStrategicReasoning(context: StrategicContext): string {
+function _enhanceWithStrategicReasoning(context: StrategicContext): string {
   const patterns = analyzePatterns(context);
   const alternatives = identifyAlternatives(context);
   

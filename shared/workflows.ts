@@ -60,9 +60,20 @@ export function validateWorkflow(workflow: Workflow): boolean {
     return false;
   }
   
+  // Name must not be empty or whitespace only (Issue #115)
+  if (!workflow.name.trim()) {
+    return false;
+  }
+  
   // Validate each step has required fields
   for (const step of workflow.steps) {
     if (!step.id || !step.action) {
+      return false;
+    }
+    
+    // Check for self-referencing steps (circular to self) (Issue #111)
+    if (step.onSuccess === step.id || step.onError === step.id) {
+      console.warn(`[Workflow] Step ${step.id} references itself, which could cause infinite loop`);
       return false;
     }
     
@@ -83,6 +94,30 @@ export function validateWorkflow(workflow: Workflow): boolean {
     if (!hasStartStep) return false;
   }
   
+  // Check for orphaned steps - steps that can't be reached from startStep (Issue #114)
+  if (workflow.startStep) {
+    const reachable = new Set<string>();
+    const toVisit = [workflow.startStep];
+    
+    while (toVisit.length > 0) {
+      const currentId = toVisit.pop()!;
+      if (reachable.has(currentId)) continue;
+      reachable.add(currentId);
+      
+      const step = workflow.steps.find(s => s.id === currentId);
+      if (step) {
+        if (step.onSuccess && !reachable.has(step.onSuccess)) toVisit.push(step.onSuccess);
+        if (step.onError && !reachable.has(step.onError)) toVisit.push(step.onError);
+      }
+    }
+    
+    const unreachableCount = workflow.steps.filter(s => !reachable.has(s.id)).length;
+    if (unreachableCount > 0) {
+      console.warn(`[Workflow] ${unreachableCount} orphaned steps detected`);
+      // Not a hard failure, but log warning
+    }
+  }
+  
   return true;
 }
 
@@ -96,9 +131,15 @@ export async function checkCondition(
 ): Promise<boolean> {
   // Sanitize condition value - limit length to prevent abuse
   const MAX_VALUE_LENGTH = 500;
+  const originalValue = condition.value;
   const value = typeof condition.value === 'string' 
     ? condition.value.slice(0, MAX_VALUE_LENGTH) 
     : '';
+
+  // Warn if truncation occurred (Issue #191)
+  if (typeof originalValue === 'string' && originalValue.length > MAX_VALUE_LENGTH) {
+    console.warn(`[Workflow] Condition value truncated from ${originalValue.length} to ${MAX_VALUE_LENGTH} chars`);
+  }
 
   switch (condition.type) {
     case 'elementExists': {
@@ -127,6 +168,8 @@ export async function checkCondition(
     
     case 'urlMatches': {
       if (!isSafeRegex(value)) {
+        // Log warning for unsafe regex patterns (Issue #112)
+        console.warn(`[Workflow] Unsafe regex pattern detected, falling back to string match: ${value.slice(0, 50)}`);
         return context.url.includes(value);
       }
       try {

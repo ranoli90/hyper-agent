@@ -157,6 +157,16 @@ function canAccept(kind: string, maxPerMinute = 240): boolean {
   return true;
 }
 
+// Cleanup message rate entries older than 5 minutes (Issue #80)
+setInterval(() => {
+  const now = Date.now();
+  for (const [kind, entry] of messageRate) {
+    if (now > entry.reset + 300000) { // 5 minutes past reset
+      messageRate.delete(kind);
+    }
+  }
+}, 60000);
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
@@ -167,6 +177,28 @@ export default defineContentScript({
     // ─── Element index registry (survives across getContext calls) ──
     const indexedElements = new Map<number, WeakRef<HTMLElement>>();
     let nextIndex = 0;
+
+    // Periodic cleanup of dead WeakRefs (Issue #72)
+    setInterval(() => {
+      for (const [idx, ref] of indexedElements) {
+        if (ref.deref() === undefined) {
+          indexedElements.delete(idx);
+        }
+      }
+    }, 30000); // Every 30 seconds
+
+    // Cleanup on page unload (Issue #76, #77)
+    globalThis.addEventListener('beforeunload', () => {
+      // Remove visual cursor
+      const cursor = document.getElementById('hyperagent-visual-cursor');
+      if (cursor) cursor.remove();
+      
+      // Remove glowing frame
+      hideGlowingFrame();
+      
+      // Clear indexed elements
+      indexedElements.clear();
+    });
 
     // ─── Site-specific configuration ─────────────────────────────────
     let currentSiteConfig: SiteConfig | null = null;
@@ -1260,11 +1292,19 @@ export default defineContentScript({
             return true;
           }
           case 'stopModerator': {
+            if (!globalThis.location.hostname.includes('tiktok.com')) {
+              sendResponse({ success: false, error: 'Not on TikTok' });
+              return true;
+            }
             tiktokModerator.stop();
             sendResponse({ success: true });
             return true;
           }
           case 'updateModerationRules': {
+            if (!globalThis.location.hostname.includes('tiktok.com')) {
+              sendResponse({ success: false, error: 'Not on TikTok' });
+              return true;
+            }
             tiktokModerator.setRules(message.rules);
             sendResponse({ success: true });
             return true;
@@ -1280,14 +1320,19 @@ export default defineContentScript({
               if (!action || typeof action !== 'object' || typeof action.type !== 'string') {
                 return { type: 'performActionResponse', success: false, errorType: 'INVALID_ACTION', error: 'Invalid action object' };
               }
+              if (!action.type || typeof action.type !== 'string') {
+                return { type: 'performActionResponse', success: false, errorType: 'INVALID_ACTION', error: 'Action missing type' };
+              }
               const result = await performAction(action);
-              // Log action outcome to memory (non-blocking)
-              saveActionOutcome(
-                globalThis.location.href,
-                message.action,
-                result.success,
-                result.errorType
-              ).catch(() => { }); // Ignore errors
+              // Log action outcome to memory (non-blocking) - only for TikTok
+              if (globalThis.location.hostname.includes('tiktok.com')) {
+                saveActionOutcome(
+                  globalThis.location.href,
+                  message.action,
+                  result.success,
+                  result.errorType
+                ).catch(() => { }); // Ignore errors
+              }
               return { type: 'performActionResponse', ...result };
             }
             case 'captureScreenshot': {

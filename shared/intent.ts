@@ -281,8 +281,9 @@ export function parseIntent(command: string): CommandIntent[] {
 
   // If no patterns matched, treat entire command as a target for navigate/search
   if (intents.length === 0) {
-    // Check if it looks like a URL
-    const isUrl = /^https?:\/\//.test(normalized) || /\.(com|org|net|edu|gov|io|co)/.test(normalized);
+    // Check if it looks like a URL - expanded TLD list (Issue #125)
+    const tldPattern = /\.(com|org|net|edu|gov|io|co|app|dev|ai|tech|xyz|info|biz|me|online|site|store|website|blog|shop|cloud|agency|media|social|digital|live|world|design|studio|company|solutions|services|consulting|academy|center|club|community|family|group|institute|network|organization|systems|technology|university|dev|code|game|games|gaming|hosting|mail|news|press|radio|tv|video|chat|dating|health|medical|care|fitness|sports|travel|vacation|hotel|cars|auto|bike|boat|casino|credit|finance|money|loans|tax|invest|insurance|law|legal|realestate|house|home|garden|pet|food|restaurant|coffee|wine|beer|market|shopping|coupon|deals|discount|auction|charity|church|faith|spiritual|green|eco|energy|solar|water|air|fire|earth|space|mars|moon|star|galaxy|universe)$/;
+    const isUrl = /^https?:\/\//.test(normalized) || tldPattern.test(normalized);
     if (isUrl) {
       intents.push({
         action: 'navigate',
@@ -291,13 +292,21 @@ export function parseIntent(command: string): CommandIntent[] {
         originalText: command,
       });
     } else {
-      // Default to search
+      // Default to search - return unknown intent (Issue #126)
       intents.push({
         action: 'search',
         target: command,
         confidence: 0.6,
         originalText: command,
       });
+    }
+  }
+
+  // Limit target length to prevent abuse (Issue #123)
+  const MAX_TARGET_LENGTH = 500;
+  for (const intent of intents) {
+    if (intent.target && intent.target.length > MAX_TARGET_LENGTH) {
+      intent.target = intent.target.slice(0, MAX_TARGET_LENGTH);
     }
   }
 

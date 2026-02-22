@@ -96,6 +96,8 @@ export class PersistentAutonomousEngine {
   private backgroundTaskPool: BackgroundTask[] = [];
   private continuousOperationInterval: ReturnType<typeof setInterval> | null = null;
   private initialized = false;
+  private readonly MAX_SUGGESTIONS = 50; // Issue #166
+  private readonly MAX_BACKGROUND_TASKS = 20; // Issue #164
 
   constructor() {
     // Defer initialization to avoid starting timers during module evaluation (build time).
@@ -117,7 +119,24 @@ export class PersistentAutonomousEngine {
       this.executeBackgroundTasks();
       this.monitorOpportunities();
       this.optimizePerformance();
+      this.cleanupResources();
     }, 30000);
+  }
+
+  private cleanupResources(): void {
+    // Cleanup background task pool (Issue #164)
+    if (this.backgroundTaskPool.length > this.MAX_BACKGROUND_TASKS) {
+      // Remove oldest/lowest priority tasks
+      this.backgroundTaskPool.sort((a, b) => b.priority - a.priority);
+      this.backgroundTaskPool = this.backgroundTaskPool.slice(0, this.MAX_BACKGROUND_TASKS);
+    }
+    
+    // Cleanup suggestion queue (Issue #166)
+    if (this.globalSuggestionQueue.length > this.MAX_SUGGESTIONS) {
+      // Keep highest confidence suggestions
+      this.globalSuggestionQueue.sort((a, b) => b.confidence - a.confidence);
+      this.globalSuggestionQueue = this.globalSuggestionQueue.slice(0, this.MAX_SUGGESTIONS);
+    }
   }
 
   private processAllSessions(): void {
