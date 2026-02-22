@@ -434,7 +434,14 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
     console.error('[HyperAgent] Chat history component not found');
     return null;
   }
+  
   clearExampleCommands();
+  
+  // Validate content
+  if (!content || typeof content !== 'string') {
+    content = 'Empty message';
+  }
+  
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
@@ -449,9 +456,14 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
     div.textContent = 'Error rendering message';
   }
 
-  components.chatHistory.appendChild(div);
-  scrollToBottom();
-  saveHistory(); // Persist
+  try {
+    components.chatHistory.appendChild(div);
+    scrollToBottom();
+    saveHistory(); // Persist
+  } catch (appendErr) {
+    console.error('[HyperAgent] Error adding message to chat history:', appendErr);
+  }
+  
   return div;
 }
 

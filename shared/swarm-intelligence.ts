@@ -100,11 +100,29 @@ export class SwarmCoordinator {
       [AgentRole.MEMORY_MANAGER]: 'Memory Manager',
       [AgentRole.ETHICS_GUARDIAN]: 'Ethics Guardian',
     };
-    return Array.from(this.agents.values()).map(a => ({
-      role: a.role,
-      displayName: roleLabels[a.role] || a.role.replace(/_/g, ' '),
-      status: this.activeSwarm ? 'Active' : 'Ready',
-    }));
+    
+    // Calculate agent status based on last activity time
+    const now = Date.now();
+    return Array.from(this.agents.values()).map(a => {
+      const timeSinceLastAction = now - a.lastAction;
+      let status: string;
+      
+      if (this.activeSwarm) {
+        status = 'Active';
+      } else if (timeSinceLastAction < 60000) { // Last action within 1 minute
+        status = 'Recent';
+      } else if (timeSinceLastAction < 300000) { // Last action within 5 minutes
+        status = 'Idle';
+      } else {
+        status = 'Ready';
+      }
+      
+      return {
+        role: a.role,
+        displayName: roleLabels[a.role] || a.role.replace(/_/g, ' '),
+        status,
+      };
+    });
   }
 
   /**
