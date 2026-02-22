@@ -7,3 +7,7 @@ node_modules/
 .env.*
 dist/
 .webext/
+coverage/
+playwright-report/data/
+test-results/
+nul
