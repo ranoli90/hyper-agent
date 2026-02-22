@@ -4,6 +4,64 @@ All notable changes to HyperAgent will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [3.1.1] - 2026-02-22
+
+### Fixed
+
+#### Security
+- ReDoS protection for workflow regex patterns
+- XSS protection for chat history load
+- Navigation URL validation (block dangerous protocols)
+- Import schema validation for settings
+
+#### Reliability
+- Agent loop lock to prevent concurrent execution
+- Tab title restoration per-tab (not global)
+- UsageTracker initialization with proper loadPromise
+- Background interval tracking for cleanup on shutdown
+- Tab closure check for correct agent tab
+- Confirmation/reply timeout cleanup on early resolution
+- WeakRef cleanup for indexed elements (every 30s)
+- beforeunload cleanup for visual cursor and glowing frame
+- Stale messageRate entry cleanup (every minute)
+
+#### Workflow System
+- Self-reference detection in workflow validation
+- Orphaned steps detection via reachability graph
+- Whitespace-only workflow name validation
+- Safe regex warning for unsafe patterns
+
+#### Scheduler
+- Context check before sending messages (chrome.runtime?.id)
+- Initialization lock for async startup
+- Notification button click handler
+- Interval clamping (minimum 1 minute)
+
+#### Billing
+- Crypto verification error handling (return false on error)
+- Real-time ETH price fetching from CoinGecko
+
+#### TikTok Moderator
+- Element selector instead of DOM reference (memory leak fix)
+- Log size limits (MAX_LOG_ENTRIES = 100)
+- Semantic rate limiting (2s between checks)
+
+#### Performance
+- Lazy site config loading
+- Context caching for getPageContext
+- requestIdleCallback for history load
+
+#### Code Quality
+- All lint errors fixed (0 errors)
+- Service worker compatibility (globalThis, guards)
+- Unused variable cleanup
+
+### Tests
+- All 253 unit tests passing
+- All 19 E2E tests passing
+
+---
+
 ## [3.1.0] - 2026-02-21
 
 ### Added

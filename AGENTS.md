@@ -6,6 +6,23 @@ Condensed development history. Full iteration details archived.
 
 ## Current Version: 3.1.0
 
+**Status:** Production Ready
+
+**Last Updated:** 2026-02-22
+
+---
+
+## Project Status
+
+| Metric | Status |
+|--------|--------|
+| Build | Passing |
+| Unit Tests | 253/253 passing |
+| E2E Tests | 19/19 passing |
+| Type Check | Passing |
+| Lint | 0 errors |
+| Chrome Web Store | Ready for submission |
+
 ---
 
 ## Key Architectural Patterns
@@ -28,29 +45,45 @@ Condensed development history. Full iteration details archived.
 - API key redaction in logs (expanded patterns)
 - Condition.value sanitization
 - Import schema validation
+- Navigation URL validation
 
 ### Reliability
-- SnapshotManager full shape
-- saveHistory on close/hide
-- Session mutex, UsageTracker debounce
+- Agent loop lock (prevent concurrent execution)
+- Tab title restoration per-tab
+- UsageTracker initialization with loadPromise
+- Background interval tracking for cleanup
+- Tab closure check for correct agent tab
+- Confirmation/reply timeout cleanup
+- WeakRef cleanup for indexed elements
+- beforeunload cleanup for visual elements
+- Stale messageRate entry cleanup
+
+### Workflow System
+- Self-reference detection
+- Orphaned steps detection
+- Whitespace-only name validation
+- Safe regex warning
+
+### Scheduler
+- Context check before messages
+- Initialization lock
+- Notification button click handler
+- Interval clamping (min 1 minute)
+
+### Billing
+- Crypto verification error handling
+- Real-time ETH price fetching (CoinGecko)
+
+### TikTok Moderator
+- Element selector (not DOM reference) - memory leak fix
+- Log size limits (MAX_LOG_ENTRIES)
+- Semantic rate limiting
+
+### Code Quality
+- All lint errors fixed
 - Service worker compatibility (globalThis, guards)
-
-### User Experience
-- First-run onboarding
-- Offline detection
-- Rate limit feedback with wait times
-- Modal focus trap (accessibility)
-- Dynamic Type support (rem units)
-
-### Performance
-- Lazy site config loading
-- Context caching for getPageContext
-- requestIdleCallback for history load
-
-### Infrastructure
-- Error reporting module
-- Storage quota monitoring
-- Token/cost tracking
+- Memory leak prevention patterns
+- Unused variable cleanup
 
 ---
 
@@ -66,16 +99,23 @@ Condensed development history. Full iteration details archived.
 | Storage keys | `shared/config.ts` (STORAGE_KEYS) |
 | Error reporting | `shared/error-reporter.ts` |
 | Storage monitor | `shared/storage-monitor.ts` |
+| Billing | `shared/billing.ts` |
+| Workflows | `shared/workflows.ts` |
+| Scheduler | `shared/scheduler-engine.ts` |
+| TikTok Moderator | `shared/tiktok-moderator.ts` |
 
 ---
 
-## New Modules (2026-02)
+## Modules
 
 | Module | Purpose |
 |--------|---------|
 | `shared/error-reporter.ts` | Error capture with redaction |
 | `shared/storage-monitor.ts` | Quota monitoring (80%/95%) |
 | `shared/debug.ts` | Production-safe logging |
+| `shared/memory-management.ts` | Memory leak prevention |
+| `shared/input-sanitization.ts` | XSS protection |
+| `shared/safe-regex.ts` | ReDoS protection |
 
 ---
 
@@ -103,4 +143,9 @@ Condensed development history. Full iteration details archived.
 
 ## Documentation
 
-See [docs/DEVELOPER.md](docs/DEVELOPER.md) for comprehensive handoff details.
+- [README.md](../README.md) — User guide and quick start
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture
+- [docs/DEVELOPER.md](docs/DEVELOPER.md) — Developer handoff
+- [docs/STORE_READINESS.md](docs/STORE_READINESS.md) — Chrome Web Store checklist
+- [docs/FIRST_USER_READINESS.md](docs/FIRST_USER_READINESS.md) — First user checklist
+- [docs/LORE.md](docs/LORE.md) — Project story and conventions
