@@ -4,6 +4,44 @@ All notable changes to HyperAgent will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.0.0] - 2026-02-22
+
+### Added
+
+#### Local AI (Ollama Support)
+- **Ollama Integration** — Free offline inference via localhost:11434
+- **Auto-Detection** — Automatically detects local Ollama server
+- **Model Selection** — Supports llama3.2, mistral, codellama, and more
+- **Auto-Fallback** — Seamless switch to OpenRouter when Ollama unavailable
+- **Settings** — New "Use Local AI" toggle in Settings
+
+#### Companion App Foundation
+- **Companion Detection Stub** — Infrastructure for future desktop companion
+- **IPC Protocol** — WebSocket message protocol defined for extension-companion communication
+
+#### Documentation Overhaul
+- Complete README rewrite with new positioning
+- New COMPARISON.md vs Clawbot
+- Updated ARCHITECTURE.md for v4.0+
+- New SECURITY_AUDIT.md
+- Updated PRIVACY_POLICY.md and PERMISSIONS.md
+
+### Changed
+- **Pricing Page** — Updated to reflect new tiered model (Free/Pro/Team/Enterprise)
+- **Default Model** — Still Gemini 2.0 Flash, but now with Ollama fallback
+
+### Technical
+- New `shared/ollamaClient.ts` module
+- Extended `Settings` interface with Ollama fields
+- Updated `llmClient.ts` with Ollama fallback logic
+
+### Migration from v3.x
+- Settings automatically migrated (new Ollama fields default to off)
+- Existing API key users can enable "Use Local AI" in Settings
+- No breaking changes to existing functionality
+
+---
+
 ## [3.1.1] - 2026-02-22
 
 ### Fixed

@@ -45,7 +45,6 @@ import { withErrorBoundary } from '../shared/error-boundary';
 import { isSafeRegex } from '../shared/safe-regex';
 import { toolRegistry } from '../shared/tool-system';
 import { autonomousIntelligence } from '../shared/autonomous-intelligence';
-import { globalLearning } from '../shared/global-learning';
 import { billingManager } from '../shared/billing';
 import { schedulerEngine } from '../shared/scheduler-engine';
 
@@ -57,10 +56,7 @@ type SubscriptionTier = 'free' | 'premium' | 'unlimited';
 import { getMemoryStats as getMemoryStatsUtil } from '../shared/memory';
 import { SnapshotManager } from '../shared/snapshot-manager';
 import { parseIntent, getSuggestions } from '../shared/intent';
-import { SwarmCoordinator } from '../shared/swarm-intelligence';
-import { ReasoningEngine } from '../shared/reasoning-engine';
 import { failureRecovery } from '../shared/failure-recovery';
-import { PersistentAutonomousEngine } from '../shared/persistent-autonomous';
 import { apiCache, generalCache } from '../shared/advanced-caching';
 import { memoryManager } from '../shared/memory-management';
 import { inputSanitizer } from '../shared/input-sanitization';
@@ -727,43 +723,9 @@ const logger = new StructuredLogger();
 const rateLimiter = new MessageRateLimiter();
 /** Global agent state manager for coordinating agent execution and recovery */
 const agentState = new AgentStateManager();
-/** Global enhanced LLM client instance with autonomous intelligence integration */
 // llmClient is imported from shared/llmClient as a singleton instance
 
-// ─── Swarm & Advanced Intelligence ───────────────────────────────────────
-let swarmCoordinator: SwarmCoordinator | null = null;
-let reasoningEngine: ReasoningEngine | null = null;
-let persistentAutonomousEngine: PersistentAutonomousEngine | null = null;
-
-function initializeSwarm(): void {
-  if (!swarmCoordinator) {
-    swarmCoordinator = new SwarmCoordinator();
-    console.log('[Background] Swarm coordinator initialized');
-  }
-}
-
-function initializeReasoning(): void {
-  if (!reasoningEngine) {
-    reasoningEngine = new ReasoningEngine(llmClient);
-    console.log('[Background] Reasoning engine initialized');
-  }
-}
-
-async function initializePersistentAutonomous(): Promise<void> {
-  if (!persistentAutonomousEngine) {
-    persistentAutonomousEngine = new PersistentAutonomousEngine();
-    await persistentAutonomousEngine.initialize();
-    console.log('[Background] Persistent autonomous engine initialized');
-  }
-}
-
-// Initialize on startup — these run top-level in the service-worker scope.
-// Non-async inits are called directly; async ones are awaited inside onInstalled.
-initializeSwarm();
-initializeReasoning();
-initializePersistentAutonomous();
-
-// Load persisted usage metrics so limits are enforced immediately
+// Initialize usage tracker
 usageTracker.loadMetrics();
 
 // Initialize billing manager so subscription state is available
@@ -966,8 +928,6 @@ export default defineBackground(() => {
   });
 
   // ─── On install: configure side panel ───────────────────────────
-  // Track intervals for cleanup (Issue #27)
-  const backgroundIntervals: Set<ReturnType<typeof setInterval>> = new Set();
 
   chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
@@ -976,25 +936,6 @@ export default defineBackground(() => {
       await chrome.storage.local.set({ hyperagent_show_changelog: true });
     }
     await withErrorBoundary('extension_installation', async () => {
-      // 3. Initialize Global Learning
-      globalLearning
-        .fetchGlobalWisdom()
-        .catch(e => logger.log('error', 'Global learning fetch failed', e));
-
-      // Set up periodic sync with tracked interval (Issue #27)
-      const globalLearningInterval = globalThis.setInterval(
-        () => {
-          globalLearning
-            .publishPatterns()
-            .catch(e => console.error('[GlobalLearning] Publish failed:', e));
-          globalLearning
-            .fetchGlobalWisdom()
-            .catch(e => console.error('[GlobalLearning] Fetch failed:', e));
-        },
-        1000 * 60 * 60
-      ); // Every hour
-      backgroundIntervals.add(globalLearningInterval);
-
       logger.log('info', 'HyperAgent background initialized');
       // Check storage quota on startup
       const quotaCheck = await checkStorageQuota();
@@ -1232,26 +1173,7 @@ export default defineBackground(() => {
         successPatterns: [] as any[],
       };
 
-      // Phase 1: Tree-of-Thoughts reasoning (if reasoning engine is available)
-      if (reasoningEngine) {
-        try {
-          sendToSidePanel({ type: 'agentProgress', status: 'Tree-of-Thoughts analysis...', step: 'plan' });
-          const reasoning = await reasoningEngine.analyzeTask(intelligenceContext);
-          logger.log('info', 'Reasoning engine analysis', { steps: reasoning.length });
-          // Feed reasoning insights into the planning context
-          intelligenceContext.domainKnowledge = { reasoningInsights: reasoning };
-          sendToSidePanel({
-            type: 'agentProgress',
-            status: 'Planning with insights...',
-            step: 'plan',
-            summary: reasoning.slice(0, 3).join(' | '),
-          });
-        } catch (err: any) {
-          logger.log('warn', 'Reasoning engine failed, continuing without', { error: err.message });
-        }
-      }
-
-      // Phase 2: Generate autonomous plan
+      // Generate autonomous plan
       const plan = await autonomousIntelligence.understandAndPlan(command, intelligenceContext);
 
       logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
@@ -1593,19 +1515,6 @@ export default defineBackground(() => {
         return { ok: true, tools: toolRegistry.getAll() };
       }
 
-      case 'executeTool': {
-        const result = await toolRegistry.execute(message.toolId, message.params);
-        return { ok: result.success, ...result };
-      }
-
-      case 'getSwarmStatus': {
-        if (!swarmCoordinator) {
-          return { ok: true, status: { initialized: false, agents: [] } };
-        }
-        const agents = swarmCoordinator.getAgentsStatus();
-        return { ok: true, status: { initialized: true, agents } };
-      }
-
       case 'getSnapshot': {
         if (message.taskId) {
           const snapshot = await SnapshotManager.load(message.taskId);
@@ -1673,53 +1582,6 @@ export default defineBackground(() => {
           return { ok: true, suggestions };
         }
         return { ok: true, suggestions: [] };
-      }
-
-      case 'getGlobalLearningStats': {
-        return { ok: true, stats: globalLearning.getStats() };
-      }
-
-      case 'getAutonomousSession': {
-        if (!persistentAutonomousEngine) {
-          return { ok: false, error: 'Persistent autonomous engine not initialized' };
-        }
-        const sessionId = message.sessionId;
-        const session = sessionId ? persistentAutonomousEngine.getSession(sessionId) : null;
-        return { ok: true, session };
-      }
-
-      case 'createAutonomousSession': {
-        if (!persistentAutonomousEngine) {
-          return { ok: false, error: 'Persistent autonomous engine not initialized' };
-        }
-        const userId = message.userId || 'default_user';
-        const session = persistentAutonomousEngine.createSession(userId);
-        return { ok: true, session };
-      }
-
-      case 'getProactiveSuggestions': {
-        if (!persistentAutonomousEngine) {
-          return { ok: false, error: 'Persistent autonomous engine not initialized' };
-        }
-        const suggestions = message.sessionId
-          ? persistentAutonomousEngine.getPendingSuggestions(message.sessionId)
-          : [];
-        return { ok: true, suggestions };
-      }
-
-      case 'executeSuggestion': {
-        if (!persistentAutonomousEngine) {
-          return { ok: false, error: 'Persistent autonomous engine not initialized' };
-        }
-        const { sessionId, suggestionId } = message;
-        if (!sessionId || !suggestionId) {
-          return { ok: false, error: 'sessionId and suggestionId required' };
-        }
-        const success = persistentAutonomousEngine.executeSuggestionManually(
-          sessionId,
-          suggestionId
-        );
-        return { ok: success };
       }
 
       case 'getCacheStats': {
@@ -2343,15 +2205,6 @@ async function executeAction(
   // Track usage for billing
   if (result.success) {
     usageTracker.trackAction(action.type);
-  }
-
-  // Feed outcome into global learning so the system improves over time
-  if (pageUrl) {
-    const domain = new URL(pageUrl).hostname;
-    globalLearning.learn(domain, action.type, result.success, {
-      errorType: result.errorType,
-      duration: Date.now() - startTime,
-    }).catch(() => {});
   }
 
   return result;

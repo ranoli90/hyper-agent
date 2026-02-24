@@ -60,6 +60,11 @@ export const STORAGE_KEYS = {
   // Payment Configuration
   PAYMENT_CONFIG: 'hyperagent_payment_config',
   PENDING_CRYPTO_PAYMENT: 'hyperagent_pending_crypto',
+  // Ollama / Local AI
+  OLLAMA_ENABLED: 'hyperagent_ollama_enabled',
+  OLLAMA_HOST: 'hyperagent_ollama_host',
+  OLLAMA_MODEL: 'hyperagent_ollama_model',
+  USE_LOCAL_AI: 'hyperagent_use_local_ai',
 } as const;
 
 // ─── Validation constants ─────────────────────────────────────────────
@@ -106,6 +111,11 @@ export const DEFAULTS = {
   // Token and cost management
   COST_WARNING_THRESHOLD: 5.00,  // Warn when session cost exceeds $5
   MAX_TOKENS_PER_SESSION: 100000, // Max tokens per session (approx $0.10-$0.50)
+  // Local AI (Ollama)
+  OLLAMA_ENABLED: false,  // Auto-detected, user can override
+  OLLAMA_HOST: 'http://localhost:11434',
+  OLLAMA_MODEL: 'llama3.2:3b',
+  USE_LOCAL_AI: false,  // Default to cloud AI unless Ollama is available
 } as const;
 
 // ─── Payment Configuration ───────────────────────────────────────────
@@ -130,6 +140,13 @@ export const PAYMENT_CONFIG = {
   } as Record<number, string>,
 } as const;
 
+// ─── Ollama Configuration ──────────────────────────────────────────────
+export const OLLAMA_CONFIG = {
+  DEFAULT_HOST: 'http://localhost:11434',
+  CHECK_INTERVAL_MS: 30000,
+  TIMEOUT_MS: 120000,
+} as const;
+
 // ─── Settings type ──────────────────────────────────────────────────
 export interface Settings {
   apiKey: string;
@@ -146,6 +163,11 @@ export interface Settings {
   enableSwarmIntelligence: boolean;
   enableAutonomousMode: boolean;
   learningEnabled: boolean;
+  // Local AI (Ollama)
+  ollamaEnabled: boolean;
+  ollamaHost: string;
+  ollamaModel: string;
+  useLocalAI: boolean;
 }
 
 // ─── Settings validation ─────────────────────────────────────────────
@@ -196,6 +218,10 @@ export async function loadSettings(): Promise<Settings> {
         enableSwarmIntelligence: DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
         enableAutonomousMode: DEFAULTS.ENABLE_AUTONOMOUS_MODE,
         learningEnabled: DEFAULTS.LEARNING_ENABLED,
+        ollamaEnabled: DEFAULTS.OLLAMA_ENABLED,
+        ollamaHost: DEFAULTS.OLLAMA_HOST,
+        ollamaModel: DEFAULTS.OLLAMA_MODEL,
+        useLocalAI: DEFAULTS.USE_LOCAL_AI,
       };
     }
 
@@ -229,6 +255,10 @@ export async function loadSettings(): Promise<Settings> {
       enableSwarmIntelligence: data[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE] ?? DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
       enableAutonomousMode: data[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE] ?? DEFAULTS.ENABLE_AUTONOMOUS_MODE,
       learningEnabled: data[STORAGE_KEYS.LEARNING_ENABLED] ?? DEFAULTS.LEARNING_ENABLED,
+      ollamaEnabled: data[STORAGE_KEYS.OLLAMA_ENABLED] ?? DEFAULTS.OLLAMA_ENABLED,
+      ollamaHost: data[STORAGE_KEYS.OLLAMA_HOST] ?? DEFAULTS.OLLAMA_HOST,
+      ollamaModel: data[STORAGE_KEYS.OLLAMA_MODEL] ?? DEFAULTS.OLLAMA_MODEL,
+      useLocalAI: data[STORAGE_KEYS.USE_LOCAL_AI] ?? DEFAULTS.USE_LOCAL_AI,
     };
 
     // Validate loaded settings
@@ -258,6 +288,10 @@ export async function loadSettings(): Promise<Settings> {
       enableSwarmIntelligence: DEFAULTS.ENABLE_SWARM_INTELLIGENCE,
       enableAutonomousMode: DEFAULTS.ENABLE_AUTONOMOUS_MODE,
       learningEnabled: DEFAULTS.LEARNING_ENABLED,
+      ollamaEnabled: DEFAULTS.OLLAMA_ENABLED,
+      ollamaHost: DEFAULTS.OLLAMA_HOST,
+      ollamaModel: DEFAULTS.OLLAMA_MODEL,
+      useLocalAI: DEFAULTS.USE_LOCAL_AI,
     };
   }
 }
@@ -290,6 +324,10 @@ export async function saveSettings(settings: Settings): Promise<{ success: boole
       [STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE]: settings.enableSwarmIntelligence,
       [STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE]: settings.enableAutonomousMode,
       [STORAGE_KEYS.LEARNING_ENABLED]: settings.learningEnabled,
+      [STORAGE_KEYS.OLLAMA_ENABLED]: settings.ollamaEnabled,
+      [STORAGE_KEYS.OLLAMA_HOST]: settings.ollamaHost,
+      [STORAGE_KEYS.OLLAMA_MODEL]: settings.ollamaModel,
+      [STORAGE_KEYS.USE_LOCAL_AI]: settings.useLocalAI,
     });
 
     return { success: true };

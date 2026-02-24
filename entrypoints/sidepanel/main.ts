@@ -1700,43 +1700,10 @@ chrome.runtime.onMessage.addListener((message: any) => {
   }
 });
 
-// ─── Voice Interface ────────────────────────────────────────────
-import { VoiceInterface } from '../../shared/voice-interface';
-let lastFinalVoiceText = '';
-let voiceInterface = new VoiceInterface({
-  onStart: () => {
-    lastFinalVoiceText = '';
-    components.btnMic.classList.add('active');
-    components.commandInput.placeholder = 'Listening...';
-  },
-  onEnd: () => {
-    components.btnMic.classList.remove('active');
-    components.commandInput.placeholder = 'Type a command...';
-    // Only execute if we received a final transcription (avoids partial/interim text)
-    const text = lastFinalVoiceText.trim();
-    if (text) handleCommand(text);
-  },
-  onResult: (text, isFinal) => {
-    components.commandInput.value = text;
-    if (isFinal) {
-      lastFinalVoiceText = text;
-      updateCharCounter(text);
-    }
-  },
-});
-
-// Mic button toggle
+// Voice interface disabled for MVP
+// Mic button toggle - show disabled message for now
 components.btnMic.addEventListener('click', () => {
-  try {
-    if (voiceInterface.isListening) {
-      voiceInterface.stopListening();
-    } else {
-      voiceInterface.startListening();
-    }
-  } catch (err) {
-    console.warn('[HyperAgent] Voice interface error:', err);
-    showToast('Voice input not available in this browser', 'error');
-  }
+  showToast('Voice input coming in v4.2', 'info');
 });
 
 components.btnUpgradePremium.addEventListener('click', async () => {

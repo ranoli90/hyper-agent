@@ -19,7 +19,6 @@ import type {
   RecoveryStrategy,
 } from '../shared/types';
 import { isSafeRegex } from '../shared/safe-regex';
-import { tiktokModerator } from '../shared/tiktok-moderator';
 import { StealthEngine } from '../shared/stealth-engine';
 
 // ─── Visual Mouse Cursor ───────────────────────────────────────────────
@@ -1291,24 +1290,6 @@ export default defineContentScript({
             sendResponse({ success: true });
             return true;
           }
-          case 'stopModerator': {
-            if (!globalThis.location.hostname.includes('tiktok.com')) {
-              sendResponse({ success: false, error: 'Not on TikTok' });
-              return true;
-            }
-            tiktokModerator.stop();
-            sendResponse({ success: true });
-            return true;
-          }
-          case 'updateModerationRules': {
-            if (!globalThis.location.hostname.includes('tiktok.com')) {
-              sendResponse({ success: false, error: 'Not on TikTok' });
-              return true;
-            }
-            tiktokModerator.setRules(message.rules);
-            sendResponse({ success: true });
-            return true;
-          }
         }
 
         // Async cases — handle via .then() to keep port open
@@ -1353,12 +1334,7 @@ export default defineContentScript({
               };
             }
             case 'startModerator': {
-              if (globalThis.location.hostname.includes('tiktok.com')) {
-                const started = await tiktokModerator.start();
-                return { success: started };
-              } else {
-                return { success: false, error: 'Not on TikTok' };
-              }
+              return { success: false, error: 'TikTok moderator feature disabled' };
             }
             default:
               return { success: false, error: 'Unknown message type' };

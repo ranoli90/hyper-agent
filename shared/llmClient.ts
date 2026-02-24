@@ -22,13 +22,13 @@ import type {
 } from './types';
 import { DEFAULTS, loadSettings } from './config';
 
-import { SwarmCoordinator } from './swarm-intelligence';
 import { autonomousIntelligence } from './autonomous-intelligence';
 import { IntelligenceContext } from './ai-types';
 import { apiCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
+import { ollamaClient, checkOllamaStatus } from './ollamaClient';
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
 
@@ -889,10 +889,8 @@ function validateResponse(raw: unknown): LLMResponse {
 // ─── Enhanced LLM Client with Autonomous Intelligence ─────────────────
 export class EnhancedLLMClient implements LLMClientInterface {
   private readonly cache = new Map<string, any>();
-  private readonly swarmCoordinator: SwarmCoordinator;
 
   constructor() {
-    this.swarmCoordinator = new SwarmCoordinator();
     // Inject self into autonomous intelligence engine to break circular dependency
     autonomousIntelligence.setLLMClient(this);
   }
@@ -1033,6 +1031,31 @@ export class EnhancedLLMClient implements LLMClientInterface {
     settings: any,
     signal?: AbortSignal
   ): Promise<LLMResponse> {
+    // Check if we should use local Ollama
+    if (settings.useLocalAI || settings.ollamaEnabled) {
+      try {
+        const ollamaStatus = await checkOllamaStatus();
+        if (ollamaStatus.available) {
+          console.log('[HyperAgent] Using Ollama for inference');
+          const model = settings.ollamaModel || 'llama3.2:3b';
+          const systemPrompt = this.buildSystemPrompt(request);
+          const response = await ollamaClient.generate(
+            request.command || '',
+            {
+              model,
+              temperature: 0.7,
+              systemPrompt,
+            }
+          );
+          return response;
+        }
+      } catch (ollamaError) {
+        console.log('[HyperAgent] Ollama not available, falling back to OpenRouter:', ollamaError);
+        // Fall through to OpenRouter
+      }
+    }
+
+    // Proceed with OpenRouter API call
     const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
       maxLength: 10000,
       preserveWhitespace: true,
@@ -1173,6 +1196,33 @@ export class EnhancedLLMClient implements LLMClientInterface {
       viewportSize: { width: 1280, height: 720 },
       pageHeight: 0,
     };
+  }
+
+  private buildSystemPrompt(request: LLMRequest): string {
+    return `You are HyperAgent, an autonomous browser agent with enhanced reasoning capabilities.
+
+CORE CAPABILITIES:
+- Observe DOM and understand page context
+- Plan multi-step actions strategically  
+- Execute precise element interactions
+- Verify outcomes and adapt
+
+AVAILABLE ACTIONS:
+- click, fill, select, hover, focus, extract
+- navigate, goBack, scroll, wait, pressKey
+- openTab, closeTab, switchTab, getTabs
+- runMacro, runWorkflow
+
+RESPONSE FORMAT (JSON):
+{
+  "summary": "Brief explanation",
+  "actions": [{"type": "...", "description": "...", ...}],
+  "needsScreenshot": false,
+  "done": false
+}
+
+USER COMMAND: ${request.command || 'No command'}
+`;
   }
 
   async getEmbedding(text: string): Promise<number[]> {

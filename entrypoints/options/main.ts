@@ -234,6 +234,10 @@ btnSave.addEventListener('click', async () => {
     enableSwarmIntelligence: enableSwarmInput.checked,
     enableAutonomousMode: enableAutonomousInput.checked,
     learningEnabled: enableLearningInput.checked,
+    ollamaEnabled: DEFAULTS.OLLAMA_ENABLED,
+    ollamaHost: DEFAULTS.OLLAMA_HOST,
+    ollamaModel: DEFAULTS.OLLAMA_MODEL,
+    useLocalAI: (document.getElementById('useLocalAI') as HTMLInputElement)?.checked || DEFAULTS.USE_LOCAL_AI,
   });
 
   saveStatus.classList.remove('hidden');
