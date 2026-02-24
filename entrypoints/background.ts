@@ -2525,28 +2525,20 @@ async function handleAutoRetry(
         step: 'plan',
       });
       
-      // First, check if we need to ask questions about the command
-      const intentResult = await llmClient.callLLM({ 
+      // Get initial context and call LLM once
+      let context = await getPageContext(currentTabId);
+      let llmResponse = await llmClient.callLLM({ 
         command, 
         history, 
         context: { 
-          url: tab.url || '', 
-          title: tab.title || '', 
-          bodyText: '', 
-          metaDescription: '', 
-          formCount: 0, 
-          semanticElements: [], 
-          timestamp: Date.now(), 
-          scrollPosition: { x: 0, y: 0 }, 
-          viewportSize: { width: 0, height: 0 }, 
-          pageHeight: 0,
+          ...context,
           isInitialQuery: true 
         } 
       });
       
-      if (intentResult.needsClarification && intentResult.clarificationQuestion) {
-        // Ask user for clarification
-        const reply = await askUserForInfo(intentResult.clarificationQuestion);
+      // Handle clarification if needed
+      if (llmResponse.needsClarification && llmResponse.clarificationQuestion) {
+        const reply = await askUserForInfo(llmResponse.clarificationQuestion);
         if (!reply) {
           sendToSidePanel({
             type: 'agentDone',
@@ -2558,43 +2550,21 @@ async function handleAutoRetry(
           return;
         }
         
-        // Add user's reply to history
+        // Add user's reply to history and get new response
         history.push({
           role: 'user',
           userReply: reply,
-          context: { 
-            url: tab.url || '', 
-            title: tab.title || '', 
-            bodyText: '', 
-            metaDescription: '', 
-            formCount: 0, 
-            semanticElements: [], 
-            timestamp: Date.now(), 
-            scrollPosition: { x: 0, y: 0 }, 
-            viewportSize: { width: 0, height: 0 }, 
-            pageHeight: 0 
-          }
+          context
         });
         
         // Re-analyze with additional info
-        const reanalyzeResult = await llmClient.callLLM({ 
+        llmResponse = await llmClient.callLLM({ 
           command, 
           history, 
-          context: { 
-            url: tab.url || '', 
-            title: tab.title || '', 
-            bodyText: '', 
-            metaDescription: '', 
-            formCount: 0, 
-            semanticElements: [], 
-            timestamp: Date.now(), 
-            scrollPosition: { x: 0, y: 0 }, 
-            viewportSize: { width: 0, height: 0 }, 
-            pageHeight: 0 
-          } 
+          context: { ...context, isInitialQuery: true }
         });
         
-        if (reanalyzeResult.needsClarification) {
+        if (llmResponse.needsClarification) {
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: 'Command still unclear. Please provide more specific instructions.',
@@ -2607,13 +2577,15 @@ async function handleAutoRetry(
       }
 
       // Check if we need to navigate first
-      if (intentResult.needsNavigation && intentResult.targetUrl) {
+      if (llmResponse.needsNavigation && llmResponse.targetUrl) {
         sendToSidePanel({
           type: 'agentProgress',
-          status: `Navigating to ${intentResult.targetUrl}...`,
+          status: `Navigating to ${llmResponse.targetUrl}...`,
           step: 'act',
         });
-        await navigateTabAndWait(currentTabId, intentResult.targetUrl);
+        await navigateTabAndWait(currentTabId, llmResponse.targetUrl);
+        // Refresh context after navigation
+        context = await getPageContext(currentTabId);
       }
 
       for (let step = 1; step <= maxSteps; step++) {
@@ -2657,7 +2629,7 @@ async function handleAutoRetry(
           status: `Step ${step}/${maxSteps}: Analyzing page...`,
           step: 'observe',
         });
-        let context = await getPageContext(currentTabId);
+        context = await getPageContext(currentTabId);
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
           const screenshotDataUrl = await captureScreenshot('dataUrl');
@@ -2675,14 +2647,13 @@ async function handleAutoRetry(
           command: redact(command),
           historyCount: history.length,
         });
-        let llmResponse: any;
         const llmCallPromise = llmClient.callLLM({ command, history, context });
         const llmTimeoutMs = DEFAULTS.LLM_TIMEOUT_MS ?? 45000;
         const timeoutPromise = new Promise((_, reject) =>
           globalThis.setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
         );
         try {
-          llmResponse = await Promise.race([llmCallPromise, timeoutPromise]);
+          llmResponse = await Promise.race([llmCallPromise, timeoutPromise]) as typeof llmResponse;
           logger.log('info', 'LLM response received', {
             summary: llmResponse?.summary,
             actionsCount: llmResponse?.actions?.length,

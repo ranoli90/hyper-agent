@@ -100,7 +100,9 @@ try {
 const state = {
   isRunning: false,
   confirmResolve: null as ((confirmed: boolean) => void) | null,
+  confirmTimeoutId: null as ReturnType<typeof setTimeout> | null,
   askResolve: null as ((reply: string) => void) | null,
+  askTimeoutId: null as ReturnType<typeof setTimeout> | null,
   activeTab: 'chat',
   lastCommandTime: 0,
   commandHistory: [] as string[],
@@ -110,6 +112,7 @@ const state = {
 
 const MAX_COMMAND_LENGTH = 2000;
 const COMMAND_RATE_LIMIT_MS = 1000; // 1 second between commands
+let selectedSuggestionIndex = -1;
 
 function updateCharCounter(value: string) {
   if (!components.charCounter) return;
@@ -121,16 +124,20 @@ function updateCharCounter(value: string) {
 // ─── Tab Logic ──────────────────────────────────────────────────
 function switchTab(tabId: string) {
   state.activeTab = tabId;
+  
+  // Update tab buttons
   components.tabs.forEach(btn => {
     const isSelected = (btn as HTMLElement).dataset.tab === tabId;
     btn.classList.toggle('active', isSelected);
     btn.setAttribute('aria-selected', String(isSelected));
   });
+  
+  // Update tab panes
   components.panes.forEach(pane => {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
   });
 
-  // Update tab indicator
+  // Update tab indicator with improved positioning
   const tabIndicator = document.getElementById('tab-indicator');
   const selectedButton = document.querySelector(`.tab-btn[data-tab="${tabId}"]`) as HTMLElement;
   if (tabIndicator && selectedButton) {
@@ -203,6 +210,10 @@ components.btnConfirm.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
     if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
+    if (state.confirmTimeoutId) {
+      clearTimeout(state.confirmTimeoutId);
+      state.confirmTimeoutId = null;
+    }
     state.confirmResolve(true);
     state.confirmResolve = null;
   }
@@ -212,6 +223,10 @@ components.btnCancel.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
     if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
+    if (state.confirmTimeoutId) {
+      clearTimeout(state.confirmTimeoutId);
+      state.confirmTimeoutId = null;
+    }
     state.confirmResolve(false);
     state.confirmResolve = null;
   }
@@ -223,6 +238,10 @@ components.confirmModal.addEventListener('click', e => {
     components.confirmModal.classList.add('hidden');
     if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
     if (state.confirmResolve) {
+      if (state.confirmTimeoutId) {
+        clearTimeout(state.confirmTimeoutId);
+        state.confirmTimeoutId = null;
+      }
       state.confirmResolve(false);
       state.confirmResolve = null;
     }
@@ -396,11 +415,13 @@ function showSuggestions(query: string) {
     }
 
     container.innerHTML = '';
-    matches.slice(0, 5).forEach(s => {
+    matches.slice(0, 5).forEach((s, index) => {
       // Limit to 5 suggestions for performance
       try {
         const div = document.createElement('div');
         div.className = 'suggestion-item';
+        div.setAttribute('data-index', String(index));
+        div.setAttribute('role', 'option');
         div.innerHTML = `
           <span class="command">${escapeHtml(s.command)}</span>
           <span class="desc">${escapeHtml(s.description)}</span>
@@ -415,13 +436,14 @@ function showSuggestions(query: string) {
         });
         container.appendChild(div);
       } catch (err) {
-        console.warn('[HyperAgent] Failed to create suggestion item:', err);
+        // Skip failed suggestion item
       }
     });
 
     container.classList.remove('hidden');
+    // Reset selection
+    selectedSuggestionIndex = -1;
   } catch (err) {
-    console.warn('[HyperAgent] showSuggestions failed:', err);
     if (components.suggestions) {
       components.suggestions.classList.add('hidden');
     }
@@ -469,27 +491,42 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 
 function renderMarkdown(text: string): string {
   try {
-    let html = text.replaceAll(/```(\w*)([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre><code class="language-${escapeHtml(lang)}">${escapeHtml(code.trim())}</code></pre>`;
+    // First escape all HTML to prevent XSS
+    let html = escapeHtml(text);
+    
+    // Then apply markdown transformations (order matters - code blocks first)
+    // Code blocks
+    html = html.replaceAll(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+      return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
     });
-    html = html.replaceAll(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
-    html = html.replaceAll(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${escapeHtml(t)}</strong>`);
-    html = html.replaceAll(/\*([^*]+)\*/g, (_, t) => `<em>${escapeHtml(t)}</em>`);
+    
+    // Inline code
+    html = html.replaceAll(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
+    
+    // Bold
+    html = html.replaceAll(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${t}</strong>`);
+    
+    // Italic
+    html = html.replaceAll(/\*([^*]+)\*/g, (_, t) => `<em>${t}</em>`);
+    
+    // Links - validate href is safe
     html = html.replaceAll(
       /\[([^\]]+)\]\(([^)]+)\)/g,
       (_, linkText, href) => {
-        const safeHref = /^https?:\/\//i.test(href) ? escapeHtml(href) : '#';
-        return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${escapeHtml(linkText)}</a>`;
+        // Only allow http/https links
+        const safeHref = /^https?:\/\//i.test(href) ? href : '#';
+        return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
       }
     );
 
+    // Paragraphs - split by double newline
     html = html
       .split('\n\n')
-      .map(p => `<p>${escapeHtml(p).replaceAll(/\n/g, '<br>')}</p>`)
+      .map(p => `<p>${p.replaceAll(/\n/g, '<br>')}</p>`)
       .join('');
+    
     return html;
-  } catch (err) {
-    console.warn('[HyperAgent] renderMarkdown failed', err);
+  } catch {
     return escapeHtml(text);
   }
 }
@@ -625,7 +662,7 @@ async function saveHistoryImmediate() {
     const historyHTML = components.chatHistory.innerHTML;
     await chrome.storage.local.set({ chat_history_backup: historyHTML });
   } catch (err) {
-    console.warn('[HyperAgent] Failed to save chat history:', err);
+    // Removed console.warn
   }
 }
 const saveHistory = debounce(saveHistoryImmediate, 500);
@@ -653,7 +690,7 @@ async function loadHistory() {
     }
     showExampleCommandsIfNeeded();
   } catch (err) {
-    console.warn('[HyperAgent] Failed to load chat history:', err);
+    // Removed console.warn
     showExampleCommandsIfNeeded();
   }
 }
@@ -859,7 +896,7 @@ async function updateUsageDisplay() {
       cancelBtn.classList.toggle('hidden', tier === 'free');
     }
   } catch (err) {
-    console.warn('[HyperAgent] Failed to update usage display:', err);
+    // Removed console.warn
   }
 }
 
@@ -876,18 +913,18 @@ interface MarketplaceWorkflow {
 }
 
 const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
-  { id: 'web-scraper', name: 'Web Scraper Pro', description: 'Extract structured data from any webpage with CSS selectors and pagination support', price: 'Free', category: 'data', tier: 'free', rating: 4.8, installs: '12.3k', icon: '🔍' },
-  { id: 'form-filler', name: 'Smart Form Filler', description: 'Auto-fill forms using stored profiles with intelligent field matching', price: 'Free', category: 'productivity', tier: 'free', rating: 4.6, installs: '8.7k', icon: '📝' },
-  { id: 'price-tracker', name: 'Price Tracker', description: 'Monitor product prices across e-commerce sites and alert on drops', price: 'Free', category: 'data', tier: 'free', rating: 4.7, installs: '15.1k', icon: '💰' },
-  { id: 'email-automation', name: 'Email Outreach', description: 'Send personalized emails in bulk with templates and tracking', price: 'Premium', category: 'communication', tier: 'premium', rating: 4.5, installs: '5.2k', icon: '✉️' },
-  { id: 'social-media-poster', name: 'Social Publisher', description: 'Schedule and post content to Twitter, LinkedIn, and Facebook', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.4, installs: '3.8k', icon: '📱' },
-  { id: 'invoice-processor', name: 'Invoice Extractor', description: 'Extract line items, totals, and dates from invoice PDFs', price: 'Premium', category: 'business', tier: 'premium', rating: 4.9, installs: '6.4k', icon: '🧾' },
-  { id: 'seo-auditor', name: 'SEO Auditor', description: 'Comprehensive on-page SEO analysis with actionable recommendations', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.3, installs: '4.1k', icon: '📊' },
-  { id: 'lead-generator', name: 'Lead Generator', description: 'Extract business contacts from directories and social profiles', price: 'Premium', category: 'business', tier: 'premium', rating: 4.6, installs: '7.9k', icon: '🎯' },
-  { id: 'competitor-monitor', name: 'Competitor Monitor', description: 'Track competitor pricing, content changes, and new features', price: 'Unlimited', category: 'business', tier: 'unlimited', rating: 4.7, installs: '2.1k', icon: '👁️' },
-  { id: 'data-pipeline', name: 'Data Pipeline', description: 'ETL workflows: extract, transform, and load data across platforms', price: 'Unlimited', category: 'data', tier: 'unlimited', rating: 4.8, installs: '1.5k', icon: '🔄' },
-  { id: 'report-generator', name: 'Report Generator', description: 'Auto-generate weekly reports from multiple data sources', price: 'Premium', category: 'productivity', tier: 'premium', rating: 4.5, installs: '3.3k', icon: '📈' },
-  { id: 'tab-organizer', name: 'Tab Organizer', description: 'Automatically group, sort, and manage browser tabs by project', price: 'Free', category: 'productivity', tier: 'free', rating: 4.2, installs: '9.4k', icon: '🗂️' },
+  { id: 'web-scraper', name: 'Web Scraper Pro', description: 'Extract structured data from any webpage with CSS selectors and pagination support', price: 'Free', category: 'data', tier: 'free', rating: 4.8, installs: '12.3k', icon: '' },
+  { id: 'form-filler', name: 'Smart Form Filler', description: 'Auto-fill forms using stored profiles with intelligent field matching', price: 'Free', category: 'productivity', tier: 'free', rating: 4.6, installs: '8.7k', icon: '' },
+  { id: 'price-tracker', name: 'Price Tracker', description: 'Monitor product prices across e-commerce sites and alert on drops', price: 'Free', category: 'data', tier: 'free', rating: 4.7, installs: '15.1k', icon: '' },
+  { id: 'email-automation', name: 'Email Outreach', description: 'Send personalized emails in bulk with templates and tracking', price: 'Premium', category: 'communication', tier: 'premium', rating: 4.5, installs: '5.2k', icon: '️' },
+  { id: 'social-media-poster', name: 'Social Publisher', description: 'Schedule and post content to Twitter, LinkedIn, and Facebook', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.4, installs: '3.8k', icon: '' },
+  { id: 'invoice-processor', name: 'Invoice Extractor', description: 'Extract line items, totals, and dates from invoice PDFs', price: 'Premium', category: 'business', tier: 'premium', rating: 4.9, installs: '6.4k', icon: '' },
+  { id: 'seo-auditor', name: 'SEO Auditor', description: 'Comprehensive on-page SEO analysis with actionable recommendations', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.3, installs: '4.1k', icon: '' },
+  { id: 'lead-generator', name: 'Lead Generator', description: 'Extract business contacts from directories and social profiles', price: 'Premium', category: 'business', tier: 'premium', rating: 4.6, installs: '7.9k', icon: '' },
+  { id: 'competitor-monitor', name: 'Competitor Monitor', description: 'Track competitor pricing, content changes, and new features', price: 'Unlimited', category: 'business', tier: 'unlimited', rating: 4.7, installs: '2.1k', icon: '️' },
+  { id: 'data-pipeline', name: 'Data Pipeline', description: 'ETL workflows: extract, transform, and load data across platforms', price: 'Unlimited', category: 'data', tier: 'unlimited', rating: 4.8, installs: '1.5k', icon: '' },
+  { id: 'report-generator', name: 'Report Generator', description: 'Auto-generate weekly reports from multiple data sources', price: 'Premium', category: 'productivity', tier: 'premium', rating: 4.5, installs: '3.3k', icon: '' },
+  { id: 'tab-organizer', name: 'Tab Organizer', description: 'Automatically group, sort, and manage browser tabs by project', price: 'Free', category: 'productivity', tier: 'free', rating: 4.2, installs: '9.4k', icon: '️' },
 ];
 
 let activeCategory = 'all';
@@ -907,7 +944,7 @@ async function loadMarketplace() {
       installedWorkflowIds = new Set(resp.workflows);
     }
   } catch (e) {
-    console.warn('[HyperAgent] Failed to load installed workflows', e);
+    // Removed console.warn
   }
 
   renderMarketplaceWorkflows();
@@ -972,17 +1009,17 @@ function renderMarketplaceWorkflows() {
     const workflowTierLevel = tierOrder[workflow.tier] || 0;
     const canInstall = currentTierLevel >= workflowTierLevel;
     const isInstalled = installedWorkflowIds.has(workflow.id);
-    const stars = '★'.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
+    const stars = ''.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
 
     let btnLabel: string;
     let btnClass: string;
     let btnDisabled = '';
     if (isInstalled) {
-      btnLabel = '✓ Installed';
+      btnLabel = ' Installed';
       btnClass = 'install-btn installed';
       btnDisabled = 'disabled';
     } else if (!canInstall) {
-      btnLabel = '🔒 Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
+      btnLabel = ' Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
       btnClass = 'install-btn locked';
     } else {
       btnLabel = 'Install';
@@ -1249,14 +1286,27 @@ async function loadSwarmTab() {
   const activeMissionsList = document.getElementById('active-missions-list');
   const missionHistoryList = document.getElementById('mission-history-list');
   const snapshotsList = document.getElementById('snapshots-list');
+  const swarmState = document.getElementById('swarm-state');
 
   if (!agentList || !activeMissions || !activeMissionsList || !missionHistoryList || !snapshotsList) {
     return;
   }
 
   try {
-    // Load agent status from background
+    // Load swarm status from background
     const swarmStatus = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
+    const isSwarmActive = swarmStatus?.ok && swarmStatus.status?.enabled;
+    
+    // Update swarm state indicator
+    if (swarmState) {
+      swarmState.textContent = isSwarmActive ? 'Active' : 'Inactive';
+      swarmState.parentElement?.classList.toggle('bg-emerald-500/10', isSwarmActive);
+      swarmState.parentElement?.classList.toggle('text-emerald-500', isSwarmActive);
+      swarmState.parentElement?.classList.toggle('bg-orange-500/10', !isSwarmActive);
+      swarmState.parentElement?.classList.toggle('text-orange-400', !isSwarmActive);
+    }
+
+    // Load agent status from background
     if (swarmStatus?.ok && swarmStatus.status?.agents) {
       agentList.innerHTML = swarmStatus.status.agents.map((agent: any) => `
         <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
@@ -1378,10 +1428,26 @@ components.btnExecute.addEventListener('click', () => {
   if (text.trim()) handleCommand(text);
 });
 
-components.btnStop.addEventListener('click', () => {
-  chrome.runtime.sendMessage({ type: 'stopAgent' });
-  addMessage('Stopping...', 'status');
-  setRunning(false);
+components.btnStop.addEventListener('click', async () => {
+  if (!state.isRunning) return;
+  
+  try {
+    components.btnStop.disabled = true;
+    addMessage('Stopping...', 'status');
+    
+    const response = await chrome.runtime.sendMessage({ type: 'stopAgent' });
+    
+    if (response?.ok) {
+      setRunning(false);
+      updateStatus('Agent stopped', 'hidden');
+    } else {
+      showToast('Failed to stop agent. Please try again.', 'error');
+    }
+  } catch (error) {
+    showToast('Error stopping agent. Please try again.', 'error');
+  } finally {
+    components.btnStop.disabled = false;
+  }
 });
 
 components.commandInput.addEventListener('keydown', e => {
@@ -1437,16 +1503,53 @@ components.commandInput.addEventListener('input', e => {
   handleInput(e);
 });
 
-// Keyboard navigation for command history
+// Keyboard navigation for command history and suggestions
 components.commandInput.addEventListener('keydown', e => {
-  if (e.key === 'ArrowUp') {
+  const suggestionsVisible = !components.suggestions.classList.contains('hidden');
+  const suggestionItems = components.suggestions.querySelectorAll('.suggestion-item');
+  
+  // Handle suggestion navigation
+  if (suggestionsVisible && suggestionItems.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedSuggestionIndex = Math.min(selectedSuggestionIndex + 1, suggestionItems.length - 1);
+      highlightSuggestion(suggestionItems, selectedSuggestionIndex);
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (selectedSuggestionIndex <= 0) {
+        // Go back to input
+        selectedSuggestionIndex = -1;
+        suggestionItems.forEach(item => item.classList.remove('selected'));
+        components.commandInput.focus();
+      } else {
+        selectedSuggestionIndex--;
+        highlightSuggestion(suggestionItems, selectedSuggestionIndex);
+      }
+      return;
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (selectedSuggestionIndex >= 0) {
+        e.preventDefault();
+        const selected = suggestionItems[selectedSuggestionIndex] as HTMLElement;
+        selected.click();
+        return;
+      }
+    } else if (e.key === 'Escape') {
+      components.suggestions.classList.add('hidden');
+      selectedSuggestionIndex = -1;
+      return;
+    }
+  }
+  
+  // Handle command history navigation
+  if (e.key === 'ArrowUp' && !suggestionsVisible) {
     e.preventDefault();
     const historyCmd = navigateHistory('up');
     if (historyCmd !== null) {
       components.commandInput.value = historyCmd;
       updateCharCounter(historyCmd);
     }
-  } else if (e.key === 'ArrowDown') {
+  } else if (e.key === 'ArrowDown' && !suggestionsVisible) {
     e.preventDefault();
     const historyCmd = navigateHistory('down');
     if (historyCmd !== null) {
@@ -1455,6 +1558,12 @@ components.commandInput.addEventListener('keydown', e => {
     }
   }
 });
+
+function highlightSuggestion(items: NodeListOf<Element>, index: number) {
+  items.forEach((item, i) => {
+    item.classList.toggle('selected', i === index);
+  });
+}
 
 // Load history on start
 requestIdleCallback(() => loadHistory(), { timeout: 100 });
@@ -1503,11 +1612,11 @@ const btnDarkMode = document.getElementById('btn-dark-mode');
 if (btnDarkMode) {
   btnDarkMode.addEventListener('click', () => {
     toggleDarkMode();
-    btnDarkMode.textContent = document.body.classList.contains('dark-mode') ? '☀️' : '🌙';
+    btnDarkMode.textContent = document.body.classList.contains('dark-mode') ? '️' : '';
   });
   // Set initial icon
   if (document.body.classList.contains('dark-mode')) {
-    btnDarkMode.textContent = '☀️';
+    btnDarkMode.textContent = '️';
   }
 }
 
@@ -1617,7 +1726,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
     }
     case 'confirmActions': {
       if (typeof message.summary !== 'string' || !Array.isArray(message.actions)) {
-        console.warn('[HyperAgent] Invalid confirmActions message:', message);
+        // Removed console.warn
         break;
       }
 
@@ -1642,17 +1751,25 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
       // Resolve any orphaned previous confirmation before creating a new one
       if (state.confirmResolve) {
+        if (state.confirmTimeoutId) {
+          clearTimeout(state.confirmTimeoutId);
+          state.confirmTimeoutId = null;
+        }
         state.confirmResolve(false);
         state.confirmResolve = null;
       }
 
       new Promise<boolean>(resolve => {
         state.confirmResolve = (val: boolean) => {
+          if (state.confirmTimeoutId) {
+            clearTimeout(state.confirmTimeoutId);
+            state.confirmTimeoutId = null;
+          }
           resolve(val);
           state.confirmResolve = null;
         };
         // Auto-reject after 60s
-        setTimeout(() => {
+        state.confirmTimeoutId = setTimeout(() => {
           if (state.confirmResolve) {
             state.confirmResolve(false);
           }
@@ -1664,8 +1781,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
           components.confirmModal.classList.add('hidden');
     if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         })
-        .catch(err => {
-          console.error('Confirmation error:', err);
+        .catch(() => {
           components.confirmModal.classList.add('hidden');
     if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         });
@@ -1841,7 +1957,7 @@ async function updateSubscriptionBadge() {
       badge.classList.add('free');
     }
   } catch (err) {
-    console.warn('[HyperAgent] Failed to update subscription badge:', err);
+    // Removed console.warn
   }
 }
 
@@ -1875,7 +1991,7 @@ function openOptionsPageSafe(): void {
     const optionsUrl = chrome.runtime.getURL('options.html');
     chrome.tabs.create({ url: optionsUrl });
   } catch (e) {
-    console.warn('[HyperAgent] Failed to open options page', e);
+    // Removed console.warn
     showToast('Could not open settings', 'error');
   }
 }
@@ -1901,7 +2017,7 @@ async function initDarkMode() {
   if (useDark) {
     document.body.classList.add('dark-mode');
     const btn = document.getElementById('btn-dark-mode');
-    if (btn) btn.textContent = '☀️';
+    if (btn) btn.textContent = '️';
   }
 }
 
@@ -1997,7 +2113,7 @@ async function importSettings() {
         throw new Error(errors.length > 0 ? errors[0] : 'No valid settings to import');
       }
       if (errors.length > 0) {
-        console.warn('[HyperAgent] Import validation warnings:', errors);
+        // Removed console.warn
         showToast(`Imported with warnings: ${errors.join('; ')}`, 'warning');
       }
       // Sanitize chat_history_backup on import to prevent XSS from malicious import files

@@ -783,12 +783,6 @@ export class IntelligentClarificationEngine {
     };
   }
 
-   
-  private async callClassificationLLM(_prompt: string): Promise<string> {
-    // Simplified LLM call for classification
-    // In production, this would use the full LLM client
-    return 'CAR_SALES_POSTING'; // Placeholder
-  }
 }
 
 // ─── Persistent Autonomous Operation Engine ──────────────────

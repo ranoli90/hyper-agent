@@ -4,6 +4,33 @@ All notable changes to HyperAgent will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [4.0.1] - 2026-02-24
+
+### Fixed
+
+#### Security
+- **XSS Prevention** — Fixed renderMarkdown to properly escape HTML before processing
+- **XPath Injection** — Added validation to block dangerous XPath patterns
+- **Stripe Verification** — Implemented actual subscription verification (was stubbed)
+- **Payment Configuration** — Removed hardcoded wallet addresses, now configurable
+
+#### Performance
+- **Duplicate LLM Calls** — Eliminated redundant clarification check that doubled API calls
+- **Element Index Registry** — No longer clears on every context call, improves performance
+- **Console Logging** — Removed debug console.log statements from production code
+
+#### User Experience
+- **Stop Button** — Now waits for confirmation before updating UI state
+- **Keyboard Navigation** — Added arrow key navigation for command suggestions
+- **Confirmation Modal** — Fixed timeout leak that continued after user action
+
+#### Code Quality
+- Removed dead code (CostTrackerLegacy, TokenCounter, placeholder functions)
+- Fixed auto-reject timeout cleanup in confirmation modals
+- Improved error handling throughout the codebase
+
+---
+
 ## [4.0.0] - 2026-02-22
 
 ### Added

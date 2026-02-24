@@ -293,7 +293,44 @@ export class BillingManager {
   }
 
   private async verifyStripeSubscription(): Promise<boolean> {
-    return true;
+    if (!this.state.subscriptionId || !this.config.stripePublishableKey) {
+      return false;
+    }
+    
+    try {
+      const response = await fetch('https://api.stripe.com/v1/subscriptions/' + this.state.subscriptionId, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.config.stripePublishableKey}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      });
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          return false;
+        }
+        return false;
+      }
+      
+      const data = await response.json();
+      
+      if (data.status === 'active' || data.status === 'trialing') {
+        if (data.current_period_end) {
+          this.state.currentPeriodEnd = data.current_period_end * 1000;
+        }
+        return true;
+      }
+      
+      if (data.status === 'canceled' || data.status === 'unpaid') {
+        return false;
+      }
+      
+      return data.status === 'active';
+    } catch (err) {
+      console.warn('[Billing] Stripe verification error:', err);
+      return false;
+    }
   }
 
   private async verifyCryptoPayment(): Promise<boolean> {

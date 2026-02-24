@@ -292,23 +292,23 @@ function updateApiUiState({ status, error }: { status: ApiStatusState; error?: s
   switch (status) {
     case 'custom':
       apiStatusDot.className = 'status-dot connected';
-      apiStatusText.textContent = 'API: ✅ Configured';
+      apiStatusText.textContent = 'API:  Configured';
       apiKeyInput.style.borderColor = '#10b981';
       break;
     case 'connecting':
       apiStatusDot.className = 'status-dot connecting';
-      apiStatusText.textContent = 'API: 🔄 Connecting...';
+      apiStatusText.textContent = 'API:  Connecting...';
       apiKeyInput.style.borderColor = '#f59e0b';
       break;
     case 'error':
       apiStatusDot.className = 'status-dot disconnected';
-      apiStatusText.textContent = error ? `API: ❌ ${error}` : 'API: ❌ Connection failed';
+      apiStatusText.textContent = error ? `API:  ${error}` : 'API:  Connection failed';
       apiKeyInput.style.borderColor = '#ef4444';
       break;
     case 'missing':
     default:
       apiStatusDot.className = 'status-dot disconnected';
-      apiStatusText.textContent = 'API: ❌ Not configured';
+      apiStatusText.textContent = 'API:  Not configured';
       apiKeyInput.style.borderColor = '';
       break;
   }
@@ -352,7 +352,7 @@ apiKeyInput.addEventListener('input', debounce(async () => {
   }
 
   apiStatusDot.className = 'status-dot connecting';
-  apiStatusText.textContent = 'API: 🔄 Validating...';
+  apiStatusText.textContent = 'API:  Validating...';
   apiKeyInput.style.borderColor = '#f59e0b'; // Orange
 
   const result = await validateApiKey(key, baseUrl);
@@ -370,7 +370,7 @@ apiProviderInput.addEventListener('change', async () => {
   const baseUrl = PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL;
   
   apiStatusDot.className = 'status-dot connecting';
-  apiStatusText.textContent = 'API: 🔄 Reconnecting...';
+  apiStatusText.textContent = 'API:  Reconnecting...';
   apiKeyInput.style.borderColor = '#f59e0b'; // Orange
 
   const result = await validateApiKey(key, baseUrl);
@@ -634,7 +634,7 @@ if (toggleAdvancedBtn) {
     const panel = document.getElementById('advanced-panel');
     if (panel) {
       panel.classList.toggle('hidden');
-      toggleAdvancedBtn.textContent = panel.classList.contains('hidden') ? '⚙️ Site Overrides' : '🔽 Hide Overrides';
+      toggleAdvancedBtn.textContent = panel.classList.contains('hidden') ? '️ Site Overrides' : ' Hide Overrides';
     }
   });
 }

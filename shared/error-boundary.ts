@@ -57,16 +57,6 @@ export async function withGracefulDegradation<T>(
 }
 
 /**
- * Synchronous error boundary wrapper (no-op by design, placeholder for decorator pattern).
- */
-export function errorBoundary(): void { }
-
-/**
- * Synchronous graceful degradation wrapper (no-op by design, placeholder for decorator pattern).
- */
-export function gracefulDegradation(): void { }
-
-/**
  * Get recent error records for diagnostics.
  */
 export function getRecentErrors(): ErrorRecord[] {

@@ -108,15 +108,13 @@ class CostTracker {
     if (usage?.total_tokens) {
       this.sessionTokens += usage.total_tokens;
     }
-    // Rough cost estimate (varies by model)
-    const costPer1kTokens = 0.001; // $0.001 per 1k tokens (approximate)
+    const costPer1kTokens = 0.001;
     if (usage?.total_tokens) {
       this.sessionCost += (usage.total_tokens / 1000) * costPer1kTokens;
     }
     if (this.sessionCost >= this.warningThreshold) {
       console.warn(`[CostTracker] Session cost warning: $${this.sessionCost.toFixed(4)} (threshold: $${this.warningThreshold})`);
     }
-    console.log(`[CostTracker] Session: ${this.sessionTokens} tokens, $${this.sessionCost.toFixed(4)}`);
   }
 
   getSessionStats() {
@@ -130,18 +128,6 @@ class CostTracker {
 
   isOverLimit(): boolean {
     return this.sessionTokens >= (DEFAULTS.MAX_TOKENS_PER_SESSION ?? 100000);
-  }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-class CostTrackerLegacy {
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-class TokenCounter {
-  // Simple token counter - could be enhanced later
-  countTokens(text: string): number {
-    return Math.ceil(text.length / 4); // Rough estimate
   }
 }
 

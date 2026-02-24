@@ -1,13 +1,13 @@
 {
   "name": "hyper-agent",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "AI-powered browser agent Chrome extension - Personal AI Infrastructure",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt --browser firefox",
-    "build": "node scripts/create-placeholder-icons.js && wxt build && node scripts/ensure-utf8.js",
+    "build": "wxt build && node scripts/ensure-utf8.js",
     "build:firefox": "wxt build --browser firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip --browser firefox",
@@ -22,8 +22,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "tsc --noEmit",
     "test:all": "npm run test:unit && npm run test",
-    "test:coverage": "vitest run --coverage",
-    "sonar": "node sonarqube-scanner.js"
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -41,7 +40,6 @@
     "globals": "^17.3.0",
     "postcss": "^8.5.6",
     "prettier": "^3.2.5",
-    "sonarqube-scanner": "^4.3.4",
     "tailwindcss": "^4.2.0",
     "typescript": "^5.5.0",
     "vitest": "^4.0.18",

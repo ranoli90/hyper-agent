@@ -1,12 +1,12 @@
 # HyperAgent Architecture
 
-> How the extension is structured and how data flows between components.
+System design and data flow for the Chrome extension.
 
 ---
 
 ## Overview
 
-HyperAgent is a Chrome MV3 extension with three main execution contexts:
+HyperAgent is a Chrome MV3 extension with three execution contexts:
 
 ```
 +------------------+     chrome.runtime.sendMessage     +--------------------+
@@ -41,26 +41,10 @@ The agent follows Observe -> Plan -> Act -> Re-observe:
      +------------------------------------------------+
 ```
 
-1. **Observe**: Content script extracts page context (elements, URL, text, scroll position)
+1. **Observe**: Content script extracts page context (elements, URL, text)
 2. **Plan**: Background sends context + command to LLM; LLM returns JSON actions
 3. **Act**: Background sends actions to content script; content script executes
 4. **Re-observe**: Loop until `done: true` or max steps reached
-
-### Step Execution
-
-```
-User Command
-     |
-     v
-+-------------+     +-------------+     +-------------+
-| getContext  | --> |   callLLM   | --> | performAction|
-+-------------+     +-------------+     +-------------+
-                          |                    |
-                          v                    v
-                    +----------+         +----------+
-                    | Thinking |         | Result   |
-                    +----------+         +----------+
-```
 
 ---
 
@@ -74,8 +58,6 @@ User Command
 | `stopAgent` | Abort running agent |
 | `userConfirm` | User approved/rejected action preview |
 | `userReply` | User answered agent question |
-| `getMemoryStats` | Get learning engine stats |
-| `installWorkflow` | Install marketplace workflow |
 
 ### Background -> Side Panel
 
@@ -84,8 +66,7 @@ User Command
 | `agentStatus` | Agent running state |
 | `confirmActions` | Request approval for actions |
 | `askUser` | Agent needs clarification |
-| `agentDone` | Agent completed (success/failure) |
-| `addMessage` | Add message to chat |
+| `agentDone` | Agent completed |
 
 ### Background -> Content Script
 
@@ -99,72 +80,18 @@ User Command
 
 ## Storage
 
-All data stored in `chrome.storage.local` (async, persists across service worker restarts).
-
-### Storage Keys
-
-All keys prefixed with `hyperagent_`:
+All data stored in `chrome.storage.local` with `hyperagent_` prefix:
 
 | Key | Type | Purpose |
 |-----|------|---------|
-| `hyperagent_api_key` | string | User's OpenRouter API key |
+| `hyperagent_api_key` | string | OpenRouter API key |
 | `hyperagent_model_name` | string | LLM model identifier |
 | `hyperagent_max_steps` | number | Max agent loop iterations |
 | `hyperagent_site_strategies` | object | Per-domain learning |
 | `hyperagent_sessions` | array | Saved sessions |
 | `hyperagent_scheduled_tasks` | array | Scheduler tasks |
-| `hyperagent_chat_history` | string | Chat backup (HTML) |
-| `hyperagent_command_history` | array | Recent commands |
 
-### Storage Quota
-
-- Extension has `unlimitedStorage` permission
-- Storage quota monitoring at 80%/95% thresholds
-- See `shared/storage-monitor.ts`
-
----
-
-## Security
-
-### Domain Policy
-
-```typescript
-// In security.ts
-interface SecurityPolicy {
-  maxActionsPerMinute: number;
-  requireConfirmationFor: ('fill' | 'click' | 'navigate')[];
-  allowExternalUrls: boolean;
-}
-```
-
-### Data Redaction
-
-Sensitive data automatically redacted in logs:
-- API keys (sk-*, AIza*, AKIA*, etc.)
-- Email addresses
-- Phone numbers
-- Credit card patterns
-- Passwords/tokens
-
-See `shared/security.ts` for patterns.
-
-### Rate Limiting
-
-- Per-sender message rate limit: 240/minute
-- Command rate limit: 1 second between commands
-- LLM 429 handling with Retry-After
-
----
-
-## Caching
-
-Three cache layers in `shared/advanced-caching.ts`:
-
-| Cache | TTL | Max Size | Eviction |
-|-------|-----|----------|----------|
-| apiCache | 15 min | 500 | LRU |
-| generalCache | 30 min | 1000 | LRU |
-| assetCache | 60 min | 200 | LRU |
+Extension has `unlimitedStorage` permission.
 
 ---
 
@@ -172,49 +99,45 @@ Three cache layers in `shared/advanced-caching.ts`:
 
 | File | Purpose |
 |------|---------|
-| `entrypoints/background.ts` | ReAct loop, message routing, orchestration |
-| `entrypoints/content.ts` | DOM extraction, element resolution, actions |
-| `entrypoints/sidepanel/main.ts` | Chat UI, commands, tabs |
-| `entrypoints/options/main.ts` | Settings, billing integration |
+| `entrypoints/background.ts` | ReAct loop, message routing |
+| `entrypoints/content.ts` | DOM extraction, actions |
+| `entrypoints/sidepanel/main.ts` | Chat UI, tabs |
+| `entrypoints/options/main.ts` | Settings, billing |
 | `shared/types.ts` | TypeScript interfaces |
-| `shared/llmClient.ts` | OpenRouter API, caching |
-| `shared/config.ts` | Settings, defaults, storage keys |
+| `shared/llmClient.ts` | OpenRouter/Ollama API |
+| `shared/config.ts` | Settings, storage keys |
 | `shared/security.ts` | Domain policy, redaction |
 
 ---
 
-## Error Handling
+## Security
 
-### Error Reporter
+### Domain Policy
+- Allowlist/blocklist for site access
+- Rate limiting (240 messages/minute)
+- Action confirmation for sensitive operations
 
-`shared/error-reporter.ts` provides:
-- Error capture with context
-- Sensitive data redaction
-- Configurable sampling
-- Future Sentry integration
-
-### Error Boundary
-
-`shared/error-boundary.ts` provides:
-- `withErrorBoundary()` - Log and re-throw
-- `withGracefulDegradation()` - Log and return fallback
+### Data Redaction
+Sensitive data automatically redacted in logs:
+- API keys (sk-*, AIza*, AKIA*, etc.)
+- Email addresses
+- Phone numbers
+- Credit card patterns
 
 ---
 
 ## Service Worker Constraints
 
-Service workers can be terminated at any time. Critical considerations:
+Service workers can be terminated at any time:
 
-1. **No synchronous storage** - Always `await chrome.storage.local.get()`
-2. **No DOM access** - Guard `document` and `window`
-3. **No localStorage** - Use `chrome.storage.local`
-4. **Timer persistence** - Use `chrome.alarms` for scheduled tasks
-5. **State persistence** - Store state in `chrome.storage.local`
+1. Use `chrome.storage.local` instead of localStorage
+2. Use `chrome.alarms` for scheduled tasks
+3. Guard `document` and `window` access
+4. Store state in `chrome.storage.local`
 
 ---
 
 ## See Also
 
-- [shared/README.md](../shared/README.md) - Module index
-- [docs/DEVELOPER.md](./DEVELOPER.md) - Developer guide
-- [public/PRIVACY_POLICY.md](../public/PRIVACY_POLICY.md) - Privacy policy
+- [DEVELOPER.md](./DEVELOPER.md) - Developer guide
+- [SETUP.md](./SETUP.md) - Setup instructions

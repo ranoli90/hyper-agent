@@ -121,13 +121,13 @@ export const DEFAULTS = {
 // ─── Payment Configuration ───────────────────────────────────────────
 export const PAYMENT_CONFIG = {
   BETA_PRICE_USD: 5,
-  // Stripe Configuration
-  STRIPE_PUBLISHABLE_KEY: 'pk_live_51Rpjd1FZF27VelA7qPmXK8jHnYvGzTjQWxRfMnBpLsKdVeYwXuAzErTgHkNlOiPqRsJkLmNpQrStUvWxYz',
-  STRIPE_PAYMENT_LINK_BETA: 'https://buy.stripe.com/fZu5kDcibgcJ04ZebZ5wI03',
-  STRIPE_PRICE_ID_BETA: 'price_1T3DQ3FZF27VelA7DbsHgoFD',
-  STRIPE_PRODUCT_ID: 'prod_U1Fui2M2LwIRcu',
-  // Crypto Configuration - Update this with your wallet address
-  CRYPTO_RECIPIENT_ADDRESS: '0x0000000000000000000000000000000000000000', // REPLACE WITH YOUR WALLET
+  // Stripe Configuration - configurable via settings
+  STRIPE_PUBLISHABLE_KEY: '',
+  STRIPE_PAYMENT_LINK_BETA: '',
+  STRIPE_PRICE_ID_BETA: '',
+  STRIPE_PRODUCT_ID: '',
+  // Crypto Configuration - must be configured in settings
+  CRYPTO_RECIPIENT_ADDRESS: '', // Configure in Settings > Payment
   SUPPORTED_CHAINS: [
     { chainId: 1, name: 'Ethereum', currency: 'ETH' },
     { chainId: 8453, name: 'Base', currency: 'ETH' },
@@ -139,6 +139,13 @@ export const PAYMENT_CONFIG = {
     137: 'https://polygonscan.com',
   } as Record<number, string>,
 } as const;
+
+// Payment settings that can be configured by the user
+export interface PaymentSettings {
+  stripePublishableKey: string;
+  stripePaymentLinkBeta: string;
+  cryptoRecipientAddress: string;
+}
 
 // ─── Ollama Configuration ──────────────────────────────────────────────
 export const OLLAMA_CONFIG = {

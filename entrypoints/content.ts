@@ -311,17 +311,31 @@ export default defineContentScript({
 
         const limit = DEFAULTS.MAX_SEMANTIC_ELEMENTS;
 
-        // Reset index registry for fresh context
-        indexedElements.clear();
-        nextIndex = 0;
+        // Clean up stale entries from index registry (don't clear all)
+        for (const [idx, ref] of indexedElements) {
+          if (ref.deref() === undefined) {
+            indexedElements.delete(idx);
+          }
+        }
 
         for (const htmlEl of allElements) {
-          if (nextIndex >= limit) break;
-          if (!isVisible(htmlEl)) continue;
+          // Check if element already indexed
+          const existingIndex = htmlEl.getAttribute('data-ha-index');
+          let idx: number;
+          
+          if (existingIndex !== null) {
+            idx = parseInt(existingIndex, 10);
+            // Update WeakRef
+            indexedElements.set(idx, new WeakRef(htmlEl));
+          } else {
+            // Only add new elements if under limit
+            if (nextIndex >= limit) break;
+            idx = nextIndex++;
+            htmlEl.setAttribute('data-ha-index', String(idx));
+            indexedElements.set(idx, new WeakRef(htmlEl));
+          }
 
-          const idx = nextIndex++;
-          htmlEl.setAttribute('data-ha-index', String(idx));
-          indexedElements.set(idx, new WeakRef(htmlEl));
+          if (!isVisible(htmlEl)) continue;
 
           const rect = htmlEl.getBoundingClientRect();
           const visibleText = getDirectText(htmlEl).slice(0, 150);
@@ -471,6 +485,22 @@ export default defineContentScript({
           return (visible[index ?? 0] as HTMLElement) || null;
         }
         case 'xpath': {
+          // Validate XPath for potential injection
+          if (!value || typeof value !== 'string') return null;
+          // Block potentially dangerous XPath patterns
+          const dangerousPatterns = [
+            /javascript:/i,
+            /document\.cookie/i,
+            /document\.location/i,
+            /window\./i,
+            /eval\(/i,
+            /<script/i,
+          ];
+          if (dangerousPatterns.some(p => p.test(value))) {
+            return null;
+          }
+          // Limit XPath length to prevent DoS
+          if (value.length > 500) return null;
           try {
             const result = document.evaluate(value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
             return result.singleNodeValue as HTMLElement | null;

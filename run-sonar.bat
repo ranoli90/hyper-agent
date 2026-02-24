@@ -1,3 +1,0 @@
-@echo off
-set SONAR_TOKEN=6ce275525e940540cbadaeda21973a6923201dd7
-node sonarqube-scanner.js
