@@ -1,7 +1,7 @@
 {
   "name": "hyper-agent",
-  "version": "3.1.0",
-  "description": "AI-powered browser agent Chrome extension",
+  "version": "4.0.0",
+  "description": "AI-powered browser agent Chrome extension - Personal AI Infrastructure",
   "private": true,
   "type": "module",
   "scripts": {
@@ -48,6 +48,11 @@
     "wxt": "^0.20.17"
   },
   "dependencies": {
-    "safe-regex": "^2.1.1"
+    "safe-regex": "^2.1.1",
+    "axios": "^1.7.9",
+    "crypto-js": "^4.2.0",
+    "ethers": "^6.13.4",
+    "stripe": "^17.4.0",
+    "uuid": "^10.0.0"
   }
 }
