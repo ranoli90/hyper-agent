@@ -1,9 +1,12 @@
 import { AutonomousPlan, AutonomousResult, IntelligenceContext } from './ai-types';
+import { DEFAULTS } from './config';
 
 interface AutonomousCallbacks {
     onProgress: (status: string, step: string, summary: string) => void;
     onAskUser: (question: string) => Promise<string>;
     onConfirmActions: (actions: any[], step: number, summary: string) => Promise<boolean>;
+    /** Called when autonomous run would exceed N navigations; return true to continue, false to stop. */
+    confirmContinueAfterNavigations?: (currentCount: number, limit: number) => Promise<boolean>;
     executeAction: (action: any) => Promise<any>;
     captureScreenshot: () => Promise<string>;
     onDone: (summary: string, success: boolean) => void;
@@ -34,7 +37,7 @@ export class AutonomousIntelligence {
         }
 
         try {
-            // Create autonomous planning prompt
+            // Create autonomous planning prompt with concrete multi-step examples
             const planningPrompt = `
 You are an autonomous AI agent planning to execute a complex task.
 Your goal is to break down the user's request into a sequence of executable steps that can be performed autonomously with minimal user interaction.
@@ -44,6 +47,8 @@ Task: "${command}"
 Available Context:
 - URL: ${context?.environmentalData?.url || 'unknown'}
 - Page Content (first 2000 chars): ${context?.environmentalData?.html?.slice(0, 2000) || 'not available'}
+${context?.domainKnowledge && Object.keys(context.domainKnowledge).length > 0 ? `- Domain knowledge / prior patterns: ${JSON.stringify(context.domainKnowledge).slice(0, 800)}` : ''}
+${context?.successPatterns && context.successPatterns.length > 0 ? `- Success patterns to prefer: ${JSON.stringify(context.successPatterns.slice(0, 3)).slice(0, 400)}` : ''}
 
 Guidelines for Autonomous Planning:
 1. Break the task into 3-8 concrete, executable steps
@@ -53,6 +58,20 @@ Guidelines for Autonomous Planning:
 5. Include verification steps where possible (e.g., extract data to confirm success)
 6. Consider page structure and likely element locations
 7. Use descriptive step names and clear descriptions
+
+Multi-step automation examples (follow this structure):
+
+Example 1 – Search and extract:
+Steps: (1) navigate to search page, (2) fill search input with query, (3) click search button, (4) wait for results, (5) extract visible result titles/links.
+
+Example 2 – Form filling:
+Steps: (1) navigate to form URL, (2) fill first field, (3) fill second field, (4) select dropdown if present, (5) click submit, (6) extract confirmation message.
+
+Example 3 – Multi-page flow:
+Steps: (1) navigate to list page, (2) click first item link, (3) extract detail fields, (4) goBack or navigate to list, (5) click next item, repeat extract.
+
+Example 4 – Login and action:
+Steps: (1) navigate to login URL, (2) fill username, (3) fill password, (4) click login, (5) wait for redirect, (6) perform target action (click/navigate/fill).
 
 Output Format (JSON):
 {
@@ -64,7 +83,7 @@ Output Format (JSON):
       "verification": "Check URL changed successfully"
     },
     {
-      "id": "step2", 
+      "id": "step2",
       "description": "Fill search form",
       "action": { "type": "fill", "locator": "#search-input", "value": "search term" },
       "verification": "Check input has expected value"
@@ -130,12 +149,31 @@ Important: Only include steps that can be executed autonomously. If the task fun
         const results: any[] = [];
         const learnings: string[] = [];
         let stepIndex = 0;
+        let navigationCount = 0;
+        const navLimit = DEFAULTS.MAX_NAVIGATIONS_PER_AUTONOMOUS_RUN ?? 5;
 
         try {
+            const toolBudget = DEFAULTS.MAX_ACTIONS_PER_RUN ?? 100;
             for (const step of plan.steps) {
                 if (!this.isRunning) break;
+                if (results.length >= toolBudget) {
+                    learnings.push(`Tool usage budget reached (${toolBudget} actions). Stopping.`);
+                    break;
+                }
 
                 stepIndex++;
+                const isNavigate = step.action && (step.action as any).type === 'navigate';
+                if (isNavigate) {
+                    navigationCount++;
+                    if (navigationCount > navLimit && this.callbacks.confirmContinueAfterNavigations) {
+                        const allowed = await this.callbacks.confirmContinueAfterNavigations(navigationCount - 1, navLimit);
+                        if (!allowed) {
+                            learnings.push(`User stopped after ${navigationCount - 1} navigations (limit ${navLimit}).`);
+                            break;
+                        }
+                    }
+                }
+
                 this.callbacks.onProgress('executing', step.id, step.description);
 
                 try {

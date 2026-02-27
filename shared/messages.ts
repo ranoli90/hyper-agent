@@ -83,6 +83,37 @@ function validateActivateLicenseKey(message: any): boolean {
   return typeof key === 'string' && key.length > 0 && key.length <= MAX_LICENSE_KEY_LENGTH;
 }
 
+const MAX_TEMPLATE_ID_LENGTH = 64;
+const MAX_PARAM_VALUE_LENGTH = 2000;
+const MAX_PARAM_KEYS = 32;
+
+function validateConfirmAutonomousPlan(message: Record<string, unknown>): boolean {
+  return typeof message.confirmed === 'boolean';
+}
+
+function validateGetWorkflowParamSuggestions(message: Record<string, unknown>): boolean {
+  const templateId = message.templateId;
+  return typeof templateId === 'string' && templateId.length > 0 && templateId.length <= MAX_TEMPLATE_ID_LENGTH;
+}
+
+function validateRunWorkflowFromTemplate(message: Record<string, unknown>): boolean {
+  const templateId = message.templateId;
+  const params = message.params;
+  if (typeof templateId !== 'string' || templateId.length === 0 || templateId.length > MAX_TEMPLATE_ID_LENGTH) {
+    return false;
+  }
+  if (params === undefined || params === null) return false;
+  if (typeof params !== 'object' || Array.isArray(params)) return false;
+  const keys = Object.keys(params);
+  if (keys.length > MAX_PARAM_KEYS) return false;
+  for (const k of keys) {
+    const v = (params as Record<string, unknown>)[k];
+    if (v !== undefined && v !== null && typeof v !== 'string') return false;
+    if (typeof v === 'string' && v.length > MAX_PARAM_VALUE_LENGTH) return false;
+  }
+  return true;
+}
+
 export function validateExtensionMessage(message: unknown): message is ExtensionMessage {
   if (!message || typeof message !== 'object') return false;
   const { type } = message as Record<string, unknown>;
@@ -153,6 +184,16 @@ export function validateExtensionMessage(message: unknown): message is Extension
       return validateActivateLicenseKey(msg);
     case 'openCheckout':
       return true;
+    case 'getActiveTabId':
+    case 'getLastWorkflowRuns':
+    case 'getWorkflowTemplates':
+      return true;
+    case 'confirmAutonomousPlan':
+      return validateConfirmAutonomousPlan(msg);
+    case 'getWorkflowParamSuggestions':
+      return validateGetWorkflowParamSuggestions(msg);
+    case 'runWorkflowFromTemplate':
+      return validateRunWorkflowFromTemplate(msg);
     default:
       return false;
   }

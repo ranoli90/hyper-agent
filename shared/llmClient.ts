@@ -24,6 +24,7 @@ import { DEFAULTS, loadSettings } from './config';
 
 import { autonomousIntelligence } from './autonomous-intelligence';
 import { IntelligenceContext } from './ai-types';
+import { getToolsDescriptionForPrompt } from './tool-system';
 import { apiCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
@@ -67,6 +68,7 @@ import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 import { ollamaClient, checkOllamaStatus } from './ollamaClient';
 import { trackRateLimitEvent } from './metrics';
 import { DomainActionTracker } from './domainActionTracker';
+import { truncateAtSentenceBoundary } from './utils';
 
 const DEFAULT_MODEL = DEFAULTS.MODEL_NAME || 'openrouter/auto';
 
@@ -486,13 +488,14 @@ class RateLimiter {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { OPENROUTER_MODELS } from './openrouterConfig';
-
 class CostTracker {
   private sessionTokens = 0;
   private sessionCost = 0;
   private sessionSteps = 0;
+
+  get currentSessionSteps(): number {
+    return this.sessionSteps;
+  }
   private readonly warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
 
   private getModelCostPer1kTokens(modelName: string): number {
@@ -645,7 +648,8 @@ Action results: [{"type": "click", "desc": "Click Search", "ok": false, "err": "
 6. When actions fail, adapt and retry—don't give up`;
 
 function buildDynamicSystemPrompt(task: AgentTask): string {
-  let basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}`;
+  const toolsSection = getToolsDescriptionForPrompt();
+  let basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}${toolsSection}`;
 
   // Explicitly surface the current interaction mode so the model can
   // gracefully stay in conversation when no automation is required.
@@ -685,8 +689,13 @@ function getOpenRouterBaseUrl(raw?: string): string {
   return normalizeOpenRouterBaseUrl(raw || OPENROUTER_DEFAULT_BASE_URL);
 }
 
-function getOpenRouterHeaders(apiKey: string, baseUrl?: string): Record<string, string> {
-  return getOpenRouterHeadersWithEnv(apiKey, baseUrl);
+function getOpenRouterHeaders(
+  apiKey: string,
+  baseUrl?: string,
+  extra?: Record<string, string>,
+  correlationId?: string
+): Record<string, string> {
+  return getOpenRouterHeadersWithEnv(apiKey, baseUrl, extra, correlationId);
 }
 
 // Build request body (OpenAI-compatible format, used by OpenRouter)
@@ -755,7 +764,7 @@ function compactContext(ctx: PageContext): Record<string, any> {
   return {
     url: ctx.url,
     title: ctx.title,
-    bodyText: ctx.bodyText.slice(0, 3000),
+    bodyText: truncateAtSentenceBoundary(ctx.bodyText, 3000),
     formCount: ctx.formCount,
     scrollY: ctx.scrollPosition.y,
     pageHeight: ctx.pageHeight,
@@ -791,6 +800,11 @@ interface APIResponse {
 }
 
 // ─── History Compression (importance-aware) ──────────────────────────────────
+// Tuned for typical tasks: compress earlier (8+ turns), keep last 5 for multi-step, keep score >= 8
+const COMPRESS_HISTORY_AFTER = 8;
+const COMPRESS_KEEP_RECENT = 5;
+const COMPRESS_KEEP_SCORE_MIN = 8;
+
 function importanceScore(entry: HistoryEntry): number {
   if (entry.role === 'user') {
     if (entry.userReply) return 9; // User replies are high value
@@ -807,15 +821,15 @@ function importanceScore(entry: HistoryEntry): number {
 }
 
 function compressHistory(history: HistoryEntry[]): HistoryEntry[] {
-  if (history.length <= 10) return history;
+  if (history.length <= COMPRESS_HISTORY_AFTER) return history;
 
-  const recent = history.slice(-4); // Always keep last 4
-  const older = history.slice(0, -4);
+  const recent = history.slice(-COMPRESS_KEEP_RECENT); // Keep last N for multi-step tasks
+  const older = history.slice(0, -COMPRESS_KEEP_RECENT);
 
   // Keep high-importance older entries (askUser, errors, user replies)
   const scored = older.map(e => ({ entry: e, score: importanceScore(e) }));
-  const keep = scored.filter(s => s.score >= 8).map(s => s.entry);
-  const dropEntries = scored.filter(s => s.score < 8).map(s => s.entry);
+  const keep = scored.filter(s => s.score >= COMPRESS_KEEP_SCORE_MIN).map(s => s.entry);
+  const dropEntries = scored.filter(s => s.score < COMPRESS_KEEP_SCORE_MIN).map(s => s.entry);
 
   const actions = dropEntries
     .filter(m => m.role === 'assistant' && m.response?.actions)
@@ -916,6 +930,11 @@ class SemanticCache {
 }
 
 const semanticCache = new SemanticCache();
+
+/** Evict semantic cache (e.g. on schema version change). */
+export function clearSemanticCache(): void {
+  semanticCache.clear();
+}
 
 // ─── Minimal Context Extraction ─────────────────────────────────────────────
 interface MinimalContext {
@@ -1060,7 +1079,7 @@ function buildMessages(
           });
         }
       } else if (entry.context) {
-        const isOld = i < compressedHistory.length - 4;
+        const isOld = i < compressedHistory.length - COMPRESS_KEEP_RECENT;
         const ctx = isOld
           ? compactContext(entry.context)
           : (() => {
@@ -1069,7 +1088,7 @@ function buildMessages(
             return c;
           })();
         const safeCmd = sanitizeForPrompt(entry.command || '');
-        const content = `Command: ${safeCmd}\n\nPage context:\n${JSON.stringify(ctx, null, isOld ? 0 : 2)}`;
+        const content = `Command: ${safeCmd}\n\nPage context:\n${JSON.stringify(ctx)}`;
         messages.push({
           role: 'user',
           content,
@@ -1108,7 +1127,7 @@ function buildMessages(
           err: r.error || undefined,
           data: r.extractedData || undefined,
         }));
-        const resultsContent = `Action results:\n${JSON.stringify(results, null, 2)}`;
+        const resultsContent = `Action results:\n${JSON.stringify(results)}`;
         messages.push({
           role: 'user',
           content: resultsContent,
@@ -1208,7 +1227,8 @@ function buildMessages(
   }
 
   const safeHistory = history || [];
-  const textContent = `Command: ${safeCommand || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
+  // Use compact JSON (no pretty-print) to reduce serialized context size; deep nesting already limited by maxElements
+  const textContent = `Command: ${safeCommand || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext)}`;
 
   if (screenshot) {
     messages.push({
@@ -1313,9 +1333,9 @@ Respond with valid JSON:
 }`;
 
     // All calls go through OpenRouter
-    const model = OPENROUTER_MODELS.chat;
+    const model = OPENROUTER_MODELS.chat.name;
     const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/chat/completions`;
-    const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId); // Pass correlationId
+    const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -1479,9 +1499,15 @@ export class EnhancedLLMClient implements LLMClientInterface {
     return await this.makeTraditionalCall(request, signal, correlationId);
   }
 
+  private static readonly VALID_AUTONOMOUS_ACTION_TYPES = new Set([
+    'click', 'fill', 'select', 'scroll', 'navigate', 'goBack', 'wait', 'pressKey',
+    'hover', 'focus', 'extract', 'openTab', 'closeTab', 'switchTab', 'submit', 'getTabs',
+  ]);
+
   async callLLMAutonomous(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
     // Autonomous mode: uses an extra LLM planning call to decompose
     // complex tasks into multi-step plans before execution.
+    const VALID_AUTONOMOUS_ACTION_TYPES = EnhancedLLMClient.VALID_AUTONOMOUS_ACTION_TYPES;
     const intelligenceContext: IntelligenceContext = {
       taskDescription: request.command || 'No Command Provided',
       availableTools: ['web_browsing', 'data_extraction', 'multi_tab', 'research'],
@@ -1505,12 +1531,20 @@ export class EnhancedLLMClient implements LLMClientInterface {
         throw new DOMException('Aborted', 'AbortError');
       }
 
-      if (
-        !autonomousPlan ||
-        !Array.isArray((autonomousPlan as any).actions) ||
-        ((autonomousPlan as any).actions?.length ?? 0) === 0
-      ) {
-        return await this.makeTraditionalCall(request, signal, request.correlationId); // Pass correlationId
+      if (!autonomousPlan) {
+        return await this.makeTraditionalCall(request, signal, request.correlationId);
+      }
+
+      const planAny = autonomousPlan as any;
+      const rawActions = Array.isArray(planAny.actions) ? planAny.actions : (planAny.steps || [])
+        .filter((s: any) => s?.action && typeof s.action === 'object')
+        .map((s: any) => s.action);
+      const hasValidActions = rawActions.length > 0 && rawActions.every((a: any) =>
+        typeof a?.type === 'string' && VALID_AUTONOMOUS_ACTION_TYPES.has(a.type)
+      );
+      if (!hasValidActions) {
+        console.log('[HyperAgent] Autonomous plan invalid or empty, falling back to traditional call');
+        return await this.makeTraditionalCall(request, signal, request.correlationId);
       }
 
       return this.convertPlanToResponse(autonomousPlan);
@@ -1553,12 +1587,12 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
-      const model = settings.modelName || OPENROUTER_MODELS.chat;
+      const model = settings.modelName || OPENROUTER_MODELS.chat.name;
 
       console.log(`[HyperAgent] Using completion model: ${model} (via OpenRouter)`);
 
       const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/chat/completions`;
-      const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId); // Pass correlationId
+      const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId);
       const requestBody = buildOpenRouterRequest(
         model,
         safeMessages,
@@ -1641,8 +1675,10 @@ export class EnhancedLLMClient implements LLMClientInterface {
     const selectedModelInfo = selectModelForTask(task);
     const selectedModel = selectedModelInfo.name;
 
-    // Check semantic cache
-    const semanticCached = await semanticCache.get(sanitizedCommand.sanitizedValue, (text) => this.getEmbedding(text));
+    // Semantic cache key includes high-level intent so similar intents hit same cache
+    const primaryIntent = request.intents?.[0]?.action ?? 'general';
+    const cacheQuery = `${primaryIntent}: ${sanitizedCommand.sanitizedValue}`;
+    const semanticCached = await semanticCache.get(cacheQuery, (text) => this.getEmbedding(text));
     if (semanticCached) {
       console.log('[HyperAgent] Using semantically cached response');
       return semanticCached.response;
@@ -1683,7 +1719,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     // Check session step limit
     const maxSteps = DEFAULTS.MAX_STEPS ?? 12;
-    const currentSteps = this.costTracker.sessionSteps;
+    const currentSteps = this.costTracker.currentSessionSteps;
     const approachingThreshold = Math.floor(maxSteps * 0.8);
 
     if (currentSteps >= maxSteps) {
@@ -1790,7 +1826,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     if (retryResult.success && retryResult.result) {
       await apiCache.set(cacheKey, retryResult.result, { ttl: 15 * 60 * 1000 });
-      await semanticCache.set(sanitizedCommand.sanitizedValue, retryResult.result, (text) => this.getEmbedding(text));
+      await semanticCache.set(cacheQuery, retryResult.result, (text) => this.getEmbedding(text));
       if (retryResult.result.actions && retryResult.result.actions.length > 0) {
         this.costTracker.incrementSteps();
         await this.domainActionTracker.incrementActionCount(currentDomain);

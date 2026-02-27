@@ -69,6 +69,8 @@ export const STORAGE_KEYS = {
   LAST_SUCCESSFUL_WORKFLOW: 'hyperagent_last_successful_workflow',
   LAST_SUCCESSFUL_MACRO: 'hyperagent_last_successful_macro',
   WORKFLOW_RUNS: 'hyperagent_workflow_runs',
+  /** Last N workflow runs (full result summary) for "View last workflow runs" UI. */
+  LAST_WORKFLOW_RUNS_LIST: 'hyperagent_last_workflow_runs_list',
   // Debugging
   DEBUG_MODE: 'hyperagent_debug_mode',
   LOG_LEVEL: 'hyperagent_log_level',
@@ -130,6 +132,10 @@ export const DEFAULTS = {
   COST_WARNING_THRESHOLD: 5.00,  // Warn when session cost exceeds $5
   MAX_TOKENS_PER_SESSION: 100000, // Max tokens per session (approx $0.10-$0.50)
   MAX_ACTIONS_PER_DOMAIN: 50, // Max actions per domain to prevent runaway automation
+  /** Max tool/action invocations per run to avoid infinite loops. */
+  MAX_ACTIONS_PER_RUN: 100,
+  /** Autonomous mode: max navigations per run before requiring user reconfirmation. */
+  MAX_NAVIGATIONS_PER_AUTONOMOUS_RUN: 5,
   // Local AI (Ollama)
   OLLAMA_ENABLED: false,  // Auto-detected, user can override
   OLLAMA_HOST: 'http://localhost:11434',
@@ -241,8 +247,24 @@ export function validateSettings(settings: Partial<Settings>): { valid: boolean;
   };
 }
 
+// ─── In-memory cache of last settings read (reduce chrome.storage calls) ─
+const SETTINGS_CACHE_TTL_MS = 5000;
+let settingsCache: { settings: Settings; at: number } | null = null;
+
+export function invalidateSettingsCache(): void {
+  settingsCache = null;
+}
+
 // ─── Storage helpers with error handling ────────────────────────────
 export async function loadSettings(): Promise<Settings> {
+  try {
+    if (settingsCache && Date.now() - settingsCache.at < SETTINGS_CACHE_TTL_MS) {
+      return settingsCache.settings;
+    }
+  } catch {
+    settingsCache = null;
+  }
+
   try {
     // Check if chrome.storage is available (content script context)
     if (!chrome?.storage?.local) {
@@ -325,9 +347,11 @@ export async function loadSettings(): Promise<Settings> {
     // Note: Only openrouter/auto is supported. The smart router automatically
     // selects the best model for each task.
 
+    settingsCache = { settings, at: Date.now() };
     return settings;
   } catch (error) {
     console.error('[Config] Failed to load settings:', error);
+    settingsCache = null;
     // Return safe defaults on error
     return {
       apiKey: '',
@@ -389,6 +413,7 @@ export async function saveSettings(settings: Settings): Promise<{ success: boole
       [STORAGE_KEYS.LOG_LEVEL]: settings.logLevel,
     });
 
+    invalidateSettingsCache();
     return { success: true };
   } catch (error) {
     console.error('[Config] Failed to save settings:', error);
@@ -542,6 +567,9 @@ export function buildGdprExportSnapshot(
         requireConfirm: allData[STORAGE_KEYS.REQUIRE_CONFIRM],
         dryRun: allData[STORAGE_KEYS.DRY_RUN],
         enableVision: allData[STORAGE_KEYS.ENABLE_VISION],
+        autoRetry: allData[STORAGE_KEYS.AUTO_RETRY],
+        debugMode: allData[STORAGE_KEYS.DEBUG_MODE],
+        logLevel: allData[STORAGE_KEYS.LOG_LEVEL],
         enableSwarmIntelligence: allData[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE],
         enableAutonomousMode: allData[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE],
         learningEnabled: allData[STORAGE_KEYS.LEARNING_ENABLED],
@@ -752,6 +780,49 @@ export async function validateStorageIntegrity(): Promise<{
     if (sessions !== undefined && (typeof sessions !== 'object' || sessions === null || Array.isArray(sessions))) {
       issues.push(`Key ${STORAGE_KEYS.SESSIONS} is corrupted (expected object)`);
       await chrome.storage.local.remove(STORAGE_KEYS.SESSIONS);
+      repaired = true;
+    }
+
+    const chatHistory = allData.chat_history_backup ?? allData[STORAGE_KEYS.CHAT_HISTORY];
+    if (chatHistory !== undefined && typeof chatHistory !== 'string') {
+      issues.push('chat_history_backup / CHAT_HISTORY is corrupted (expected string)');
+      await chrome.storage.local.remove(STORAGE_KEYS.CHAT_HISTORY);
+      await chrome.storage.local.remove('chat_history_backup');
+      repaired = true;
+    }
+
+    const commandHistory = allData[STORAGE_KEYS.COMMAND_HISTORY];
+    if (commandHistory !== undefined && !Array.isArray(commandHistory)) {
+      issues.push(`Key ${STORAGE_KEYS.COMMAND_HISTORY} is corrupted (expected array)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.COMMAND_HISTORY);
+      repaired = true;
+    }
+
+    const workflows = allData[STORAGE_KEYS.WORKFLOWS];
+    if (workflows !== undefined && !Array.isArray(workflows)) {
+      issues.push(`Key ${STORAGE_KEYS.WORKFLOWS} is corrupted (expected array)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.WORKFLOWS);
+      repaired = true;
+    }
+
+    const installedWorkflows = allData[STORAGE_KEYS.INSTALLED_WORKFLOWS];
+    if (installedWorkflows !== undefined && !Array.isArray(installedWorkflows)) {
+      issues.push(`Key ${STORAGE_KEYS.INSTALLED_WORKFLOWS} is corrupted (expected array)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.INSTALLED_WORKFLOWS);
+      repaired = true;
+    }
+
+    const usageMetrics = allData[STORAGE_KEYS.USAGE_METRICS];
+    if (usageMetrics !== undefined && (typeof usageMetrics !== 'object' || usageMetrics === null || Array.isArray(usageMetrics))) {
+      issues.push(`Key ${STORAGE_KEYS.USAGE_METRICS} is corrupted (expected object)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.USAGE_METRICS);
+      repaired = true;
+    }
+
+    const lastWorkflowRuns = allData[STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST];
+    if (lastWorkflowRuns !== undefined && !Array.isArray(lastWorkflowRuns)) {
+      issues.push(`Key ${STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST} is corrupted (expected array)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST);
       repaired = true;
     }
 

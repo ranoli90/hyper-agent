@@ -743,3 +743,21 @@ interface ToolStats {
 }
 
 export const toolRegistry = new ToolRegistryImpl();
+
+/**
+ * Returns a string describing enabled tools for inclusion in the LLM system prompt,
+ * so the model can use well-defined tools instead of free-form actions (138).
+ */
+export function getToolsDescriptionForPrompt(): string {
+  const tools = toolRegistry.getEnabled();
+  if (tools.length === 0) return '';
+  const lines = [
+    '',
+    '## Well-defined tools (prefer these; they map to the actions above)',
+    ...tools.map((t) => {
+      const params = t.parameters.map((p) => `${p.name}${p.required ? '*' : ''}: ${p.description}`).join(', ');
+      return `- ${t.id}: ${t.description}. Params: ${params}`;
+    }),
+  ];
+  return lines.join('\n');
+}

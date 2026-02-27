@@ -282,6 +282,11 @@ export class RetryManager {
       return config.retryCondition(error);
     }
 
+    // Don't retry user cancellation (Stop button)
+    if (error instanceof Error && error.name === 'AbortError') {
+      return false;
+    }
+
     // Default retry logic
     if (error instanceof Error) {
       const message = error.message.toLowerCase();
@@ -291,7 +296,8 @@ export class RetryManager {
           message.includes('authorization') ||
           message.includes('forbidden') ||
           message.includes('not found') ||
-          message.includes('bad request')) {
+          message.includes('bad request') ||
+          message.includes('abort')) {
         return false;
       }
 

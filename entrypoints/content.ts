@@ -5,6 +5,7 @@
 
 import { DEFAULTS } from '../shared/config';
 import { saveActionOutcome } from '../shared/memory';
+import { truncateAtSentenceBoundary } from '../shared/utils';
 import { getSiteConfig } from '../shared/siteConfig';
 import type {
   SemanticElement,
@@ -259,7 +260,7 @@ export default defineContentScript({
     // ─── Page context collection ──────────────────────────────────
     function getPageContext(): PageContext {
       const startTime = performance.now?.() ?? Date.now();
-      const bodyText = (document.body?.innerText ?? '').slice(0, DEFAULTS.BODY_TEXT_LIMIT);
+      const bodyText = truncateAtSentenceBoundary(document.body?.innerText ?? '', DEFAULTS.BODY_TEXT_LIMIT);
 
       // Meta description
       const metaDesc = document.querySelector('meta[name="description"]');

@@ -193,6 +193,28 @@
           </div>
 
           <div id="memory-list" class="flex flex-col gap-3"></div>
+
+          <div class="border-t border-zinc-200 dark:border-zinc-800 pt-4 mt-4">
+            <h4 class="text-sm font-semibold mb-2">Last workflow runs</h4>
+            <div id="last-workflow-runs" class="flex flex-col gap-2 text-xs max-h-40 overflow-y-auto">
+              <span class="text-zinc-500 dark:text-zinc-400">No runs yet.</span>
+            </div>
+          </div>
+
+          <div class="border-t border-zinc-200 dark:border-zinc-800 pt-4 mt-4">
+            <h4 class="text-sm font-semibold mb-2">Workflow templates</h4>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400 mb-2">Select a template, fill parameters, and run.</p>
+            <select id="workflow-template-select" class="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm mb-3">
+              <option value="">-- Choose template --</option>
+            </select>
+            <div id="workflow-params-form" class="flex flex-col gap-2 mb-3 hidden"></div>
+            <div class="flex gap-2">
+              <button id="workflow-run-btn" type="button" class="px-3 py-2 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium disabled:opacity-50" disabled>Run workflow</button>
+              <button id="workflow-run-again-btn" type="button" class="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm hidden">Run again with changes</button>
+              <button id="workflow-suggest-params-btn" type="button" class="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-700 text-sm">Suggest from page</button>
+            </div>
+            <p id="workflow-run-status" class="text-xs mt-2 min-h-[1.5rem]"></p>
+          </div>
         </div>
       </section>
 
@@ -484,6 +506,10 @@
         </div>
 
         <div class="input-actions absolute right-2 bottom-2 flex items-center gap-1 z-10 w-auto">
+          <label class="flex items-center gap-1.5 cursor-pointer group" title="Use multi-step AI planning for complex tasks. When on, the agent breaks down your request into a plan before executing.">
+            <input type="checkbox" id="autonomous-mode-toggle" class="rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500" aria-label="Autonomous mode" />
+            <span class="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 group-hover:text-zinc-700 dark:group-hover:text-zinc-300 select-none">Autonomous</span>
+          </label>
           <button id="btn-mic" title="Voice Input" aria-label="Voice input"
             class="p-2 rounded-full text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors w-9 h-9 flex items-center justify-center bg-transparent"><svg
               xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -534,6 +560,23 @@
             class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
           <button id="btn-ask-reply"
             class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Reply</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Autonomous plan overview: planned steps before execution -->
+    <div id="autonomous-plan-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="autonomous-plan-title">
+      <div class="modal-content relative flex flex-col max-w-lg">
+        <h3 id="autonomous-plan-title" class="text-lg font-semibold tracking-tight mb-2">Autonomous plan</h3>
+        <p id="autonomous-plan-reasoning" class="text-sm text-zinc-600 dark:text-zinc-400 mb-4"></p>
+        <ul id="autonomous-plan-steps"
+          class="flex flex-col gap-2 mb-6 text-sm bg-zinc-50 dark:bg-zinc-900 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-y-auto max-h-48 list-none">
+        </ul>
+        <div class="modal-actions flex gap-3 mt-auto">
+          <button id="autonomous-plan-cancel"
+            class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
+          <button id="autonomous-plan-execute"
+            class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Execute plan</button>
         </div>
       </div>
     </div>

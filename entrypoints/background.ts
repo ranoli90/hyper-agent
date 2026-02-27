@@ -20,9 +20,10 @@ import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS, LogLevel } fro
 import { debugService, generateCorrelationId } from '../shared/debug';
 import { checkStorageQuota } from '../shared/storage-monitor';
 import { initErrorReporter } from '../shared/error-reporter';
-import { type HistoryEntry, llmClient, classifyError } from '../shared/llmClient';
+import { type HistoryEntry, llmClient, classifyError, clearSemanticCache } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
-import { runWorkflow as executeWorkflow } from '../shared/workflows';
+import { runWorkflow as executeWorkflow, getWorkflowById, hasDestructiveSteps, saveWorkflow } from '../shared/workflows';
+import { WORKFLOW_TEMPLATES, validateTemplateParameters, instantiateTemplate, getWorkflowTemplateById } from '../shared/workflow-templates';
 import { trackActionStart, trackActionEnd } from '../shared/metrics';
 import {
   createSession,
@@ -46,6 +47,8 @@ import {
   Action,
   ActionResult,
   MsgConfirmActions,
+  MsgConfirmAutonomousPlan,
+  MsgUserReply,
   ErrorType,
   PageContext,
   MacroAction,
@@ -70,8 +73,10 @@ import { apiCache, generalCache } from '../shared/advanced-caching';
 import { memoryManager } from '../shared/memory-management';
 import { inputSanitizer } from '../shared/input-sanitization';
 import { validateExtensionMessage } from '../shared/messages';
-import { validateStorageIntegrity } from '../shared/config';
-import { clearDomainMemory, extractDomain } from '../shared/memory';
+import { validateStorageIntegrity, DEFAULTS } from '../shared/config';
+import { clearDomainMemory, extractDomain, getStrategiesForDomain } from '../shared/memory';
+import { debounce } from '../shared/utils';
+import { trackAgentRunStart, trackAgentRunEnd } from '../shared/metrics';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -783,6 +788,7 @@ export default defineBackground(() => {
     const result = await validateStorageIntegrity();
     debugService.info('storage', 'Storage integrity check on startup', result);
     if (!result.healthy && result.repaired) {
+      clearSemanticCache(); // Evict semantic cache on schema/repair so cached responses match new schema
       await chrome.storage.local.set({
         hyperagent_storage_recovered: {
           issues: result.issues,
@@ -948,6 +954,7 @@ export default defineBackground(() => {
     agentState.setAborted(false);
     agentState.setCorrelationId(correlationId);
 
+    const runId = trackAgentRunStart({ isAutonomous: true });
     const sessionStart = Date.now();
 
     const settings = await loadSettings();
@@ -993,36 +1000,32 @@ export default defineBackground(() => {
     }
 
     try {
-      // 1. Initialize Autonomous Engine with Callbacks
       autonomousIntelligence.setLLMClient(llmClient);
-      autonomousIntelligence.setCallbacks({
-        onProgress: (status, step, summary) => {
-          sendToSidePanel({ type: 'agentProgress', status, step: step as any, thinking: summary || undefined });
-        },
-        onAskUser: async question => {
-          sendToSidePanel({ type: 'askUser', question });
-          return await askUserForInfo(question);
-        },
-        onConfirmActions: async (actions, step, summary) => {
-          return await askUserConfirmation(actions, step, summary);
-        },
-        executeAction: async action => {
-          // Track each action executed in autonomous mode (Issue #11)
-          usageTracker.trackAction(action.type);
-          return await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
-        },
-        captureScreenshot: async () => {
-          return await captureScreenshot();
-        },
-        onDone: (summary, success) => {
-          sendToSidePanel({ type: 'agentDone', finalSummary: summary, success, stepsUsed: 0 });
-        },
-      });
 
       debugService.log(LogLevel.INFO, 'autonomous', 'Starting autonomous reasoning for task', { command: redact(command) });
       sendToSidePanel({ type: 'agentProgress', status: 'Deep reasoning...', step: 'plan' });
 
       const pageCtx = await getPageContext(tabId);
+
+      // Integrate memory/site strategies into autonomous planning (132)
+      let domainKnowledge: Record<string, unknown> = {};
+      let successPatterns: Array<{ pattern: string; context: string; successRate: number; lastUsed: number; confidence: number }> = [];
+      try {
+        const strategy = await getStrategiesForDomain(pageUrl);
+        if (strategy) {
+          domainKnowledge = {
+            domain: strategy.domain,
+            successfulLocatorsSummary: strategy.successfulLocators.slice(0, 10).map(s => `${s.actionType}:${String(s.locator).slice(0, 80)}`),
+            failedLocatorsSummary: strategy.failedLocators.slice(0, 5).map(f => `${f.errorType}:${String(f.locator).slice(0, 80)}`),
+          };
+          successPatterns = strategy.successfulLocators
+            .filter(s => s.successCount >= 2)
+            .slice(0, 5)
+            .map(s => ({ pattern: `${s.actionType} on ${String(s.locator).slice(0, 50)}`, context: strategy.domain, successRate: 1, lastUsed: strategy.lastUsed, confidence: 0.8 }));
+        }
+      } catch (e) {
+        debugService.log(LogLevel.WARN, 'autonomous', 'Could not load site strategies for planning', { error: (e as Error)?.message });
+      }
 
       const intelligenceContext = {
         taskDescription: command,
@@ -1037,14 +1040,79 @@ export default defineBackground(() => {
           screenshotBase64: settings.enableVision ? await captureScreenshot() : undefined,
         },
         userPreferences: {},
-        domainKnowledge: {},
-        successPatterns: [] as any[],
+        domainKnowledge,
+        successPatterns,
       };
 
       // Generate autonomous plan
       const plan = await autonomousIntelligence.understandAndPlan(command, intelligenceContext);
 
       debugService.log(LogLevel.INFO, 'autonomous', 'Autonomous plan generated', { planSteps: plan.steps.length });
+
+      // Overview card: show planned steps and wait for user to Execute or Cancel (131)
+      if (plan.steps.length > 0) {
+        sendToSidePanel({
+          type: 'autonomousPlanOverview',
+          steps: plan.steps.map(s => ({ id: s.id, description: s.description })),
+          reasoning: plan.reasoning || 'Autonomous plan',
+        });
+        const PLAN_CONFIRM_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+        const confirmed = await Promise.race<boolean>([
+          new Promise<boolean>(resolve => {
+            resolveAutonomousPlanConfirmation = resolve;
+          }),
+          new Promise<boolean>(resolve => {
+            globalThis.setTimeout(() => {
+              if (resolveAutonomousPlanConfirmation) {
+                resolveAutonomousPlanConfirmation(false);
+                resolveAutonomousPlanConfirmation = null;
+              }
+              resolve(false);
+            }, PLAN_CONFIRM_TIMEOUT_MS);
+          }),
+        ]);
+        resolveAutonomousPlanConfirmation = null;
+        if (!confirmed) {
+          sendToSidePanel({
+            type: 'agentDone',
+            finalSummary: 'Autonomous plan cancelled or timed out.',
+            success: false,
+            stepsUsed: 0,
+          });
+          agentState.setRunning(false);
+          await trackAgentRunEnd(runId, false, Date.now() - sessionStart, { actionsCount: 0 });
+          return;
+        }
+      }
+
+      // Set callbacks including navigation guardrails (129)
+      autonomousIntelligence.setCallbacks({
+        onProgress: (status, step, summary) => {
+          sendToSidePanel({ type: 'agentProgress', status, step: step as any, thinking: summary || undefined });
+        },
+        onAskUser: async question => {
+          sendToSidePanel({ type: 'askUser', question });
+          return await askUserForInfo(question);
+        },
+        onConfirmActions: async (actions, step, summary) => {
+          return await askUserConfirmation(actions, step, summary);
+        },
+        confirmContinueAfterNavigations: async (currentCount, limit) => {
+          sendToSidePanel({ type: 'askUser', question: `Autonomous run has reached ${limit} navigations. Continue with more? (yes/no)` });
+          const reply = await askUserForInfo(`Autonomous run has reached ${limit} navigations. Continue with more? (yes/no)`);
+          return /yes|continue|ok|sure/i.test(reply || '');
+        },
+        executeAction: async action => {
+          usageTracker.trackAction(action.type);
+          return await executeAction(tabId, action, settings.dryRun, settings.autoRetry, tab.url);
+        },
+        captureScreenshot: async () => {
+          return await captureScreenshot();
+        },
+        onDone: (summary, success) => {
+          sendToSidePanel({ type: 'agentDone', finalSummary: summary, success, stepsUsed: 0 });
+        },
+      });
 
       // 3. Execute with Adaptation
       const result = await autonomousIntelligence.executeWithAdaptation(plan);
@@ -1053,14 +1121,16 @@ export default defineBackground(() => {
         ? `Task completed successfully. Learnings: ${result.learnings.slice(0, 2).join('; ')}`
         : `Task failed: ${result.error}`;
 
+      await trackAgentRunEnd(runId, result.success, Date.now() - sessionStart, { actionsCount: result.results?.length ?? 0 });
       sendToSidePanel({
         type: 'agentDone',
         finalSummary,
         success: result.success,
-        stepsUsed: result.results.length,
+        stepsUsed: result.results?.length ?? 0,
       });
     } catch (err: any) {
       debugService.log(LogLevel.ERROR, 'autonomous', 'Autonomous loop failed', { error: err.message });
+      await trackAgentRunEnd(runId, false, Date.now() - sessionStart, { actionsCount: 0 });
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: `Autonomous Error: ${err.message}`,
@@ -1076,7 +1146,9 @@ export default defineBackground(() => {
           func: (title: string) => { document.title = title; },
           args: [savedTitle]
         });
-      } catch { }
+      } catch (e) {
+        debugService.log(LogLevel.WARN, 'tabManager', 'Restore title failed', { error: (e as Error)?.message });
+      }
       clearOriginalTabTitle(tabId);
 
       agentState.setRunning(false);
@@ -1229,8 +1301,17 @@ export default defineBackground(() => {
       }
 
       case 'userReply': {
-        const resolved = agentState.resolveReply(message.reply);
+        const resolved = agentState.resolveReply((message as MsgUserReply).reply);
         return { ok: resolved };
+      }
+
+      case 'confirmAutonomousPlan': {
+        const confirmed = (message as MsgConfirmAutonomousPlan).confirmed;
+        if (resolveAutonomousPlanConfirmation) {
+          resolveAutonomousPlanConfirmation(confirmed);
+          resolveAutonomousPlanConfirmation = null;
+        }
+        return { ok: true };
       }
 
       case 'getAgentStatus': {
@@ -1381,6 +1462,107 @@ export default defineBackground(() => {
           return { ok: true, workflows: installed.hyperagent_installed_workflows || [] };
         } catch {
           return { ok: true, workflows: [] };
+        }
+      }
+
+      case 'getActiveTabId': {
+        try {
+          const tabId = await getActiveTabId();
+          return { ok: true, tabId };
+        } catch {
+          return { ok: false, tabId: null };
+        }
+      }
+
+      case 'getLastWorkflowRuns': {
+        try {
+          const data = await chrome.storage.local.get(STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST);
+          const runs = (data[STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST] as any[]) || [];
+          return { ok: true, runs };
+        } catch {
+          return { ok: true, runs: [] };
+        }
+      }
+
+      case 'getWorkflowTemplates': {
+        return { ok: true, templates: WORKFLOW_TEMPLATES };
+      }
+
+      case 'getWorkflowParamSuggestions': {
+        const msg = message as { templateId: string };
+        if (!msg.templateId) return { ok: false, suggestions: {} };
+        const template = getWorkflowTemplateById(msg.templateId);
+        if (!template) return { ok: false, suggestions: {} };
+        try {
+          const tabId = await getActiveTabId();
+          const tab = await chrome.tabs.get(tabId);
+          const url = tab?.url || '';
+          const title = tab?.title || '';
+          let bodySnippet = '';
+          try {
+            const pageCtx = await getPageContext(tabId);
+            bodySnippet = (pageCtx.bodyText || '').slice(0, 500);
+          } catch {
+            // Non-fatal
+          }
+          const suggestions: Record<string, string> = {};
+          for (const p of template.parameters) {
+            const name = p.name.toLowerCase();
+            if (name.includes('url') || name === 'searchurl' || name === 'formurl' || name === 'pageurl' || name === 'loginurl' || name === 'afterloginurl') {
+              if (url) suggestions[p.name] = url;
+            } else if ((name === 'query' || name === 'search') && (title || bodySnippet)) {
+              suggestions[p.name] = title.slice(0, 200) || bodySnippet.slice(0, 100).replace(/\s+/g, ' ').trim();
+            } else if (p.default) {
+              suggestions[p.name] = p.default;
+            }
+          }
+          return { ok: true, suggestions };
+        } catch {
+          return { ok: true, suggestions: {} };
+        }
+      }
+
+      case 'runWorkflowFromTemplate': {
+        const msg = message as { templateId: string; params: Record<string, string> };
+        if (!msg.templateId || !msg.params || typeof msg.params !== 'object') {
+          return { ok: false, error: 'Missing templateId or params' };
+        }
+        const knownIds = WORKFLOW_TEMPLATES.map(t => t.id);
+        if (!knownIds.includes(msg.templateId)) {
+          return { ok: false, error: 'Unknown template' };
+        }
+        const MAX_PARAM_VALUE = 2000;
+        const params: Record<string, string> = {};
+        for (const [k, v] of Object.entries(msg.params)) {
+          params[k] = typeof v === 'string' ? v.slice(0, MAX_PARAM_VALUE) : String(v ?? '').slice(0, MAX_PARAM_VALUE);
+        }
+        const validation = validateTemplateParameters(msg.templateId, params);
+        if (!validation.valid) {
+          return { ok: false, error: validation.errors.join('; '), missing: validation.missing };
+        }
+        const workflow = instantiateTemplate(msg.templateId, params, `run_${Date.now()}`);
+        if (!workflow) {
+          return { ok: false, error: 'Unknown template or instantiation failed' };
+        }
+        try {
+          await saveWorkflow(workflow);
+        } catch (e) {
+          return { ok: false, error: `Failed to save workflow: ${(e as Error).message}` };
+        }
+        try {
+          const tabId = await getActiveTabId();
+          const tab = await chrome.tabs.get(tabId);
+          const runSettings = await loadSettings();
+          const result = await executeAction(
+            tabId,
+            { type: 'runWorkflow', workflowId: workflow.id },
+            runSettings.dryRun,
+            runSettings.autoRetry,
+            tab?.url
+          );
+          return { ok: result.success, error: result.error, extractedData: result.extractedData };
+        } catch (e) {
+          return { ok: false, error: (e as Error).message };
         }
       }
 
@@ -1617,13 +1799,41 @@ export default defineBackground(() => {
 
   // ─── Helper functions ─────────────────────────────────────────────
 
-  function sendToSidePanel(msg: ExtensionMessage) {
+  function sendToSidePanelRaw(msg: ExtensionMessage) {
     chrome.runtime.sendMessage(msg).catch(() => { });
+  }
+
+  // Debounce high-frequency agentProgress updates to avoid UI jank (max once per 300ms)
+  let pendingAgentProgress: ExtensionMessage | null = null;
+  const flushAgentProgress = () => {
+    if (pendingAgentProgress) {
+      sendToSidePanelRaw(pendingAgentProgress);
+      pendingAgentProgress = null;
+    }
+  };
+  const debouncedFlushProgress = debounce(flushAgentProgress, 300);
+
+  function sendToSidePanel(msg: ExtensionMessage) {
+    if (msg.type === 'agentProgress') {
+      pendingAgentProgress = msg;
+      debouncedFlushProgress();
+    } else {
+      flushAgentProgress(); // Send any pending progress before other message types
+      sendToSidePanelRaw(msg);
+    }
   }
 
   const LAST_AGENT_RESULT_KEY = 'hyperagent_last_agent_result';
 
-  function sendAgentDone(payload: { finalSummary: string; success: boolean; stepsUsed: number }) {
+  /** Resolver for autonomous plan overview confirmation (Execute/Cancel). */
+  let resolveAutonomousPlanConfirmation: ((confirmed: boolean) => void) | null = null;
+
+  function sendAgentDone(payload: {
+    finalSummary: string;
+    success: boolean;
+    stepsUsed: number;
+    toolUsageSummary?: Record<string, number>;
+  }) {
     sendToSidePanel({
       type: 'agentDone',
       ...payload,
@@ -2137,6 +2347,18 @@ export default defineBackground(() => {
       }
       case 'runWorkflow': {
         const workflowAction = action as WorkflowAction;
+        // Safety: require confirmation before running workflows with destructive steps (144)
+        const workflow = await getWorkflowById(workflowAction.workflowId);
+        if (workflow && hasDestructiveSteps(workflow)) {
+          const runSettings = await loadSettings();
+          if (runSettings.requireConfirm) {
+            const destructiveActions = workflow.steps.filter(s => (s.action as any)?.destructive).map(s => s.action);
+            const confirmed = await askUserConfirmation(destructiveActions, 0, 'This workflow contains destructive actions. Confirm to run?');
+            if (!confirmed) {
+              return { success: false, error: 'User declined to run destructive workflow.' };
+            }
+          }
+        }
         const getContextFn = async (): Promise<PageContext> => {
           try {
             const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
@@ -2166,6 +2388,26 @@ export default defineBackground(() => {
           },
           getContextFn
         );
+        // Persist workflow run to "View last workflow runs" list (141, 142)
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          const domain = tab?.url ? extractDomain(tab.url || '') : null;
+          const runEntry = {
+            workflowId: workflowAction.workflowId,
+            success: workflowResult.success,
+            timestamp: Date.now(),
+            stepsCount: workflowResult.results?.length ?? 0,
+            error: workflowResult.error,
+            domain: domain ?? undefined,
+          };
+          const listData = await chrome.storage.local.get(STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST);
+          const list: typeof runEntry[] = (listData[STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST] as typeof runEntry[]) || [];
+          list.push(runEntry);
+          const trimmed = list.slice(-20);
+          await chrome.storage.local.set({ [STORAGE_KEYS.LAST_WORKFLOW_RUNS_LIST]: trimmed });
+        } catch {
+          // Non-fatal.
+        }
         if (workflowResult.success) {
           // Persist last successful workflow for reuse across sessions.
           try {
@@ -2287,9 +2529,11 @@ export default defineBackground(() => {
     const workflowResult = await handleWorkflowActions(action, tabId, dryRun, autoRetry);
     if (workflowResult) return workflowResult;
 
-    // Handle wait action
+    // Handle wait action (default ms when missing for workflow templates)
     if (action.type === 'wait') {
-      await delay(action.ms);
+      const waitAction = action as { type: 'wait'; ms?: number };
+      const ms = typeof waitAction.ms === 'number' && waitAction.ms >= 0 ? waitAction.ms : (DEFAULTS.DOM_WAIT_MS ?? 1500);
+      await delay(ms);
       return { success: true };
     }
 
@@ -2612,6 +2856,11 @@ export default defineBackground(() => {
     let consecutiveFailures = 0;
     let hasExecutedActionsInThisRun = false;
     const MAX_CONSECUTIVE_FAILURES = 3;
+    const toolUsageCounts: Record<string, number> = {};
+    const runId = trackAgentRunStart({ isAutonomous: false });
+    const runStartTime = Date.now();
+    let lastRunSuccess = false;
+    // All early returns (aborted, consecutive failures, tool budget) happen inside try; finally always runs so trackAgentRunEnd is always called.
 
     try {
       // Save initial snapshot for resume capability
@@ -2760,22 +3009,26 @@ export default defineBackground(() => {
             status: 'aborted',
             url: tab.url || '',
           });
+          lastRunSuccess = false;
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: 'Stopped.',
             success: false,
             stepsUsed: step - 1,
+            toolUsageSummary: Object.keys(toolUsageCounts).length ? { ...toolUsageCounts } : undefined,
           });
           return;
         }
 
         // Check for too many consecutive failures
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          lastRunSuccess = false;
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: `Stopped after ${MAX_CONSECUTIVE_FAILURES} consecutive failures. The page may not be responding as expected.`,
             success: false,
             stepsUsed: step - 1,
+            toolUsageSummary: Object.keys(toolUsageCounts).length ? { ...toolUsageCounts } : undefined,
           });
           return;
         }
@@ -2800,7 +3053,7 @@ export default defineBackground(() => {
         context = await getPageContext(currentTabId);
         chrome.tabs.sendMessage(currentTabId, { type: 'showGlowingFrame' }).catch(() => { });
 
-        if (requestScreenshot || (step === 1 && settings.enableVision)) {
+        if (requestScreenshot || (step === 1 && settings.enableVision && context.needsScreenshot === true)) {
           const screenshotDataUrl = await captureScreenshot('dataUrl');
           if (screenshotDataUrl) {
             const base64 = screenshotDataUrl.replace(/^data:image\/\w+;base64,/, '');
@@ -3044,6 +3297,18 @@ export default defineBackground(() => {
           if (result) {
             actionResults.push({ action, ...result });
             if (!result.success) stepHadFailure = true;
+            toolUsageCounts[action.type] = (toolUsageCounts[action.type] || 0) + 1;
+          }
+          const totalActions = Object.values(toolUsageCounts).reduce((a, b) => a + b, 0);
+          if (totalActions >= (DEFAULTS.MAX_ACTIONS_PER_RUN ?? 100)) {
+            lastRunSuccess = false;
+            sendAgentDone({
+              finalSummary: 'Tool usage budget reached for this run.',
+              success: false,
+              stepsUsed: step,
+              toolUsageSummary: { ...toolUsageCounts },
+            });
+            return;
           }
           await delay(DEFAULTS.ACTION_DELAY_MS);
         }
@@ -3128,27 +3393,35 @@ export default defineBackground(() => {
             url: tab.url || '',
           }).catch(() => { });
 
+          lastRunSuccess = true;
           sendAgentDone({
             finalSummary: llmResponse.summary || 'Done',
             success: true,
             stepsUsed: step,
+            toolUsageSummary: Object.keys(toolUsageCounts).length ? { ...toolUsageCounts } : undefined,
           });
           return;
         }
         await delay(350);
       }
+      lastRunSuccess = false;
       sendAgentDone({
         finalSummary: 'Max steps reached.',
         success: false,
         stepsUsed: maxSteps,
+        toolUsageSummary: Object.keys(toolUsageCounts).length ? { ...toolUsageCounts } : undefined,
       });
     } catch (err: any) {
+      lastRunSuccess = false;
       sendAgentDone({
         finalSummary: `Agent error: ${err?.message || String(err)}`,
         success: false,
         stepsUsed: history.length,
+        toolUsageSummary: Object.keys(toolUsageCounts).length ? { ...toolUsageCounts } : undefined,
       });
     } finally {
+      const totalActions = Object.values(toolUsageCounts).reduce((a, b) => a + b, 0);
+      trackAgentRunEnd(runId, lastRunSuccess, Date.now() - runStartTime, { actionsCount: totalActions });
       await restoreTabTitle();
       chrome.tabs.sendMessage(currentTabId, { type: 'hideGlowingFrame' }).catch(() => { });
       chrome.tabs.sendMessage(currentTabId, { type: 'hideVisualCursor' }).catch(() => { });

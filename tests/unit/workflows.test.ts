@@ -92,8 +92,35 @@ describe('Workflows Module', () => {
 
       expect(result.success).toBe(true);
       expect(results.length).toBe(1);
-      expect(results[0].action.type).toBe('wait');
-      expect(results[0].action.ms).toBe(1);
+      expect((results[0].action as any).type).toBe('wait');
+      expect((results[0].action as any).ms).toBe(1);
+    });
+  });
+
+  describe('workflow safety (no destructive actions without confirmation)', () => {
+    it('hasDestructiveSteps returns true when a step has destructive: true', async () => {
+      const { hasDestructiveSteps } = await import('../../shared/workflows');
+      const workflow = {
+        id: 'dest-workflow',
+        name: 'Destructive',
+        steps: [
+          { id: 's1', action: { type: 'click' as const, locator: { strategy: 'css' as const, value: '.delete', index: 0 } } },
+          { id: 's2', action: { type: 'click' as const, locator: { strategy: 'css' as const, value: '.confirm', index: 0 }, destructive: true } },
+        ],
+      };
+      expect(hasDestructiveSteps(workflow)).toBe(true);
+    });
+    it('hasDestructiveSteps returns false when no step is destructive', async () => {
+      const { hasDestructiveSteps } = await import('../../shared/workflows');
+      const workflow = {
+        id: 'safe-workflow',
+        name: 'Safe',
+        steps: [
+          { id: 's1', action: { type: 'navigate' as const, url: 'https://example.com' } },
+          { id: 's2', action: { type: 'extract' as const, locator: { strategy: 'css' as const, value: 'body', index: 0 } } },
+        ],
+      };
+      expect(hasDestructiveSteps(workflow)).toBe(false);
     });
   });
 });

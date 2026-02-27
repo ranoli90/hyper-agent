@@ -38,6 +38,10 @@ export interface AgentRunTrackingEntry {
   endTime?: number;
   success?: boolean;
   durationMs?: number;
+  /** True when run was autonomous (multi-step planning); false for manual/traditional loop. */
+  isAutonomous?: boolean;
+  /** Number of actions executed in this run (when available). */
+  actionsCount?: number;
 }
 
 export interface RateLimitTrackingEntry {
@@ -116,17 +120,23 @@ export function trackActionEnd(
 // ─── Agent Run Tracking ──────────────────────────────────────────────────
 const activeAgentRuns = new Map<string, AgentRunTrackingEntry>();
 
-export function trackAgentRunStart(): string {
+export function trackAgentRunStart(options?: { isAutonomous?: boolean }): string {
   const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   const entry: AgentRunTrackingEntry = {
     id: runId,
     startTime: Date.now(),
+    isAutonomous: options?.isAutonomous ?? false,
   };
   activeAgentRuns.set(runId, entry);
   return runId;
 }
 
-export async function trackAgentRunEnd(runId: string, success: boolean, durationMs: number): Promise<void> {
+export async function trackAgentRunEnd(
+  runId: string,
+  success: boolean,
+  durationMs: number,
+  options?: { actionsCount?: number }
+): Promise<void> {
   const entry = activeAgentRuns.get(runId);
   if (!entry) {
     console.warn(`[Metrics] No tracking entry found for agentRunId: ${runId}`);
@@ -136,6 +146,7 @@ export async function trackAgentRunEnd(runId: string, success: boolean, duration
   entry.endTime = Date.now();
   entry.success = success;
   entry.durationMs = durationMs;
+  if (options?.actionsCount !== undefined) entry.actionsCount = options.actionsCount;
 
   try {
     const entries = await loadFromStorage<AgentRunTrackingEntry[]>(AGENT_RUN_TRACKING_KEY);
@@ -171,6 +182,35 @@ export async function getDailyAgentRunCounts(): Promise<Record<string, number>> 
     }
   }
   return dailyCounts;
+}
+
+/** Counts of autonomous vs manual runs and actions (for analytics). */
+export interface AutonomousVsManualStats {
+  autonomousRuns: number;
+  manualRuns: number;
+  autonomousActionsTotal: number;
+  manualActionsTotal: number;
+}
+
+export async function getAutonomousVsManualStats(): Promise<AutonomousVsManualStats> {
+  const trackingEntries = await loadFromStorage<AgentRunTrackingEntry[]>(AGENT_RUN_TRACKING_KEY);
+  if (!trackingEntries) {
+    return { autonomousRuns: 0, manualRuns: 0, autonomousActionsTotal: 0, manualActionsTotal: 0 };
+  }
+  let autonomousRuns = 0;
+  let manualRuns = 0;
+  let autonomousActionsTotal = 0;
+  let manualActionsTotal = 0;
+  for (const entry of trackingEntries) {
+    if (entry.isAutonomous) {
+      autonomousRuns++;
+      autonomousActionsTotal += entry.actionsCount ?? 0;
+    } else {
+      manualRuns++;
+      manualActionsTotal += entry.actionsCount ?? 0;
+    }
+  }
+  return { autonomousRuns, manualRuns, autonomousActionsTotal, manualActionsTotal };
 }
 
 export async function getDailyActionCounts(): Promise<Record<string, number>> {

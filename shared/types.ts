@@ -368,6 +368,7 @@ export interface LLMResponse {
   done?: boolean;
   error?: string;
   askUser?: string;
+  retryAfter?: number;
   needsClarification?: boolean;
   clarificationQuestion?: string;
   needsNavigation?: boolean;
@@ -466,6 +467,21 @@ export interface MsgAgentDone {
   scheduled?: boolean;
   /** Correlation ID for this task, used in logs and debugging. */
   correlationId?: string;
+  /** Counts of action types executed (e.g. { click: 3, navigate: 1, extract: 2 }). */
+  toolUsageSummary?: Record<string, number>;
+}
+
+/** Shown in sidepanel before executing autonomous plan; user can Execute or Cancel. */
+export interface MsgAutonomousPlanOverview {
+  type: 'autonomousPlanOverview';
+  steps: Array<{ id: string; description: string }>;
+  reasoning: string;
+}
+
+/** Sent by sidepanel when user clicks Execute or Cancel on the plan overview. */
+export interface MsgConfirmAutonomousPlan {
+  type: 'confirmAutonomousPlan';
+  confirmed: boolean;
 }
 
 export interface MsgAgentError {
@@ -696,6 +712,8 @@ export type ExtensionMessage =
   | MsgConfirmResponse
   | MsgAgentDone
   | MsgAgentError
+  | MsgAutonomousPlanOverview
+  | MsgConfirmAutonomousPlan
   | MsgContextMenuCommand
   | MsgAskUser
   | MsgUserReply
@@ -735,6 +753,11 @@ export type ExtensionMessage =
   | MsgDeleteScheduledTask
   | MsgInstallWorkflow
   | MsgGetInstalledWorkflows
+  | MsgGetLastWorkflowRuns
+  | MsgGetLastWorkflowRunsResponse
+  | MsgGetWorkflowTemplates
+  | MsgRunWorkflowFromTemplate
+  | MsgGetWorkflowParamSuggestions
   | MsgGetSubscriptionState
   | MsgActivateLicenseKey
   | MsgOpenCheckout
@@ -840,6 +863,39 @@ export interface MsgInstallWorkflow {
 
 export interface MsgGetInstalledWorkflows {
   type: 'getInstalledWorkflows';
+}
+
+export interface MsgGetLastWorkflowRuns {
+  type: 'getLastWorkflowRuns';
+}
+
+export interface MsgGetWorkflowTemplates {
+  type: 'getWorkflowTemplates';
+}
+
+export interface MsgRunWorkflowFromTemplate {
+  type: 'runWorkflowFromTemplate';
+  templateId: string;
+  params: Record<string, string>;
+}
+
+export interface MsgGetWorkflowParamSuggestions {
+  type: 'getWorkflowParamSuggestions';
+  templateId: string;
+}
+
+export interface WorkflowRunEntry {
+  workflowId: string;
+  success: boolean;
+  timestamp: number;
+  stepsCount: number;
+  error?: string;
+  domain?: string;
+}
+
+export interface MsgGetLastWorkflowRunsResponse {
+  type: 'getLastWorkflowRunsResponse';
+  runs: WorkflowRunEntry[];
 }
 
 export interface MsgGetSubscriptionState {

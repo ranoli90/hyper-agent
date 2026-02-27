@@ -3,7 +3,7 @@
  * Chat, commands, tabs (Memory, Subscription).
  */
 
-import type { ExtensionMessage } from '../../shared/types';
+import type { ExtensionMessage, MsgConfirmAutonomousPlan } from '../../shared/types';
 import { validateAndFilterImportData, STORAGE_KEYS, AVAILABLE_MODELS, DEFAULTS, buildGdprExportSnapshot } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 import { debounce } from '../../shared/utils';
@@ -32,6 +32,7 @@ const components = {
   suggestions: safeGetElement<HTMLElement>('suggestions-container')!,
   charCounter: safeGetElement<HTMLElement>('char-counter')!,
   btnMic: safeGetElement<HTMLButtonElement>('btn-mic')!,
+  autonomousModeToggle: document.getElementById('autonomous-mode-toggle') as HTMLInputElement | null,
 
   // Tabs
   tabs: document.querySelectorAll('.tab-btn'),
@@ -273,6 +274,137 @@ function switchTab(tabId: string) {
               }
             });
           });
+        }
+
+        // View last workflow runs (142)
+        const runsEl = document.getElementById('last-workflow-runs');
+        if (runsEl) {
+          try {
+            const r = await chrome.runtime.sendMessage({ type: 'getLastWorkflowRuns' });
+            const runs = (r?.runs || []) as Array<{ workflowId: string; success: boolean; timestamp: number; stepsCount: number; error?: string; domain?: string }>;
+            if (runs.length === 0) {
+              runsEl.innerHTML = '<span class="text-zinc-500 dark:text-zinc-400">No runs yet.</span>';
+            } else {
+              runsEl.innerHTML = runs
+                .slice()
+                .reverse()
+                .slice(0, 15)
+                .map(
+                  (run) =>
+                    `<div class="flex items-center justify-between gap-2 py-1 border-b border-zinc-100 dark:border-zinc-800 last:border-0">
+                      <span class="font-mono text-[11px] truncate max-w-[120px]" title="${escapeHtml(run.workflowId)}">${escapeHtml(run.workflowId)}</span>
+                      <span class="shrink-0 text-[10px] ${run.success ? 'text-green-600 dark:text-green-400' : 'text-red-500'}">${run.success ? 'OK' : 'Fail'}</span>
+                      <span class="text-zinc-400 text-[10px] shrink-0">${run.stepsCount} steps</span>
+                      <span class="text-zinc-400 text-[10px] shrink-0">${new Date(run.timestamp).toLocaleString()}</span>
+                    </div>`
+                )
+                .join('');
+            }
+          } catch {
+            runsEl.innerHTML = '<span class="text-zinc-500 dark:text-zinc-400">Could not load runs.</span>';
+          }
+        }
+
+        // Workflow templates UI (136, 140): load templates and build param form
+        const templateSelect = document.getElementById('workflow-template-select') as HTMLSelectElement | null;
+        const paramsForm = document.getElementById('workflow-params-form');
+        const runBtn = document.getElementById('workflow-run-btn');
+        const runAgainBtn = document.getElementById('workflow-run-again-btn');
+        const suggestBtn = document.getElementById('workflow-suggest-params-btn');
+        const runStatus = document.getElementById('workflow-run-status');
+        if (templateSelect && paramsForm && runBtn && runStatus) {
+          const tr = await chrome.runtime.sendMessage({ type: 'getWorkflowTemplates' });
+          const templates = (tr?.templates || []) as Array<{ id: string; name: string; description: string; parameters: Array<{ name: string; required: boolean; description: string; default?: string }> }>;
+          if (!(state as any).workflowTemplatesWired) {
+            (state as any).workflowTemplatesWired = true;
+            (state as any).lastWorkflowParams = {} as Record<string, string>;
+            (state as any).lastWorkflowTemplateId = '';
+            templateSelect.innerHTML = '<option value="">-- Choose template --</option>' + templates.map((t) => `<option value="${t.id}">${t.name}</option>`).join('');
+            templateSelect.addEventListener('change', () => {
+              const id = templateSelect.value;
+              if (!id) {
+                paramsForm.classList.add('hidden');
+                paramsForm.innerHTML = '';
+                (runBtn as HTMLButtonElement).disabled = true;
+                runAgainBtn?.classList.add('hidden');
+                return;
+              }
+              const t = templates.find((x) => x.id === id);
+              if (!t) return;
+              const lastParams = (state as any).lastWorkflowParams as Record<string, string>;
+              const lastId = (state as any).lastWorkflowTemplateId;
+              paramsForm.innerHTML = t.parameters
+                .map(
+                  (p) => {
+                    const val = (lastId === id ? lastParams[p.name] : p.default) ?? '';
+                    return `<label class="text-xs font-medium">${escapeHtml(p.name)}${p.required ? ' *' : ''}</label>
+                     <input type="text" data-param="${escapeHtml(p.name)}" placeholder="${escapeHtml(p.description)}" value="${escapeHtml(String(val))}"
+                       class="w-full rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 text-sm" />`;
+                  }
+                )
+                .join('');
+              paramsForm.classList.remove('hidden');
+              (runBtn as HTMLButtonElement).disabled = false;
+              if (runAgainBtn && lastId === id && Object.keys(lastParams).length > 0) runAgainBtn.classList.remove('hidden');
+              else runAgainBtn?.classList.add('hidden');
+            });
+            runBtn.addEventListener('click', async () => {
+              const id = templateSelect.value;
+              if (!id) return;
+              const paramInputs = paramsForm.querySelectorAll('input[data-param]');
+              const params: Record<string, string> = {};
+              paramInputs.forEach((input) => {
+                const name = (input as HTMLInputElement).dataset.param;
+                if (name) params[name] = (input as HTMLInputElement).value.trim();
+              });
+              (state as any).lastWorkflowParams = params;
+              (state as any).lastWorkflowTemplateId = id;
+              runStatus.textContent = 'Running...';
+              (runBtn as HTMLButtonElement).disabled = true;
+              try {
+                const result = await chrome.runtime.sendMessage({ type: 'runWorkflowFromTemplate', templateId: id, params });
+                if (result?.ok) {
+                  runStatus.textContent = result.extractedData || 'Done.';
+                  runStatus.className = 'text-xs mt-2 min-h-[1.5rem] text-green-600 dark:text-green-400';
+                  if (runAgainBtn) runAgainBtn.classList.remove('hidden');
+                  switchTab('memory');
+                } else {
+                  runStatus.textContent = result?.error || 'Failed';
+                  runStatus.className = 'text-xs mt-2 min-h-[1.5rem] text-red-500';
+                }
+              } catch (e) {
+                runStatus.textContent = (e as Error).message || 'Error';
+                runStatus.className = 'text-xs mt-2 min-h-[1.5rem] text-red-500';
+              }
+              (runBtn as HTMLButtonElement).disabled = false;
+            });
+            if (runAgainBtn) {
+              runAgainBtn.addEventListener('click', () => {
+                (runBtn as HTMLElement).click();
+              });
+            }
+            suggestBtn?.addEventListener('click', async () => {
+              const id = templateSelect.value;
+              if (!id) return;
+              try {
+                const res = await chrome.runtime.sendMessage({ type: 'getWorkflowParamSuggestions', templateId: id });
+                const suggestions = (res?.suggestions || {}) as Record<string, string>;
+                const paramInputs = paramsForm.querySelectorAll('input[data-param]');
+                let filled = 0;
+                paramInputs.forEach((input) => {
+                  const name = (input as HTMLInputElement).dataset.param;
+                  const el = input as HTMLInputElement;
+                  if (name && suggestions[name] != null) {
+                    el.value = suggestions[name];
+                    filled++;
+                  }
+                });
+                showToast(filled > 0 ? `Pre-filled ${filled} parameter(s) from page` : 'No suggestions for this template', filled > 0 ? 'success' : 'status');
+              } catch {
+                showToast('Could not get suggestions. Open a tab first.', 'error');
+              }
+            });
+          }
         }
       } catch (err) {
         console.warn('[HyperAgent] Failed to load memory stats:', err);
@@ -1066,22 +1198,34 @@ function updateStatus(text: string, stateClass: string = 'active') {
 
 function updateStepper(stepId: string) {
   if (!components.steps) return;
-  
+
   const stepOrder = ['observe', 'plan', 'act', 'verify'];
   const currentIndex = stepOrder.indexOf(stepId);
-  
+
   components.steps.forEach((s, index) => {
     const stepEl = s as HTMLElement;
     const isCurrent = stepEl.dataset.step === stepId;
     const isPast = index < currentIndex;
-    
+
     stepEl.classList.toggle('active', isCurrent);
     stepEl.classList.toggle('completed', isPast && !isCurrent);
-    
+
     // Update connecting lines
     const lineEl = stepEl.nextElementSibling;
     if (lineEl && lineEl.classList.contains('step-line')) {
       lineEl.classList.toggle('active', isPast || isCurrent);
+    }
+  });
+}
+
+function clearStepper() {
+  if (!components.steps) return;
+  components.steps.forEach((s) => {
+    const stepEl = s as HTMLElement;
+    stepEl.classList.remove('active', 'completed');
+    const lineEl = stepEl.nextElementSibling;
+    if (lineEl && lineEl.classList.contains('step-line')) {
+      lineEl.classList.remove('active');
     }
   });
 }
@@ -1136,10 +1280,18 @@ async function handleCommand(text: string) {
   components.commandInput.style.height = '';
   setRunning(true);
   switchTab('chat');
-  updateStatus('Orchestrating AI...', 'active');
-  // Model selection is handled centrally via OpenRouter smart router; no
-  // per-command model override is used.
-  chrome.runtime.sendMessage({ type: 'executeCommand', command: cmd } as ExtensionMessage);
+  const useAutonomous = components.autonomousModeToggle?.checked === true;
+  if (useAutonomous) {
+    updateStatus('Analyzing with Swarm...', 'active');
+    updateStepper('plan');
+  } else {
+    updateStatus('Orchestrating AI...', 'active');
+  }
+  chrome.runtime.sendMessage({
+    type: 'executeCommand',
+    command: cmd,
+    ...(useAutonomous && { useAutonomous: true }),
+  } as ExtensionMessage);
 }
 
 function executeAutonomousCommand(cmd: string) {
@@ -1186,11 +1338,11 @@ interface MessageSize {
 }
 
 // ─── Persistence ────────────────────────────────────────────────
-async function saveHistoryImmediate() {
+async function doSaveHistory(): Promise<void> {
   try {
     const container = components.chatHistory;
     const messages = Array.from(container.querySelectorAll('.chat-msg'));
-    
+
     if (messages.length === 0) {
       await chrome.storage.local.set({ chat_history_backup: '' });
       return;
@@ -1215,7 +1367,7 @@ async function saveHistoryImmediate() {
     let removeIndex = 0;
     const minKeep = Math.min(5, messageSizes.length);
     let removedCount = 0;
-    
+
     while (currentBytes > MAX_CHAT_HISTORY_BYTES && removeIndex < messageSizes.length - minKeep) {
       currentBytes -= messageSizes[removeIndex].byteSize;
       messageSizes[removeIndex].element.remove();
@@ -1227,25 +1379,36 @@ async function saveHistoryImmediate() {
     await chrome.storage.local.set({ chat_history_backup: container.innerHTML });
 
     if (removedCount > 0) {
-      // Inform the user that older messages were trimmed, without adding new
-      // chat bubbles that would immediately re-trigger truncation.
       showToast(
         `Older messages were trimmed to keep history under the safe size limit. (${removedCount} message${removedCount > 1 ? 's' : ''} removed)`,
         'info',
       );
     }
-  } catch (err) {
-    // Removed console.warn
+  } catch {
+    // ignore
   }
 }
-const saveHistory = debounce(saveHistoryImmediate, 500);
+
+function saveHistoryImmediate(forceSync = false): void {
+  if (forceSync) {
+    doSaveHistory();
+    return;
+  }
+  // Defer heavy DOM serialization and storage to idle time so large DOM doesn't block UI
+  if (typeof requestIdleCallback !== 'undefined') {
+    requestIdleCallback(() => { doSaveHistory(); }, { timeout: 2000 });
+  } else {
+    doSaveHistory();
+  }
+}
+const saveHistory = debounce(() => saveHistoryImmediate(false), 500);
 
 // Flush pending save on close/hide to prevent data loss (single handler)
 const flushHistoryOnHide = () => {
-  if (document.visibilityState === 'hidden') saveHistoryImmediate();
+  if (document.visibilityState === 'hidden') saveHistoryImmediate(true);
 };
 document.addEventListener('visibilitychange', flushHistoryOnHide);
-globalThis.addEventListener('beforeunload', () => saveHistoryImmediate());
+globalThis.addEventListener('beforeunload', () => saveHistoryImmediate(true));
 
 // ─── DOM-Based HTML Sanitizer ──────────────────────────────────────
 // Uses DOMParser for secure sanitization — immune to regex bypass issues.
@@ -1832,9 +1995,12 @@ async function initChat() {
   // subtle reminder when the panel is opened again.
   await checkAgentStillRunning();
 
-  // Initialize memory tab controls after basic chat state is ready.
-  initMemoryControls().catch(() => {
-    // Non-fatal; memory controls will simply remain in default state.
+  // Non-critical: defer memory controls and other secondary loading to idle time
+  const runWhenIdle = typeof requestIdleCallback !== 'undefined'
+    ? (fn: () => void) => requestIdleCallback(fn, { timeout: 500 })
+    : (fn: () => void) => setTimeout(fn, 0);
+  runWhenIdle(() => {
+    initMemoryControls().catch(() => {});
   });
 }
 if (typeof requestIdleCallback === 'function') {
@@ -1991,6 +2157,11 @@ document.addEventListener('keydown', e => {
     components.confirmModal.classList.add('hidden');
     components.askModal.classList.add('hidden');
     components.suggestions.classList.add('hidden');
+    const autonomousPlanModal = document.getElementById('autonomous-plan-modal');
+    if (autonomousPlanModal && !autonomousPlanModal.classList.contains('hidden')) {
+      autonomousPlanModal.classList.add('hidden');
+      chrome.runtime.sendMessage({ type: 'confirmAutonomousPlan', confirmed: false } as MsgConfirmAutonomousPlan);
+    }
 
     // Close onboarding modal and persist dismissal (Issue #39)
     const onboardingModal = document.getElementById('onboarding-modal');
@@ -2068,6 +2239,39 @@ chrome.runtime.onMessage.addListener((message: any) => {
       }
       break;
     }
+    case 'autonomousPlanOverview': {
+      const modal = document.getElementById('autonomous-plan-modal');
+      const reasoningEl = document.getElementById('autonomous-plan-reasoning');
+      const stepsEl = document.getElementById('autonomous-plan-steps');
+      const btnCancel = document.getElementById('autonomous-plan-cancel');
+      const btnExecute = document.getElementById('autonomous-plan-execute');
+      if (modal && reasoningEl && stepsEl && btnCancel && btnExecute) {
+        reasoningEl.textContent = typeof message.reasoning === 'string' ? message.reasoning : 'Autonomous plan';
+        stepsEl.innerHTML = '';
+        const steps = Array.isArray(message.steps) ? message.steps : [];
+        steps.forEach((s: { id?: string; description?: string }, i: number) => {
+          const li = document.createElement('li');
+          li.className = 'flex gap-2 items-start';
+          const stepText = escapeHtml(String(typeof s.description === 'string' ? s.description : s.id || 'Step'));
+          li.innerHTML = `<span class="font-medium text-zinc-500 shrink-0">${i + 1}.</span><span>${stepText}</span>`;
+          stepsEl.appendChild(li);
+        });
+        let resolved = false;
+        const resolve = (confirmed: boolean) => {
+          if (resolved) return;
+          resolved = true;
+          modal.classList.add('hidden');
+          if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+          chrome.runtime.sendMessage({ type: 'confirmAutonomousPlan', confirmed } as MsgConfirmAutonomousPlan);
+        };
+        btnCancel.onclick = () => resolve(false);
+        btnExecute.onclick = () => resolve(true);
+        if (state.cleanupFocusTrap) state.cleanupFocusTrap();
+        modal.classList.remove('hidden');
+        state.cleanupFocusTrap = trapFocus(modal);
+      }
+      break;
+    }
     case 'askUser': {
       const question =
         typeof message.question === 'string' ? message.question : 'Agent needs more information.';
@@ -2142,12 +2346,26 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'agentDone': {
-      const summary =
+      let summary =
         typeof message.finalSummary === 'string' ? message.finalSummary : 'Task completed';
       const success = Boolean(message.success);
+      if (!success && /stopped|cancelled|canceled/i.test(summary)) {
+        summary = 'Task cancelled';
+        clearStepper();
+      } else if (!success) {
+        clearStepper();
+      }
       const msgEl = addMessage(summary, success ? 'agent' : 'error');
-      // Attach correlation ID when available so users can reference this task
-      // in debug logs or support tickets.
+      const toolUsageSummary = (message as any).toolUsageSummary as Record<string, number> | undefined;
+      if (msgEl && toolUsageSummary && typeof toolUsageSummary === 'object' && Object.keys(toolUsageSummary).length > 0) {
+        const parts = Object.entries(toolUsageSummary)
+          .map(([type, count]) => `${type}: ${count}`)
+          .join(', ');
+        const toolEl = document.createElement('div');
+        toolEl.className = 'message-timestamp text-xs mt-1 opacity-80';
+        toolEl.textContent = `Tool usage: ${parts}`;
+        msgEl.appendChild(toolEl);
+      }
       const correlationId = (message as any).correlationId;
       if (msgEl && typeof correlationId === 'string' && correlationId.trim()) {
         const meta = document.createElement('div');

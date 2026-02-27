@@ -121,6 +121,17 @@ export function validateWorkflow(workflow: Workflow): boolean {
   return true;
 }
 
+/**
+ * Returns true if the workflow contains any step with a destructive action.
+ * Used to require user confirmation before running when requireConfirm is enabled.
+ */
+export function hasDestructiveSteps(workflow: Workflow): boolean {
+  if (!workflow?.steps?.length) return false;
+  return workflow.steps.some(step => {
+    const a = step.action as { destructive?: boolean };
+    return a && a.destructive === true;
+  });
+}
 
 /**
  * Check if a condition is met

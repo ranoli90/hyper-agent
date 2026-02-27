@@ -46,3 +46,23 @@ export function throttle<T extends (...args: any[]) => any>(
 export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+/**
+ * Truncate text at a sentence boundary (. ! ?) to avoid cutting mid-sentence.
+ * If no boundary found before maxLen, truncates at maxLen.
+ */
+export function truncateAtSentenceBoundary(text: string, maxLen: number): string {
+  if (!text || maxLen <= 0) return '';
+  if (text.length <= maxLen) return text;
+  const slice = text.slice(0, maxLen + 1);
+  const lastBoundary = Math.max(
+    slice.lastIndexOf('. '),
+    slice.lastIndexOf('! '),
+    slice.lastIndexOf('? '),
+    slice.lastIndexOf('.\n'),
+    slice.lastIndexOf('!\n'),
+    slice.lastIndexOf('?\n')
+  );
+  if (lastBoundary > maxLen * 0.5) return text.slice(0, lastBoundary + 1).trim();
+  return text.slice(0, maxLen).trim();
+}
