@@ -6,38 +6,38 @@ HyperAgent is an enterprise-grade Chrome Extension (Manifest V3) that delivers r
 
 ---
 
-## 🚀 Vision
+## Vision
 
 HyperAgent bridges the gap between Large Language Models and real-world web execution. It provides a secure, state-of-the-art orchestration layer that allows AI agents to "see" the DOM, plan complex multi-step actions, and interact with web pages seamlessly. Ideal for automated research, web testing, data extraction, and personal assistance tasks.
 
-## ✨ Core Capabilities
+## Core Capabilities
 
-### 🧠 Autonomous Intelligence Engine
+### Autonomous Intelligence Engine
 At the core of HyperAgent is the `AutonomousIntelligence` module, capable of parsing abstract user intents into execution plans. It features:
 - **Dynamic Replanning**: Fallback mechanisms if the DOM state changes unexpectedly.
 - **Smart Locators (Self-Healing)**: An advanced DOM resolution system that pieces through Shadow DOMs, fuzzily matches text, and utilizes ARIA labels to ensure stable element targeting.
 - **Multi-Model Support**: Integrated seamlessly with OpenRouter to select specialized LLMs based on task complexity.
 
-### 🥷 Advanced Stealth & Anti-Bot
+### Advanced Stealth & Anti-Bot
 Built to navigate modern web defenses:
 - **Human-like Interaction**: Translates simple `click` or `type` commands into high-fidelity interactions. Mouse movements utilize **Bezier curves**, while typing simulates variable cadences and occasional "human" mistakes (and self-corrections).
 - **Environment Masking**: Modifies the `navigator` and `window` objects early in the page lifecycle to override generic bot detection patterns, including WebDriver signatures.
 
-### 🛡️ Enterprise-Grade Security
+### Enterprise-Grade Security
 Built with user privacy and safety at the forefront:
 - **Granular Execution Policies**: Supports execution confirmation prompts for high-risk actions (e.g., forms, purchases).
 - **Domain Allowance & Mitigation**: Enforces strict URL matching for allowed vs. blocked interactions.
 - **Prompt Injection Defense**: Sanitizes LLM outputs and strips payloads attempting jailbreaks, ensuring the LLM respects bounded constraints.
 - **Data Redaction**: Sensitive attributes can be redacted from the DOM context before they ever reach the LLM.
 
-### 🧩 Extensible Tool Registry
+### Extensible Tool Registry
 An onboard `ToolRegistryImpl` dynamically maps specialized capabilities to the AI.
 - **Built-In Tooling**: Built-in functions allow the AI to extract page data, summarize context, and interact securely.
 - **Analytics & History**: Maintains precise `ToolExecutionRecords` to measure success rates, execution duration, and costs for rigorous telemetry.
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 HyperAgent follows the strict requirements of Chrome Extensions MV3, splitting responsibilities cleanly:
 
@@ -51,7 +51,7 @@ For detailed documentation on internal modules and APIs, view the [Modules Docum
 
 ---
 
-## 🛠️ Build and Development
+## Build and Development
 
 The modern toolchain ensures high developer velocity and code quality:
 - Built with **TypeScript** and **WXT**.
