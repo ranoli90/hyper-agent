@@ -29,6 +29,12 @@ export interface LLMRequest {
   context?: PageContext;
   temperature?: number;
   maxTokens?: number;
+  /**
+   * Optional model override from the UI model-selector or executeCommand message.
+   * When provided, this takes precedence over the stored modelName setting
+   * and the automatic cascade selection.
+   */
+  modelOverride?: string;
 }
 
 // ─── Message Types ─────────────────────────────────────────────────────
@@ -353,6 +359,12 @@ export interface MsgExecuteCommand {
   useAutonomous?: boolean;
   /** Set by scheduler when running a scheduled task; used for analytics/UI. */
   scheduled?: boolean;
+  /**
+   * Optional model override from the UI model-selector dropdown.
+   * When set, the background should pass this to llmClient instead of
+   * the stored default. Format: OpenRouter model ID e.g. "google/gemini-2.0-flash-001"
+   */
+  model?: string;
 }
 
 export interface MsgStopAgent {
@@ -430,6 +442,14 @@ export interface MsgAgentDone {
   stepsUsed: number;
   /** True when this run was started by the scheduler (scheduled task). */
   scheduled?: boolean;
+}
+
+export interface MsgAgentError {
+  type: 'agentError';
+  error: string;
+  errorType?: 'network_error' | 'timeout' | 'rate_limit' | 'auth_error' | 'invalid_request' | 'parse_error' | 'model_unavailable' | 'context_too_long' | 'unknown';
+  retryable?: boolean;
+  retryAfter?: number;
 }
 
 export interface MsgContextMenuCommand {
@@ -645,6 +665,7 @@ export type ExtensionMessage =
   | MsgConfirmActions
   | MsgConfirmResponse
   | MsgAgentDone
+  | MsgAgentError
   | MsgContextMenuCommand
   | MsgAskUser
   | MsgUserReply

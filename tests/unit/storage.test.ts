@@ -111,9 +111,9 @@ describe('Storage Module', () => {
     });
 
     it('should return healthy for valid storage', async () => {
+      const { validateStorageIntegrity, STORAGE_VERSION } = await import('../../shared/config');
       mockStorage['good_key'] = { valid: true };
-      mockStorage['hyperagent_schema_version'] = 1;
-      const { validateStorageIntegrity } = await import('../../shared/config');
+      mockStorage['hyperagent_schema_version'] = STORAGE_VERSION;
       const result = await validateStorageIntegrity();
       
       expect(result.healthy).toBe(true);

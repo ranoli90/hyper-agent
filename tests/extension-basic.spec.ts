@@ -19,9 +19,8 @@ test.describe('HyperAgent Extension - Basic Functionality', () => {
 
     // Check all tabs exist
     await expect(page.locator('[data-tab="chat"]')).toBeVisible();
-    await expect(page.locator('[data-tab="vision"]')).toBeVisible();
-    await expect(page.locator('[data-tab="tasks"]')).toBeVisible();
     await expect(page.locator('[data-tab="memory"]')).toBeVisible();
+    await expect(page.locator('[data-tab="subscription"]')).toBeVisible();
 
     // Check input elements exist
     await expect(page.locator('#command-input')).toBeVisible();
@@ -63,9 +62,8 @@ test.describe('HyperAgent Extension - Basic Functionality', () => {
 
     // Test button clicks (even without handlers, should not error)
     await page.click('#btn-execute');
-    await page.click('[data-tab="vision"]');
-    await page.click('[data-tab="tasks"]');
     await page.click('[data-tab="memory"]');
+    await page.click('[data-tab="subscription"]');
     await page.click('[data-tab="chat"]');
 
     // Elements should still be present

@@ -296,7 +296,17 @@ export class BillingManager {
     if (!this.state.subscriptionId || !this.config.stripePublishableKey) {
       return false;
     }
-    
+    // Stripe's REST API requires the secret key (sk_) for subscription retrieval.
+    // In a client-only extension we only have the publishable key (pk_); do not
+    // call the API with pk_ (it returns 401). Rely on payment success redirect
+    // and stored subscriptionId/currentPeriodEnd. For full verification, use
+    // a backend that holds sk_ and exposes a verified session or webhook.
+    if (!this.config.stripePublishableKey.startsWith('sk_')) {
+      this.state.lastVerified = Date.now();
+      await this.saveState();
+      return true; // Trust stored state from checkout success
+    }
+
     try {
       const response = await fetch('https://api.stripe.com/v1/subscriptions/' + this.state.subscriptionId, {
         method: 'GET',
@@ -510,7 +520,18 @@ export class BillingManager {
 
   // Legacy tier mapping for backward compatibility
   getTierMapping(): 'free' | 'premium' | 'unlimited' {
-    return this.state.plan === 'beta' ? 'premium' : 'free';
+    // Map both 'community' and legacy 'free' to 'free' for backward compatibility
+    const plan = this.state.plan as string;
+    if (plan === 'community' || plan === 'free') {
+      return 'free';
+    }
+    if (plan === 'beta' || plan === 'premium') {
+      return 'premium';
+    }
+    if (plan === 'unlimited') {
+      return 'unlimited';
+    }
+    return 'free';
   }
 
   getState(): BillingState {

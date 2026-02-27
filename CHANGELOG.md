@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [4.0.1] - 2026-02-24
 
+### Added
+
+#### Chat Tab Improvements
+- **Model Selection Dropdown** — Switch AI models directly from Chat UI
+- **Message Status Indicators** — Visual feedback for sending/sent/error states
+- **Enhanced Thinking Indicator** — Animated dots with text label
+- **Message Avatars** — User and agent icons for clarity
+- **Timestamps** — Relative timestamps on all messages
+
+#### Error Handling
+- **Comprehensive Error Taxonomy** — User-friendly messages for all error types
+- **Error Classification System** — network_error, timeout, rate_limit, auth_error, etc.
+- **Intelligent Error Recovery** — Context-aware retry suggestions
+- **Streaming Response Infrastructure** — SSE support for real-time updates
+
+#### Settings & Storage
+- **Settings Persistence** — Model selection saved to chrome.storage
+- **Schema Migrations** — v2 migration normalizes model names
+- **Corruption Recovery** — Automatic repair for invalid storage data
+
+#### Accessibility
+- **ARIA Progress Indicators** — Progress bar with proper ARIA attributes
+- **Offline Banner** — Visual indicator with `role="alert"`
+- **Focus-Visible Styling** — Clear focus rings for keyboard users
+- **Screen Reader Announcements** — Status changes announced to assistive tech
+- **High Contrast Mode** — Full support for high contrast themes
+- **Reduced Motion** — Respects `prefers-reduced-motion`
+
 ### Fixed
 
 #### Security
@@ -23,11 +51,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **Stop Button** — Now waits for confirmation before updating UI state
 - **Keyboard Navigation** — Added arrow key navigation for command suggestions
 - **Confirmation Modal** — Fixed timeout leak that continued after user action
+- **Abort Handling** — Proper cancellation with AbortController signal passing
 
 #### Code Quality
 - Removed dead code (CostTrackerLegacy, TokenCounter, placeholder functions)
 - Fixed auto-reject timeout cleanup in confirmation modals
 - Improved error handling throughout the codebase
+- Removed duplicate agentError case in switch statement
 
 ---
 

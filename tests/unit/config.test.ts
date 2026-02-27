@@ -15,7 +15,7 @@ import { DEFAULTS, STORAGE_KEYS, VALIDATION, isSiteBlacklisted } from '../../sha
 describe('DEFAULTS', () => {
   it('has required configuration values', () => {
     expect(DEFAULTS.BASE_URL).toBeDefined();
-    expect(DEFAULTS.MODEL_NAME).toBeDefined();
+    expect(DEFAULTS.MODEL_NAME).toBe('openrouter/auto');
     expect(DEFAULTS.MAX_STEPS).toBeGreaterThan(0);
   });
 

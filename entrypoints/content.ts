@@ -169,6 +169,7 @@ setInterval(() => {
 export default defineContentScript({
   matches: ['<all_urls>'],
   runAt: 'document_idle',
+  allFrames: true, // Same-origin iframes; enables future frame routing
   main() {
     // Apply stealth masks immediately
     StealthEngine.applyPropertyMasks();
@@ -218,6 +219,18 @@ export default defineContentScript({
       }
     }
 
+
+    // ─── Shadow DOM piercing for locator resolution (Scenario 21) ───
+    function queryAllWithShadow<T extends Element>(selector: string, root: Document | ShadowRoot = document): T[] {
+      const out: T[] = [];
+      try {
+        root.querySelectorAll(selector).forEach((el) => out.push(el as T));
+        root.querySelectorAll('*').forEach((el) => {
+          if (el.shadowRoot) out.push(...queryAllWithShadow<T>(selector, el.shadowRoot));
+        });
+      } catch { /* invalid selector */ }
+      return out;
+    }
 
     // ─── Visibility check ─────────────────────────────────────────
     function isVisible(el: HTMLElement): boolean {
@@ -427,8 +440,9 @@ export default defineContentScript({
       // String locator — try CSS, then text
       if (typeof locator === 'string') {
         try {
-          const el = document.querySelector(locator);
-          if (el && isVisible(el as HTMLElement)) return el as HTMLElement;
+          const all = queryAllWithShadow<HTMLElement>(locator);
+          const el = all.find(e => isVisible(e));
+          if (el) return el;
         } catch { /* not valid CSS */ }
         return findByText(locator);
       }
@@ -437,27 +451,21 @@ export default defineContentScript({
 
       switch (strategy) {
         case 'index': {
-          // Resolve by our stable index
           const idx = Number.parseInt(value, 10);
-          // First try the WeakRef registry
           const ref = indexedElements.get(idx);
           if (ref?.deref()) {
             const el = ref.deref();
             if (el?.isConnected) return el;
           }
-          // Fallback to data attribute
-          const el = document.querySelector(`[data-ha-index="${idx}"]`);
-          return el as HTMLElement | null;
+          const byAttr = queryAllWithShadow<HTMLElement>(`[data-ha-index="${idx}"]`);
+          return byAttr[0] && isVisible(byAttr[0]) ? byAttr[0] : byAttr[0] || null;
         }
         case 'css': {
           try {
-            if (index !== undefined) {
-              const all = document.querySelectorAll(value);
-              if (all[index] && isVisible(all[index] as HTMLElement)) return all[index] as HTMLElement;
-            }
-            const el = document.querySelector(value);
-            if (el && isVisible(el as HTMLElement)) return el as HTMLElement;
-            return el as HTMLElement | null;
+            const all = queryAllWithShadow<HTMLElement>(value);
+            const visible = all.filter(e => isVisible(e));
+            const el = index !== undefined ? visible[index] : visible[0];
+            return el || null;
           } catch {
             return null;
           }
@@ -466,23 +474,21 @@ export default defineContentScript({
           return findByText(value, index);
         }
         case 'aria': {
-          // Try exact match first, then partial
-          const exact = document.querySelectorAll(`[aria-label="${CSS.escape(value)}"]`);
-          if (exact.length > 0) return (exact[index ?? 0] as HTMLElement) || null;
-          // Partial match
-          const all = document.querySelectorAll('[aria-label]');
+          const exact = queryAllWithShadow<HTMLElement>(`[aria-label="${CSS.escape(value)}"]`);
+          const visibleExact = exact.filter(e => isVisible(e));
+          if (visibleExact.length > 0) return visibleExact[index ?? 0] || null;
+          const all = queryAllWithShadow<HTMLElement>('[aria-label]');
           const lower = value.toLowerCase();
-          const matches: HTMLElement[] = [];
-          all.forEach((el) => {
+          const matches = all.filter((el) => {
             const label = el.getAttribute('aria-label')?.toLowerCase() ?? '';
-            if (label.includes(lower)) matches.push(el as HTMLElement);
+            return label.includes(lower) && isVisible(el);
           });
           return matches[index ?? 0] || null;
         }
         case 'role': {
-          const all = document.querySelectorAll(`[role="${CSS.escape(value)}"]`);
-          const visible = Array.from(all).filter((el) => isVisible(el as HTMLElement));
-          return (visible[index ?? 0] as HTMLElement) || null;
+          const all = queryAllWithShadow<HTMLElement>(`[role="${CSS.escape(value)}"]`);
+          const visible = all.filter(e => isVisible(e));
+          return visible[index ?? 0] || null;
         }
         case 'xpath': {
           // Validate XPath for potential injection
@@ -527,8 +533,7 @@ export default defineContentScript({
       const candidates: { el: HTMLElement; score: number }[] = [];
       const interactiveSelectors = 'a, button, input, textarea, select, label, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [tabindex], summary, h1, h2, h3, [contenteditable]';
 
-      document.querySelectorAll(interactiveSelectors).forEach((el) => {
-        const htmlEl = el as HTMLElement;
+      queryAllWithShadow<HTMLElement>(interactiveSelectors).forEach((htmlEl) => {
         if (!isVisible(htmlEl)) return;
         const elText = (htmlEl.innerText || htmlEl.textContent || '').trim().toLowerCase();
         if (!elText) return;

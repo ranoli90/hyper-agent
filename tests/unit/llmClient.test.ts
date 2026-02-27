@@ -15,7 +15,7 @@ global.fetch = mockFetch;
 vi.mock('../../shared/config', () => ({
   DEFAULTS: {
     BASE_URL: 'https://openrouter.ai/api/v1',
-    MODEL_NAME: 'google/gemini-2.0-flash-001',
+    MODEL_NAME: 'openrouter/auto',
     MAX_STEPS: 12,
     LLM_TIMEOUT_MS: 45000,
     COST_WARNING_THRESHOLD: 5.0,
@@ -98,7 +98,7 @@ describe('LLMClient', () => {
   const defaultSettings = {
     apiKey: 'test-api-key',
     baseUrl: 'https://openrouter.ai/api/v1',
-    modelName: 'google/gemini-2.0-flash-001',
+    modelName: 'openrouter/auto',
     maxSteps: 12,
   };
 

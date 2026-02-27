@@ -47,7 +47,11 @@ git clone https://github.com/ranoli90/hyper-agent.git
 cd hyper-agent
 npm install
 npm run build
+npm run fix:utf8    # MANDATORY - fixes UTF-8 encoding
 ```
+
+> **⚠️ CRITICAL: Always run `npm run fix:utf8` after build.**
+> See [BUILD.md](BUILD.md) for detailed build instructions and troubleshooting.
 
 ### Load Extension
 
@@ -79,10 +83,13 @@ Enable "Use Local AI" in Settings for free offline automation.
 ```bash
 npm run dev          # Development server
 npm run build        # Production build
+npm run fix:utf8     # MANDATORY after build
 npm run test:unit    # Run unit tests (253 tests)
 npm run test:e2e     # Run E2E tests
 npm run type-check   # TypeScript check
 ```
+
+> **⚠️ Always run `npm run fix:utf8` after `npm run build` or the extension won't load.**
 
 ---
 

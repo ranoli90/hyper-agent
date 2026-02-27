@@ -77,11 +77,12 @@ export const VALIDATION = {
 
 // ─── Defaults ───────────────────────────────────────────────────────
 export const DEFAULTS = {
-  BASE_URL: 'https://openrouter.ai/api/v1',
-  DEFAULT_API_KEY: '', // Empty default; user must provide their API key
-  MODEL_NAME: 'google/gemini-2.0-flash-001',
-  BACKUP_MODEL: 'google/gemini-2.0-flash-001',
-  VISION_MODEL: 'google/gemini-2.0-flash-001',
+  BASE_URL: 'https://api.openai.com/v1',
+  DEFAULT_API_KEY: '',
+  MODEL_NAME: 'gpt-3.5-turbo',
+  BACKUP_MODEL: 'gpt-3.5-turbo',
+  VISION_MODEL: 'gpt-4o',
+  PROVIDER: 'openai', // 'openai', 'anthropic', 'google'
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
   DRY_RUN: false,
@@ -274,8 +275,8 @@ export async function loadSettings(): Promise<Settings> {
       console.warn('[Config] Invalid settings loaded:', validation.errors);
     }
 
-    // Note: Only google/gemini-2.5-flash via OpenRouter is supported.
-    // All model selections are forced to this model.
+    // Note: Only openrouter/auto is supported. The smart router automatically
+    // selects the best model for each task.
 
     return settings;
   } catch (error) {
@@ -417,6 +418,38 @@ export function validateAndFilterImportData(settings: unknown): {
         errors.push('baseUrl must be a valid URL');
         delete filtered[STORAGE_KEYS.BASE_URL];
       }
+    }
+  }
+  // chat_history_backup: string, max 2MB
+  if ('chat_history_backup' in filtered) {
+    const v = filtered['chat_history_backup'];
+    if (v !== undefined && typeof v !== 'string') {
+      errors.push('chat_history_backup must be a string');
+      delete filtered['chat_history_backup'];
+    } else if (typeof v === 'string' && v.length > 2 * 1024 * 1024) {
+      errors.push('chat_history_backup exceeds 2MB limit');
+      delete filtered['chat_history_backup'];
+    }
+  }
+  // command_history: array of strings, max 50 items, each max 2000 chars
+  if ('command_history' in filtered) {
+    const v = filtered['command_history'];
+    if (v !== undefined && !Array.isArray(v)) {
+      errors.push('command_history must be an array');
+      delete filtered['command_history'];
+    } else if (Array.isArray(v)) {
+      const arr = v
+        .filter((item): item is string => typeof item === 'string')
+        .map(s => String(s).slice(0, 2000))
+        .slice(0, 50);
+      filtered['command_history'] = arr;
+    }
+  }
+  // dark_mode: boolean only
+  if ('dark_mode' in filtered) {
+    const v = filtered['dark_mode'];
+    if (v !== undefined && typeof v !== 'boolean') {
+      delete filtered['dark_mode'];
     }
   }
   return {

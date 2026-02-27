@@ -11,6 +11,7 @@ export interface SanitizationOptions {
   maxLength?: number;
   preserveWhitespace?: boolean;
   encodeEntities?: boolean;
+  alreadySafeHtml?: boolean; // Skip XSS protection for pre-sanitized HTML (like saved chat history)
 }
 
 export interface ValidationResult {
@@ -87,8 +88,8 @@ export class InputSanitizer {
 
     let sanitized = input;
 
-    // XSS protection
-    if (this.config.enableXssProtection) {
+    // XSS protection - skip if alreadySafeHtml is true (for pre-sanitized HTML like saved chat history)
+    if (this.config.enableXssProtection && !options.alreadySafeHtml) {
       const xssResult = this.protectAgainstXss(sanitized);
       sanitized = xssResult.value;
       result.warnings.push(...xssResult.warnings);
@@ -192,8 +193,17 @@ export class InputSanitizer {
     // Encode dangerous characters in attributes
     value = value.replace(/<([^>]+)>/g, (match, content) => {
       // Encode quotes and angle brackets in attributes
-      return content.replace(/["']/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      let processedContent = content;
+      
+      // Encode quotes and angle brackets only within attribute values
+      processedContent = processedContent.replace(/([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*["']([^"']*)["']/g, (attrMatch, attrName, attrValue) => {
+        const encodedValue = attrValue.replace(/["']/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `${attrName}="${encodedValue}"`;
+      });
+      
+      return `<${processedContent}>`;
     });
+
 
     return { value, warnings };
   }

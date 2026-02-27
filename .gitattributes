@@ -1,0 +1,70 @@
+# =============================================================================
+# .gitattributes — HyperAgent Chrome Extension
+# =============================================================================
+#
+# PURPOSE: Prevent the recurring "Could not load file 'content-scripts/content.js'
+#          for content script. It isn't UTF-8 encoded." Chrome extension load failure.
+#
+# ROOT CAUSE: On Windows, Git may check out files with CRLF line endings and some
+# editors (VS Code, PowerShell ISE, Notepad++) will silently re-save TypeScript/
+# JavaScript files as UTF-16 LE (the Windows default for "Unicode"). Chrome rejects
+# content scripts and manifests that aren't plain UTF-8.
+#
+# HOW THIS FIXES IT: Git is told to normalise every source file to LF on commit
+# and check out as LF on Windows (not CRLF). This keeps all text files in a
+# consistent encoding that Vite/WXT can compile to clean UTF-8 output.
+#
+# FOR LLMs / FUTURE DEVELOPERS:
+#   - NEVER save .ts/.js/.html/.json files as UTF-16 (with or without BOM).
+#   - If Chrome says a content script "isn't UTF-8 encoded", run:
+#       npm run fix:utf8        — re-encodes the BUILD output
+#       npm run fix:sources     — re-encodes SOURCE files (run before rebuilding)
+#   - The build script (`npm run build`) also auto-runs ensure-utf8.js at the end.
+#   - See scripts/ensure-utf8.js and scripts/fix-source-encoding.js for details.
+#
+# =============================================================================
+
+# Default: normalise all text files to LF in the repo
+* text=auto eol=lf
+
+# --- Source files: always LF, always UTF-8 ---
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.jsx       text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.json      text eol=lf
+*.html      text eol=lf
+*.css       text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+
+# --- Config files ---
+.env        text eol=lf
+.env.*      text eol=lf
+*.config.js text eol=lf
+*.config.ts text eol=lf
+wxt.config.ts text eol=lf
+tsconfig.json text eol=lf
+package.json  text eol=lf
+package-lock.json text eol=lf
+
+# --- Binary: do NOT touch line endings ---
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.webp   binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.otf    binary
+*.eot    binary
+*.zip    binary
+*.gz     binary
+*.crx    binary

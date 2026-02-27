@@ -35,7 +35,7 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
                     {
                       type: 'agentDone',
                       finalSummary:
-                        '**Hyper-Commands:**\n- `/memory`: View stored knowledge\n- `/schedule`: Manage background tasks\n- `/tools`: List available agent tools\n- `/clear`: Clear chat history\n- `/help`: Show this message',
+                        '**Hyper-Commands:**\n- `/memory`: View stored knowledge\n- `/tools`: List available agent tools\n- `/clear`: Clear chat history\n- `/help`: Show this message',
                       success: true,
                       stepsUsed: 1,
                     },
@@ -128,7 +128,7 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
       ) {
         mockRuntime.onMessage.listeners.forEach(listener => {
           try {
-            listener(message, {}, () => {});
+            listener(message, {}, () => { });
           } catch (e) {
             console.error('Mock listener error:', e);
           }
@@ -182,16 +182,12 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
   test('should switch tabs with proper state management', async ({ page }) => {
     await page.goto(`file://${extensionPath}/sidepanel.html`);
 
-    // Click vision tab and check click was registered
-    await page.click('[data-tab="vision"]');
-    await page.waitForTimeout(100);
-
-    // Click tasks tab
-    await page.click('[data-tab="tasks"]');
-    await page.waitForTimeout(100);
-
-    // Click memory tab
+    // Click memory tab and check click was registered
     await page.click('[data-tab="memory"]');
+    await page.waitForTimeout(100);
+
+    // Click subscription tab
+    await page.click('[data-tab="subscription"]');
     await page.waitForTimeout(100);
 
     // Back to chat
@@ -199,9 +195,8 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
 
     // Verify all tabs are still present and clickable
     await expect(page.locator('[data-tab="chat"]')).toBeVisible();
-    await expect(page.locator('[data-tab="vision"]')).toBeVisible();
-    await expect(page.locator('[data-tab="tasks"]')).toBeVisible();
     await expect(page.locator('[data-tab="memory"]')).toBeVisible();
+    await expect(page.locator('[data-tab="subscription"]')).toBeVisible();
   });
 
   test('should handle modal interactions with proper mocking', async ({ page }) => {

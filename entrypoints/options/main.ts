@@ -3,22 +3,30 @@ import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
 import { debounce } from '../../shared/utils';
+import { billingManager } from '../../shared/billing';
 
 type SubscriptionTier = 'free' | 'premium' | 'unlimited';
+
+const PAYMENT_SUCCESS_KEY = 'hyperagent_payment_success';
 
 async function handleStripePaymentReturn(): Promise<void> {
   const hash = globalThis.location.hash;
   const params = new URLSearchParams(globalThis.location.search);
 
   if (hash.includes('payment_success') || params.has('payment_success')) {
-  const tier = (params.get('tier') || /tier=([^&]+)/.exec(hash)?.[1]) as SubscriptionTier | null;
-  const customerId = params.get('customerId') || /customerId=([^&]+)/.exec(hash)?.[1];
-  const subscriptionId = params.get('subscriptionId') || /subscriptionId=([^&]+)/.exec(hash)?.[1];
+    const tier = (params.get('tier') || /tier=([^&]+)/.exec(hash)?.[1]) as SubscriptionTier | null;
+    const customerId = params.get('customerId') || /customerId=([^&]+)/.exec(hash)?.[1];
+    const subscriptionId = params.get('subscriptionId') || /subscriptionId=([^&]+)/.exec(hash)?.[1];
 
     if (tier && (tier === 'premium' || tier === 'unlimited')) {
       await chrome.storage.local.set({
-        stripe_payment_success: { tier, customerId: customerId || undefined, subscriptionId: subscriptionId || undefined },
+        [PAYMENT_SUCCESS_KEY]: {
+          type: 'stripe',
+          customerId: customerId || undefined,
+          subscriptionId: subscriptionId || undefined,
+        },
       });
+      await billingManager.initialize();
       globalThis.history.replaceState({}, '', globalThis.location.pathname);
       showNotification(`Payment successful! Your ${tier} subscription is now active.`, 'success');
     }
@@ -39,8 +47,6 @@ const enableSwarmInput = document.getElementById('enable-swarm') as HTMLInputEle
 const enableAutonomousInput = document.getElementById('enable-autonomous') as HTMLInputElement;
 const enableLearningInput = document.getElementById('enable-learning') as HTMLInputElement;
 const modelSelectInput = document.getElementById('model-select') as HTMLSelectElement;
-const customModelInput = document.getElementById('custom-model') as HTMLInputElement;
-const customModelRow = document.getElementById('custom-model-row') as HTMLElement;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement;
 const saveStatus = document.getElementById('save-status')!;
 const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
@@ -109,12 +115,45 @@ function storageClear(): Promise<void> {
 
 // ─── API Provider URLs ───────────────────────────────────────────
 const PROVIDER_URLS = {
-  openrouter: 'https://openrouter.ai/api/v1',
   openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com',
-  google: 'https://generativelanguage.googleapis.com',
+  anthropic: 'https://api.anthropic.com/v1',
+  google: 'https://generativelanguage.googleapis.com/v1beta',
+  openrouter: 'https://openrouter.ai/api/v1',
   custom: ''
 } as const;
+
+// Provider model options
+const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+  openai: [
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Fast)' },
+    { value: 'gpt-4o', label: 'GPT-4o (Vision)' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  ],
+  anthropic: [
+    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' },
+    { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (Vision)' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Best)' },
+  ],
+  google: [
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (FREE)' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+  ],
+  openrouter: [
+    { value: 'openai/gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
+  ],
+  custom: [
+    { value: 'gpt-3.5-turbo', label: 'Default' },
+  ],
+};
+
+// Key hints for each provider
+const PROVIDER_KEY_HINTS: Record<string, string> = {
+  openai: 'OpenAI keys start with sk-',
+  anthropic: 'Anthropic keys start with sk-ant-',
+  google: 'Google AI Studio keys start with AIza',
+  openrouter: 'OpenRouter keys start with sk-or-',
+  custom: 'Enter your API key',
+};
 
 // ─── Site Config DOM references ──────────────────────────────────
 const siteConfigDomainInput = document.getElementById('site-config-domain') as HTMLInputElement;
@@ -134,32 +173,25 @@ async function loadCurrentSettings() {
   const settings = await loadSettings();
   _cachedSettings = settings;
 
-  // Detect API provider from base URL
-  const provider = detectProviderFromUrl(settings.baseUrl);
+  // Detect API provider from key or base URL
+  let provider = detectProviderFromKey(settings.apiKey) || detectProviderFromUrl(settings.baseUrl);
   apiProviderInput.value = provider;
+  updateModelOptions(provider);
+  updateKeyHint(provider);
 
   // Handle API key display
   const usingDefaultKey = settings.apiKey === DEFAULTS.DEFAULT_API_KEY;
   const hasCustomKey = Boolean(settings.apiKey && !usingDefaultKey);
   apiKeyInput.value = hasCustomKey ? settings.apiKey : '';
-  apiKeyInput.placeholder = hasCustomKey ? 'sk-or-v1-...' : 'Enter your API key...';
+  apiKeyInput.placeholder = hasCustomKey ? 'Enter your API key...' : 'Enter your API key...';
 
   updateApiUiState({
     status: hasCustomKey ? 'custom' : 'missing',
   });
 
-  const savedModel = settings.modelName || DEFAULTS.MODEL_NAME;
-  if (savedModel === 'custom' || !Array.from(modelSelectInput.options).some(opt => opt.value === savedModel)) {
-    modelSelectInput.value = 'custom';
-    customModelInput.value = savedModel === 'custom' ? '' : savedModel;
-    customModelRow.style.display = 'block';
-  } else {
-    modelSelectInput.value = savedModel;
-    customModelRow.style.display = 'none';
-  }
-
-  modelStatusText.textContent = `Model: ${savedModel}`;
-  updateTipsBanner(savedModel);
+  modelSelectInput.value = settings.modelName || PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
+  modelStatusText.textContent = `Model: ${modelSelectInput.options[modelSelectInput.selectedIndex]?.text || 'Default'}`;
+  updateTipsBanner(modelSelectInput.value);
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
   requireConfirmInput.checked = settings.requireConfirm;
@@ -172,81 +204,105 @@ async function loadCurrentSettings() {
   enableLearningInput.checked = settings.learningEnabled;
 }
 
-// ─── Detect provider from URL ───────────────────────────────────
+function detectProviderFromKey(apiKey: string): string {
+  if (!apiKey) return '';
+  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
+  if (apiKey.startsWith('AIza')) return 'google';
+  if (apiKey.startsWith('sk-or-')) return 'openrouter';
+  if (apiKey.startsWith('sk-')) return 'openai';
+  return '';
+}
+
 function detectProviderFromUrl(url: string): string {
   if (url.includes('openrouter.ai')) return 'openrouter';
   if (url.includes('openai.com')) return 'openai';
   if (url.includes('anthropic.com')) return 'anthropic';
   if (url.includes('googleapis.com')) return 'google';
-  return 'custom';
+  return 'openai';
 }
 
-// ─── Max steps slider ───────────────────────────────────────────
-maxStepsInput.addEventListener('input', () => {
-  maxStepsValue.textContent = maxStepsInput.value;
+function updateModelOptions(provider: string) {
+  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.openai;
+  modelSelectInput.innerHTML = models.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+}
+
+function updateKeyHint(provider: string) {
+  const hint = document.getElementById('key-hint');
+  if (hint) {
+    hint.textContent = PROVIDER_KEY_HINTS[provider] || 'Enter your API key';
+  }
+}
+
+// Handle provider change
+apiProviderInput.addEventListener('change', () => {
+  const provider = apiProviderInput.value;
+  updateModelOptions(provider);
+  updateKeyHint(provider);
+  modelSelectInput.value = PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
+  modelStatusText.textContent = `Model: ${PROVIDER_MODELS[provider]?.[0]?.label || 'Default'}`;
 });
 
-modelSelectInput.addEventListener('change', () => {
-  if (modelSelectInput.value === 'custom') {
-    customModelRow.style.display = 'block';
-  } else {
-    customModelRow.style.display = 'none';
-  }
-  updateTipsBanner(modelSelectInput.value === 'custom' ? customModelInput.value : modelSelectInput.value);
+maxStepsInput.addEventListener('input', () => {
+  maxStepsValue.textContent = maxStepsInput.value;
 });
 
 function updateTipsBanner(modelName: string) {
   const tipsInfo = document.getElementById('tips-model-info');
   if (!tipsInfo) return;
-  
+
   const modelDescriptions: Record<string, string> = {
-    'google/gemini-2.0-flash-001': 'Using Gemini 2.0 Flash via OpenRouter - a fast multimodal model with vision capabilities.',
-    'google/gemini-2.0-flash-lite-001': 'Using Gemini 2.0 Flash Lite via OpenRouter - faster and cheaper with vision capabilities.',
-    'anthropic/claude-3.5-sonnet': 'Using Claude 3.5 Sonnet via OpenRouter - excellent reasoning and coding capabilities.',
-    'anthropic/claude-3-haiku': 'Using Claude 3 Haiku via OpenRouter - fast and efficient for simple tasks.',
-    'openai/gpt-4o-mini': 'Using GPT-4o Mini via OpenRouter - fast and cost-effective with vision capabilities.',
-    'openai/gpt-4o': 'Using GPT-4o via OpenRouter - powerful multimodal model with advanced reasoning.',
-    'meta-llama/llama-3.1-70b-instruct': 'Using Llama 3.1 70B via OpenRouter - open source model with strong performance.',
-    'custom': 'Using custom model via OpenRouter.'
+    'gpt-3.5-turbo': 'GPT-3.5 Turbo - Fast and affordable for most tasks.',
+    'gpt-4o': 'GPT-4o - Advanced model with vision support.',
+    'gpt-4-turbo': 'GPT-4 Turbo - Powerful reasoning capabilities.',
+    'claude-3-haiku-20240307': 'Claude 3 Haiku - Fast and efficient.',
+    'claude-3-sonnet-20240229': 'Claude 3 Sonnet - Balanced performance with vision.',
+    'claude-3-opus-20240229': 'Claude 3 Opus - Most capable Claude model.',
+    'gemini-2.0-flash': 'Gemini 2.0 Flash - FREE via Google AI Studio!',
+    'gemini-1.5-pro': 'Gemini 1.5 Pro - Advanced Google model.',
   };
-  
-  tipsInfo.textContent = modelDescriptions[modelName] || `Using ${modelName} via OpenRouter.`;
+
+  tipsInfo.textContent = modelDescriptions[modelName] || `Using ${modelName}.`;
 }
 
-// ─── Save settings ──────────────────────────────────────────────
+let _saveInProgress = false;
 btnSave.addEventListener('click', async () => {
-  const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
-  const modelNameValue = modelSelectInput.value === 'custom' 
-    ? customModelInput.value.trim() || DEFAULTS.MODEL_NAME 
-    : modelSelectInput.value;
+  if (_saveInProgress) return;
+  _saveInProgress = true;
+  try {
+    const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
+    const modelNameValue = modelSelectInput.value;
+    const provider = apiProviderInput.value;
 
-  await saveSettings({
-    apiKey: apiKeyValue,
-    baseUrl: PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
-    modelName: modelNameValue,
-    backupModel: modelNameValue,
-    maxSteps: Number.parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
-    requireConfirm: requireConfirmInput.checked,
-    dryRun: dryRunInput.checked,
-    enableVision: enableVisionInput.checked,
-    autoRetry: autoRetryInput.checked,
-    siteBlacklist: siteBlacklistInput.value,
-    enableSwarmIntelligence: enableSwarmInput.checked,
-    enableAutonomousMode: enableAutonomousInput.checked,
-    learningEnabled: enableLearningInput.checked,
-    ollamaEnabled: DEFAULTS.OLLAMA_ENABLED,
-    ollamaHost: DEFAULTS.OLLAMA_HOST,
-    ollamaModel: DEFAULTS.OLLAMA_MODEL,
-    useLocalAI: (document.getElementById('useLocalAI') as HTMLInputElement)?.checked || DEFAULTS.USE_LOCAL_AI,
-  });
+    await saveSettings({
+      apiKey: apiKeyValue,
+      baseUrl: PROVIDER_URLS[provider as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL,
+      modelName: modelNameValue,
+      backupModel: modelNameValue,
+      maxSteps: Number.parseInt(maxStepsInput.value, 10) || DEFAULTS.MAX_STEPS,
+      requireConfirm: requireConfirmInput.checked,
+      dryRun: dryRunInput.checked,
+      enableVision: enableVisionInput.checked,
+      autoRetry: autoRetryInput.checked,
+      siteBlacklist: siteBlacklistInput.value,
+      enableSwarmIntelligence: enableSwarmInput.checked,
+      enableAutonomousMode: enableAutonomousInput.checked,
+      learningEnabled: enableLearningInput.checked,
+      ollamaEnabled: false,
+      ollamaHost: DEFAULTS.OLLAMA_HOST,
+      ollamaModel: DEFAULTS.OLLAMA_MODEL,
+      useLocalAI: false,
+    });
 
-  saveStatus.classList.remove('hidden');
-  setTimeout(() => saveStatus.classList.add('hidden'), 2000);
-  showNotification('Settings saved successfully', 'success');
+    saveStatus.classList.remove('hidden');
+    setTimeout(() => saveStatus.classList.add('hidden'), 2000);
+    showNotification('Settings saved successfully', 'success');
+  } finally {
+    _saveInProgress = false;
+  }
 });
 
 // ─── API Key Validation ─────────────────────────────────────────
- 
+
 let _validationTimeout: NodeJS.Timeout | null = null;
 
 async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: boolean; error?: string }> {
@@ -254,34 +310,125 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
     return { valid: false, error: 'No API key provided' };
   }
 
+  // Detect provider from key
+  const provider = detectProviderFromKey(key);
+  
   try {
-    // Test with minimax model which should be available
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
+    // Google uses different validation
+    if (provider === 'google' || key.startsWith('AIza')) {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(10000),
+      });
+      
+      if (response.ok) {
+        return { valid: true };
+      }
+      
+      const errorText = await response.text();
+      console.error('[API Validation Error]', errorText);
+      return { valid: false, error: 'Invalid Google API key' };
+    }
+    
+    // Anthropic uses different validation
+    if (provider === 'anthropic' || key.startsWith('sk-ant-')) {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 1,
+          messages: [{ role: 'user', content: 'Hi' }],
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      
+      if (response.ok || response.status === 400) {
+        // 400 might mean the request was processed but input was invalid
+        return { valid: true };
+      }
+      
+      const errorText = await response.text();
+      console.error('[API Validation Error]', errorText);
+      try {
+        const errorJson = JSON.parse(errorText);
+        return { valid: false, error: errorJson.error?.message || 'Invalid Anthropic API key' };
+      } catch {
+        return { valid: false, error: 'Invalid Anthropic API key' };
+      }
+    }
+    
+    // OpenAI and OpenRouter use similar API
+    const response = await fetch(`${baseUrl}/models`, {
+      method: 'GET',
       headers: {
-        'Content-Type': 'application/json',
         'Authorization': `Bearer ${key}`,
-        'HTTP-Referer': 'https://hyperagent.ai',
-        'X-Title': 'HyperAgent',
       },
-      body: JSON.stringify({
-        model: DEFAULTS.MODEL_NAME,
-        messages: [{ role: 'user', content: 'Test' }],
-        temperature: 0,
-        max_tokens: 1,
-      }),
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (response.ok) {
       return { valid: true };
-    } else {
-      const errorText = await response.text();
-      console.error('[API Validation Error]', errorText);
-      return { valid: false, error: `API Error: ${response.status}` };
     }
+
+    // If models endpoint fails, try a minimal chat completion
+    if (response.status === 404) {
+      const model = provider === 'openrouter' ? 'openai/gpt-3.5-turbo' : 'gpt-3.5-turbo';
+      const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: 'Hi' }],
+          max_tokens: 1,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (chatResponse.ok) {
+        return { valid: true };
+      }
+
+      const errorText = await chatResponse.text();
+      console.error('[API Validation Error]', errorText);
+
+      try {
+        const errorJson = JSON.parse(errorText);
+        if (errorJson.error?.message) {
+          return { valid: false, error: errorJson.error.message };
+        }
+      } catch { }
+
+      return { valid: false, error: `API Error: ${chatResponse.status}` };
+    }
+
+    const errorText = await response.text();
+    console.error('[API Validation Error]', errorText);
+
+    // Parse error message
+    try {
+      const errorJson = JSON.parse(errorText);
+      if (errorJson.error?.message) {
+        if (errorJson.error.message.includes('Authentication')) {
+          return { valid: false, error: 'Invalid API key' };
+        }
+        return { valid: false, error: errorJson.error.message };
+      }
+    } catch { }
+
+    return { valid: false, error: `API Error: ${response.status}` };
   } catch (error) {
     console.error('[API Validation Error]', error);
+    if ((error as Error).name === 'TimeoutError' || (error as Error).message?.includes('abort')) {
+      return { valid: false, error: 'Connection timeout' };
+    }
     return { valid: false, error: `Connection error: ${(error as Error).message}` };
   }
 }
@@ -368,7 +515,7 @@ apiProviderInput.addEventListener('change', async () => {
   }
 
   const baseUrl = PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL;
-  
+
   apiStatusDot.className = 'status-dot connecting';
   apiStatusText.textContent = 'API:  Reconnecting...';
   apiKeyInput.style.borderColor = '#f59e0b'; // Orange
@@ -534,6 +681,7 @@ function attachDangerZoneHandlers() {
     await storageClear();
     _cachedSettings = null;
     await loadCurrentSettings();
+    validateCurrentSettings();
     showNotification('Settings reset to defaults', 'success');
   });
 
@@ -549,7 +697,7 @@ function attachDangerZoneHandlers() {
 
     await storageRemove(keysToRemove);
     const allItems = await storageGet(null);
-const keysToDelete = Object.entries(allItems)
+    const keysToDelete = Object.entries(allItems)
       .filter(([, value]) => typeof value === 'string' && /anthropic|claude/i.test(value))
       .map(([key]) => key);
 

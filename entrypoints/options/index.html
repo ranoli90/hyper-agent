@@ -15,14 +15,14 @@
       <div class="settings-header">
         <div class="brand-mark">
           <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="48" height="48" rx="12" fill="url(#brand-gradient)"/>
-            <path d="M24 12L32 20L24 28L16 20L24 12Z" fill="white" opacity="0.9"/>
-            <path d="M24 20L32 28L24 36L16 28L24 20Z" fill="white" opacity="0.7"/>
-            <path d="M24 28L32 36L24 44L16 36L24 28Z" fill="white" opacity="0.5"/>
+            <rect width="48" height="48" rx="12" fill="url(#brand-gradient)" />
+            <path d="M24 12L32 20L24 28L16 20L24 12Z" fill="white" opacity="0.9" />
+            <path d="M24 20L32 28L24 36L16 28L24 20Z" fill="white" opacity="0.7" />
+            <path d="M24 28L32 36L24 44L16 36L24 28Z" fill="white" opacity="0.5" />
             <defs>
               <linearGradient id="brand-gradient" x1="0" y1="0" x2="48" y2="48">
-                <stop offset="0%" stop-color="#00d4aa"/>
-                <stop offset="100%" stop-color="#1a1f36"/>
+                <stop offset="0%" stop-color="#00d4aa" />
+                <stop offset="100%" stop-color="#1a1f36" />
               </linearGradient>
             </defs>
           </svg>
@@ -42,7 +42,7 @@
         </div>
         <div class="status-item">
           <span class="status-dot" id="model-status"></span>
-          <span id="model-status-text">Model: Auto</span>
+          <span id="model-status-text">Model: Gemini 2.0</span>
         </div>
       </div>
 
@@ -57,33 +57,28 @@
               <div class="form-row">
                 <label for="api-provider">Service Provider</label>
                 <select id="api-provider" class="compact-select">
+                  <option value="openai">OpenAI (GPT-3.5/GPT-4)</option>
+                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="google">Google AI Studio (FREE)</option>
                   <option value="openrouter">OpenRouter</option>
-                  <option value="google">Google Gemini</option>
-                  <option value="custom">Custom Endpoint</option>
                 </select>
               </div>
 
               <div class="form-row">
-                <label for="api-key">Access Token</label>
-                <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..." autocomplete="off" />
+                <label for="api-key">API Key</label>
+                <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..."
+                  autocomplete="off" />
+                <small style="color: #888; margin-top: 4px; display: block;">
+                  <span id="key-hint">OpenAI keys start with sk-</span>
+                </small>
               </div>
 
               <div class="form-row">
                 <label for="model-select">AI Model</label>
                 <select id="model-select" class="compact-select">
-                  <option value="google/gemini-2.0-flash-001">Gemini 2.0 Flash (Fast)</option>
-                  <option value="google/gemini-2.0-flash-lite-001">Gemini 2.0 Flash Lite</option>
-                  <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
-                  <option value="anthropic/claude-3-haiku">Claude 3 Haiku (Fast)</option>
-                  <option value="openai/gpt-4o-mini">GPT-4o Mini (Fast)</option>
-                  <option value="openai/gpt-4o">GPT-4o</option>
-                  <option value="meta-llama/llama-3.1-70b-instruct">Llama 3.1 70B</option>
-                  <option value="custom">Custom Model...</option>
+                  <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Fast)</option>
+                  <option value="gpt-4o">GPT-4o (Vision)</option>
                 </select>
-              </div>
-              <div class="form-row" id="custom-model-row" style="display: none;">
-                <label for="custom-model">Custom Model ID</label>
-                <input type="text" id="custom-model" class="compact-input" placeholder="provider/model-name" />
               </div>
             </div>
 
@@ -129,7 +124,8 @@
 
               <div class="form-row">
                 <label for="site-blacklist">Restricted Domains</label>
-                <textarea id="site-blacklist" rows="3" class="compact-textarea" placeholder="bankofamerica.com&#10;chase.com"></textarea>
+                <textarea id="site-blacklist" rows="3" class="compact-textarea"
+                  placeholder="bankofamerica.com&#10;chase.com"></textarea>
               </div>
             </div>
 
@@ -199,7 +195,8 @@
 
               <div class="form-row full-width">
                 <label for="site-config-selectors">Custom Selectors</label>
-                <textarea id="site-config-selectors" rows="2" class="compact-textarea" placeholder="[data-product-id], .product-card"></textarea>
+                <textarea id="site-config-selectors" rows="2" class="compact-textarea"
+                  placeholder="[data-product-id], .product-card"></textarea>
               </div>
             </div>
 
@@ -226,7 +223,8 @@
 
         <!-- Tips -->
         <div class="tips-banner" id="tips-banner">
-          <strong>Info:</strong> <span id="tips-model-info">Using google/gemini-2.0-flash-001 via OpenRouter.</span>
+          <strong>Info:</strong> <span id="tips-model-info">Google Gemini 2.0 Flash is selected by default as it is
+            fast, highly capable, and free via OpenRouter.</span>
         </div>
       </div>
 

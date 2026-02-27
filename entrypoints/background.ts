@@ -19,7 +19,7 @@
 import { loadSettings, isSiteBlacklisted, DEFAULTS } from '../shared/config';
 import { checkStorageQuota } from '../shared/storage-monitor';
 import { initErrorReporter } from '../shared/error-reporter';
-import { type HistoryEntry, llmClient } from '../shared/llmClient';
+import { type HistoryEntry, llmClient, classifyError } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow } from '../shared/workflows';
 import { trackActionStart, trackActionEnd } from '../shared/metrics';
@@ -106,7 +106,7 @@ class UsageTracker {
         }
         this.initialized = true;
       } catch (err) {
-        console.warn('[UsageTracker] Failed to load metrics:', err);
+        void err;
         this.loadPromise = null;
         throw err;
       }
@@ -118,7 +118,7 @@ class UsageTracker {
     try {
       await chrome.storage.local.set({ usage_metrics: this.metrics });
     } catch (err) {
-      console.warn('[UsageTracker] Failed to save metrics:', err);
+      void err;
     }
   }
 
@@ -911,10 +911,10 @@ export default defineBackground(() => {
     // Only act if this is the current agent tab
     if (agentState.currentAgentTabId !== closedTabId) return;
     if (!agentState.isRunning) return;
-    
+
     // Clear saved title for this tab
     clearOriginalTabTitle(closedTabId);
-    
+
     agentState.setAborted(true);
     if (agentState.hasPendingConfirm) agentState.resolveConfirm(false);
     if (agentState.hasPendingReply) agentState.resolveReply('');
@@ -928,6 +928,41 @@ export default defineBackground(() => {
   });
 
   // ─── On install: configure side panel ───────────────────────────
+
+  // Scenario 50: When update is pending, persist so panel can show "task interrupted"
+  if (chrome.runtime.onUpdateAvailable) {
+    chrome.runtime.onUpdateAvailable.addListener(() => {
+      chrome.storage.local.set({ hyperagent_agent_interrupted_by_update: true }).catch(() => { });
+    });
+  }
+
+  // Clear old settings on startup to fix migration issues
+  async function clearOldSettings(): Promise<void> {
+    try {
+      // Always clear model settings and caches to force using the correct model
+      const keysToRemove: string[] = [
+        'hyperagent_model_name',
+        'hyperagent_backup_model',
+        'hyperagent_chat_history_backup'
+      ];
+      
+      // Get all storage keys to find and clear cache entries
+      const allKeys = await chrome.storage.local.get(null);
+      for (const key of Object.keys(allKeys)) {
+        if (key.startsWith('hyperagent_cache_') || key.startsWith('llm_')) {
+          keysToRemove.push(key);
+        }
+      }
+      
+      await chrome.storage.local.remove(keysToRemove);
+      console.log('[HyperAgent] Cleared old model settings and caches:', keysToRemove.length, 'items');
+    } catch (err) {
+      console.warn('[HyperAgent] Failed to clear old settings:', err);
+    }
+  }
+
+  // Run cleanup on every startup
+  clearOldSettings();
 
   chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
@@ -1049,7 +1084,7 @@ export default defineBackground(() => {
    * High-intelligence execution loop using the AutonomousIntelligenceEngine.
    * This uses Tree of Thoughts reasoning, advanced planning, and adaptive learning.
    */
-  async function runAutonomousLoop(command: string) {
+  async function runAutonomousLoop(command: string, modelOverride?: string) {
     // Prevent concurrent execution (Issue #14)
     if (agentLoopRunning) {
       sendToSidePanel({
@@ -1060,6 +1095,9 @@ export default defineBackground(() => {
       });
       return;
     }
+    agentLoopRunning = true;
+    // modelOverride is forwarded to LLM calls if provided
+    void modelOverride; // used in callLLMAutonomous below if we wire it
 
     // Load metrics first to ensure current usage data (Issue #16)
     await usageTracker.loadMetrics();
@@ -1096,7 +1134,7 @@ export default defineBackground(() => {
     const tabId = await getActiveTabId();
     agentState.setCurrentAgentTabId(tabId);
     const tab = await chrome.tabs.get(tabId);
-    
+
     // Save original title (Issue #12)
     saveOriginalTabTitle(tabId, tab.title || 'HyperAgent');
 
@@ -1129,7 +1167,7 @@ export default defineBackground(() => {
       autonomousIntelligence.setLLMClient(llmClient);
       autonomousIntelligence.setCallbacks({
         onProgress: (status, step, summary) => {
-          sendToSidePanel({ type: 'agentProgress', status, step: step as any, summary });
+          sendToSidePanel({ type: 'agentProgress', status, step: step as any, thinking: summary || undefined });
         },
         onAskUser: async question => {
           sendToSidePanel({ type: 'askUser', question });
@@ -1208,10 +1246,11 @@ export default defineBackground(() => {
           func: (title: string) => { document.title = title; },
           args: [savedTitle]
         });
-      } catch {}
+      } catch { }
       clearOriginalTabTitle(tabId);
-      
+
       agentState.setRunning(false);
+      agentLoopRunning = false; // Release the loop lock (Issue #14)
       // Track session usage even on failure (Issue #17)
       const sessionDuration = Date.now() - sessionStart;
       usageTracker.trackAutonomousSession(sessionDuration);
@@ -1294,8 +1333,13 @@ export default defineBackground(() => {
         }
         agentState.setScheduledRun(message.scheduled === true);
 
+        // Extract optional model override from the UI model selector
+        const modelOverride: string | undefined = (message as any).model || undefined;
+
         // Determine which loop to run
-        const loopToRun = message.useAutonomous ? runAutonomousLoop : runAgentLoop;
+        const loopToRun = message.useAutonomous
+          ? (cmd: string) => runAutonomousLoop(cmd, modelOverride)
+          : (cmd: string) => runAgentLoop(cmd, modelOverride);
 
         // Start agent asynchronously
         loopToRun(message.command).catch(err => {
@@ -1660,8 +1704,10 @@ export default defineBackground(() => {
   // ─── Helper functions ─────────────────────────────────────────────
 
   function sendToSidePanel(msg: ExtensionMessage) {
-    chrome.runtime.sendMessage(msg).catch(() => {});
+    chrome.runtime.sendMessage(msg).catch(() => { });
   }
+
+  const LAST_AGENT_RESULT_KEY = 'hyperagent_last_agent_result';
 
   function sendAgentDone(payload: { finalSummary: string; success: boolean; stepsUsed: number }) {
     sendToSidePanel({
@@ -1669,6 +1715,16 @@ export default defineBackground(() => {
       ...payload,
       ...(agentState.wasScheduledRun && { scheduled: true }),
     });
+    // Persist for when panel was closed during task (Scenario 7)
+    chrome.storage.local.set({
+      [LAST_AGENT_RESULT_KEY]: {
+        ...payload,
+        timestamp: Date.now(),
+      },
+    }).catch(() => { });
+    // Badge so user knows to check when panel was closed
+    chrome.action.setBadgeText({ text: '1' }).catch(() => { });
+    chrome.action.setBadgeBackgroundColor({ color: '#6366f1' }).catch(() => { });
   }
 
   async function getActiveTabId(): Promise<number> {
@@ -1783,7 +1839,7 @@ export default defineBackground(() => {
 
       if (needsFocus) {
         await chrome.tabs.update(targetTabId, { active: true });
-        await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => {});
+        await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => { });
         await waitForTabLoad(targetTabId);
         // Give Chrome a moment to paint the activated tab
         await delay(200);
@@ -1795,7 +1851,7 @@ export default defineBackground(() => {
       });
 
       if (needsFocus && previousActiveId && previousActiveId !== targetTabId) {
-        await chrome.tabs.update(previousActiveId, { active: true }).catch(() => {});
+        await chrome.tabs.update(previousActiveId, { active: true }).catch(() => { });
       }
 
       if (outputFormat === 'dataUrl') return dataUrl;
@@ -1856,7 +1912,7 @@ export default defineBackground(() => {
           agentState.resolveConfirm(false);
         }
       }, DEFAULTS.CONFIRM_TIMEOUT_MS);
-      
+
       // Clear timeout if confirmation is resolved before timeout fires
       const originalResolver = agentState['state'].pendingConfirmResolve;
       agentState.setConfirmResolver((confirmed: boolean) => {
@@ -1877,7 +1933,7 @@ export default defineBackground(() => {
           agentState.resolveReply('');
         }
       }, 120000); // 2 min timeout for user replies
-      
+
       // Clear timeout if reply is resolved before timeout fires
       const originalResolver = agentState['state'].pendingUserReplyResolve;
       agentState.setReplyResolver((reply: string) => {
@@ -1892,7 +1948,7 @@ export default defineBackground(() => {
     return Math.max(0, base + (Math.random() * 2 - 1) * delta);
   }
 
-   
+
   function _delayForErrorType(errorType?: string): number {
     switch (errorType) {
       case 'ELEMENT_NOT_VISIBLE':
@@ -1907,440 +1963,451 @@ export default defineBackground(() => {
   }
 
   // Helper functions to reduce cognitive complexity of executeAction
-function handleDryRun(action: Action, actionId: string, startTime: number, pageUrl?: string): ActionResult | null {
-  if (action.type === 'wait') {
+  function handleDryRun(action: Action, actionId: string, startTime: number, pageUrl?: string): ActionResult | null {
+    if (action.type === 'wait') {
+      return { success: true };
+    }
+    console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
+    trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
     return { success: true };
   }
-  console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
-  trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
-  return { success: true };
-}
 
-async function validateActionPermissions(action: Action, pageUrl?: string): Promise<ActionResult | null> {
-  const url = pageUrl || '';
-  const rateCheck = await checkRateLimit(action.type);
-  if (!rateCheck.allowed) {
-    const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
-    return {
-      success: false,
-      error: `Rate limit exceeded. Try again in ${waitSec}s.`,
-      errorType: 'RATE_LIMIT' as ErrorType,
-    };
+  async function validateActionPermissions(action: Action, pageUrl?: string): Promise<ActionResult | null> {
+    const url = pageUrl || '';
+    const rateCheck = await checkRateLimit(action.type);
+    if (!rateCheck.allowed) {
+      const waitSec = rateCheck.waitTimeMs ? Math.ceil(rateCheck.waitTimeMs / 1000) : 0;
+      return {
+        success: false,
+        error: `Rate limit exceeded. Try again in ${waitSec}s.`,
+        errorType: 'RATE_LIMIT' as ErrorType,
+      };
+    }
+    const actionCheck = await checkActionAllowed(action, url);
+    if (!actionCheck.allowed) {
+      return {
+        success: false,
+        error: actionCheck.reason || 'Action not allowed by security policy.',
+        errorType: 'SECURITY_POLICY' as ErrorType,
+      };
+    }
+    return null;
   }
-  const actionCheck = await checkActionAllowed(action, url);
-  if (!actionCheck.allowed) {
-    return {
-      success: false,
-      error: actionCheck.reason || 'Action not allowed by security policy.',
-      errorType: 'SECURITY_POLICY' as ErrorType,
-    };
-  }
-  return null;
-}
 
-// Validate URL for navigation (Issue #71)
-function isValidNavigationUrl(url: string): { valid: boolean; error?: string } {
-  if (!url || typeof url !== 'string') {
-    return { valid: false, error: 'URL is required' };
-  }
-  
-  // Allow relative URLs and common protocols
-  const allowedProtocols = ['http:', 'https:', 'chrome:', 'chrome-extension:', 'about:'];
-  
-  try {
-    // Try to parse as absolute URL
-    const parsed = new URL(url);
-    if (!allowedProtocols.includes(parsed.protocol)) {
-      return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed for navigation` };
+  // Validate URL for navigation (Issue #71)
+  function isValidNavigationUrl(url: string): { valid: boolean; error?: string } {
+    if (!url || typeof url !== 'string') {
+      return { valid: false, error: 'URL is required' };
     }
-    return { valid: true };
-  } catch {
-    // If it fails to parse, check if it's a relative URL or looks like a domain
-    if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
-      return { valid: true }; // Relative URLs are OK
-    }
-    // Check if it looks like a domain (no protocol, has dots or is localhost)
-    if (/^[\w.-]+(:\d+)?(\/.*)?$/.test(url) || url === 'about:blank') {
+
+    // Allow relative URLs and common protocols
+    const allowedProtocols = ['http:', 'https:', 'chrome:', 'chrome-extension:', 'about:'];
+
+    try {
+      // Try to parse as absolute URL
+      const parsed = new URL(url);
+      if (!allowedProtocols.includes(parsed.protocol)) {
+        return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed for navigation` };
+      }
       return { valid: true };
+    } catch {
+      // If it fails to parse, check if it's a relative URL or looks like a domain
+      if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
+        return { valid: true }; // Relative URLs are OK
+      }
+      // Check if it looks like a domain (no protocol, has dots or is localhost)
+      if (/^[\w.-]+(:\d+)?(\/.*)?$/.test(url) || url === 'about:blank') {
+        return { valid: true };
+      }
+      return { valid: false, error: 'Invalid URL format' };
     }
-    return { valid: false, error: 'Invalid URL format' };
   }
-}
 
-async function handleNavigationActions(action: Action, tabId: number): Promise<ActionResult | null> {
-  switch (action.type) {
-    case 'navigate': {
-      // Validate URL before navigation (Issue #71)
-      const urlValidation = isValidNavigationUrl(action.url);
-      if (!urlValidation.valid) {
-        return {
-          success: false,
-          error: `Invalid URL: ${urlValidation.error}`,
-          errorType: 'NAVIGATION_ERROR' as ErrorType,
-        };
-      }
-      try {
-        await chrome.tabs.update(tabId, { url: action.url });
-        await waitForTabLoad(tabId);
-        return { success: true };
-      } catch (err: any) {
-        return {
-          success: false,
-          error: `Navigation failed: ${err.message}`,
-          errorType: 'NAVIGATION_ERROR' as ErrorType,
-        };
-      }
-    }
-    case 'goBack':
-      try {
-        await chrome.tabs.goBack(tabId);
-        await waitForTabLoad(tabId);
-        return { success: true };
-      } catch (err: any) {
-        return {
-          success: false,
-          error: `Go back failed: ${err.message}`,
-          errorType: 'NAVIGATION_ERROR' as ErrorType,
-        };
-      }
-    default:
-      return null;
-  }
-}
-
-async function handleTabActions(action: Action, tabId: number): Promise<ActionResult | null> {
-  switch (action.type) {
-    case 'openTab': {
-      const result = await openTab(action.url, action.active);
-      if (result.success && result.tabId) {
-        return { success: true, extractedData: `Opened tab ${result.tabId}: ${action.url}` };
-      }
-      return { success: false, error: result.error || 'Failed to open tab' };
-    }
-    case 'closeTab': {
-      const closeTargetTabId = action.tabId ?? tabId;
-      const closeResult = await closeTab(closeTargetTabId);
-      if (closeResult.success) {
-        return { success: true, extractedData: `Closed tab ${closeTargetTabId}` };
-      }
-      return { success: false, error: closeResult.error || 'Failed to close tab' };
-    }
-    case 'switchTab': {
-      let switchTargetTabId = action.tabId;
-      if (!switchTargetTabId && action.urlPattern) {
-        const findResult = await findTabByUrl(action.urlPattern);
-        if (!findResult.success || !findResult.tabId) {
-          return { success: false, error: findResult.error || 'Tab not found' };
+  async function handleNavigationActions(action: Action, tabId: number): Promise<ActionResult | null> {
+    switch (action.type) {
+      case 'navigate': {
+        // Validate URL before navigation (Issue #71)
+        const urlValidation = isValidNavigationUrl(action.url);
+        if (!urlValidation.valid) {
+          return {
+            success: false,
+            error: `Invalid URL: ${urlValidation.error}`,
+            errorType: 'NAVIGATION_ERROR' as ErrorType,
+          };
         }
-        switchTargetTabId = findResult.tabId;
-      }
-      if (!switchTargetTabId) {
-        return { success: false, error: 'No tabId or urlPattern provided for switchTab' };
-      }
-      const switchResult = await switchToTab(switchTargetTabId);
-      if (switchResult.success) {
-        return { success: true, extractedData: `Switched to tab ${switchTargetTabId}` };
-      }
-      return { success: false, error: switchResult.error || 'Failed to switch tab' };
-    }
-    case 'getTabs': {
-      const tabsResult = await getAllTabs();
-      if (tabsResult.success && tabsResult.tabs) {
-        return { success: true, extractedData: JSON.stringify(tabsResult.tabs) };
-      }
-      return { success: false, error: tabsResult.error || 'Failed to get tabs' };
-    }
-    default:
-      return null;
-  }
-}
-
-async function handleWorkflowActions(action: Action, tabId: number, dryRun: boolean, autoRetry: boolean): Promise<ActionResult | null> {
-  switch (action.type) {
-    case 'runMacro': {
-      const macroAction = action as MacroAction;
-      const macroResult = await executeMacro(macroAction.macroId, async (subAction: Action) => {
-        return await executeAction(tabId, subAction, dryRun, autoRetry);
-      });
-      if (macroResult.success) {
-        return {
-          success: true,
-          extractedData: `Macro executed successfully with ${macroResult.results.length} actions`,
-        };
-      }
-      return { success: false, error: macroResult.error || 'Macro execution failed' };
-    }
-    case 'runWorkflow': {
-      const workflowAction = action as WorkflowAction;
-      const getContextFn = async (): Promise<PageContext> => {
         try {
-          const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
-          if (response?.context && typeof response.context === 'object') {
-            return response.context as PageContext;
-          }
-        } catch {
-          // Tab may be chrome:// or content script not loaded
+          await chrome.tabs.update(tabId, { url: action.url });
+          await waitForTabLoad(tabId);
+          return { success: true };
+        } catch (err: any) {
+          return {
+            success: false,
+            error: `Navigation failed: ${err.message}`,
+            errorType: 'NAVIGATION_ERROR' as ErrorType,
+          };
         }
-        return {
-          url: '',
-          title: '',
-          bodyText: '',
-          metaDescription: '',
-          formCount: 0,
-          semanticElements: [],
-          timestamp: 0,
-          scrollPosition: { x: 0, y: 0 },
-          viewportSize: { width: 0, height: 0 },
-          pageHeight: 0,
-        };
-      };
-      const workflowResult = await executeWorkflow(
-        workflowAction.workflowId,
-        async (subAction: Action) => {
+      }
+      case 'goBack':
+        try {
+          await chrome.tabs.goBack(tabId);
+          await waitForTabLoad(tabId);
+          return { success: true };
+        } catch (err: any) {
+          return {
+            success: false,
+            error: `Go back failed: ${err.message}`,
+            errorType: 'NAVIGATION_ERROR' as ErrorType,
+          };
+        }
+      default:
+        return null;
+    }
+  }
+
+  async function handleTabActions(action: Action, tabId: number): Promise<ActionResult | null> {
+    switch (action.type) {
+      case 'openTab': {
+        const result = await openTab(action.url, action.active);
+        if (result.success && result.tabId) {
+          return { success: true, extractedData: `Opened tab ${result.tabId}: ${action.url}` };
+        }
+        return { success: false, error: result.error || 'Failed to open tab' };
+      }
+      case 'closeTab': {
+        const closeTargetTabId = action.tabId ?? tabId;
+        const closeResult = await closeTab(closeTargetTabId);
+        if (closeResult.success) {
+          return { success: true, extractedData: `Closed tab ${closeTargetTabId}` };
+        }
+        return { success: false, error: closeResult.error || 'Failed to close tab' };
+      }
+      case 'switchTab': {
+        let switchTargetTabId = action.tabId;
+        if (!switchTargetTabId && action.urlPattern) {
+          const findResult = await findTabByUrl(action.urlPattern);
+          if (!findResult.success || !findResult.tabId) {
+            return { success: false, error: findResult.error || 'Tab not found' };
+          }
+          switchTargetTabId = findResult.tabId;
+        }
+        if (!switchTargetTabId) {
+          return { success: false, error: 'No tabId or urlPattern provided for switchTab' };
+        }
+        const switchResult = await switchToTab(switchTargetTabId);
+        if (switchResult.success) {
+          return { success: true, extractedData: `Switched to tab ${switchTargetTabId}` };
+        }
+        return { success: false, error: switchResult.error || 'Failed to switch tab' };
+      }
+      case 'getTabs': {
+        const tabsResult = await getAllTabs();
+        if (tabsResult.success && tabsResult.tabs) {
+          return { success: true, extractedData: JSON.stringify(tabsResult.tabs) };
+        }
+        return { success: false, error: tabsResult.error || 'Failed to get tabs' };
+      }
+      default:
+        return null;
+    }
+  }
+
+  async function handleWorkflowActions(action: Action, tabId: number, dryRun: boolean, autoRetry: boolean): Promise<ActionResult | null> {
+    switch (action.type) {
+      case 'runMacro': {
+        const macroAction = action as MacroAction;
+        const macroResult = await executeMacro(macroAction.macroId, async (subAction: Action) => {
           return await executeAction(tabId, subAction, dryRun, autoRetry);
-        },
-        getContextFn
-      );
-      if (workflowResult.success) {
+        });
+        if (macroResult.success) {
+          return {
+            success: true,
+            extractedData: `Macro executed successfully with ${macroResult.results.length} actions`,
+          };
+        }
+        return { success: false, error: macroResult.error || 'Macro execution failed' };
+      }
+      case 'runWorkflow': {
+        const workflowAction = action as WorkflowAction;
+        const getContextFn = async (): Promise<PageContext> => {
+          try {
+            const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
+            if (response?.context && typeof response.context === 'object') {
+              return response.context as PageContext;
+            }
+          } catch {
+            // Tab may be chrome:// or content script not loaded
+          }
+          return {
+            url: '',
+            title: '',
+            bodyText: '',
+            metaDescription: '',
+            formCount: 0,
+            semanticElements: [],
+            timestamp: 0,
+            scrollPosition: { x: 0, y: 0 },
+            viewportSize: { width: 0, height: 0 },
+            pageHeight: 0,
+          };
+        };
+        const workflowResult = await executeWorkflow(
+          workflowAction.workflowId,
+          async (subAction: Action) => {
+            return await executeAction(tabId, subAction, dryRun, autoRetry);
+          },
+          getContextFn
+        );
+        if (workflowResult.success) {
+          return {
+            success: true,
+            extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps`,
+          };
+        }
+        return { success: false, error: workflowResult.error || 'Workflow execution failed' };
+      }
+      default:
+        return null;
+    }
+  }
+
+  // Higher-order function for the content script action to allow retries
+  const attempt = async (tabId: number, action: Action): Promise<ActionResult> => {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, {
+        type: 'executeActionOnPage',
+        action,
+      });
+      // Validate response structure
+      if (!response || typeof response !== 'object') {
         return {
-          success: true,
-          extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps`,
+          success: false,
+          error: 'Invalid response from content script',
+          errorType: 'ACTION_FAILED' as ErrorType,
         };
       }
-      return { success: false, error: workflowResult.error || 'Workflow execution failed' };
-    }
-    default:
-      return null;
-  }
-}
-
-// Higher-order function for the content script action to allow retries
-const attempt = async (tabId: number, action: Action): Promise<ActionResult> => {
-  try {
-    const response = await chrome.tabs.sendMessage(tabId, {
-      type: 'executeActionOnPage',
-      action,
-    });
-    // Validate response structure
-    if (!response || typeof response !== 'object') {
+      if (typeof response.success !== 'boolean') {
+        return {
+          success: false,
+          error: 'Response missing success field',
+          errorType: 'ACTION_FAILED' as ErrorType,
+        };
+      }
+      return response as ActionResult;
+    } catch (err: any) {
       return {
         success: false,
-        error: 'Invalid response from content script',
+        error: `Content script error: ${err.message}`,
         errorType: 'ACTION_FAILED' as ErrorType,
       };
     }
-    if (typeof response.success !== 'boolean') {
+  };
+
+  async function executeAction(
+    tabId: number,
+    action: Action,
+    dryRun: boolean,
+    autoRetry: boolean,
+    pageUrl?: string
+  ): Promise<ActionResult> {
+    // Verify tab exists before executing (tab may have been closed)
+    try {
+      await chrome.tabs.get(tabId);
+    } catch {
       return {
         success: false,
-        error: 'Response missing success field',
+        error: 'Tab was closed or is no longer available.',
+        errorType: 'NAVIGATION_ERROR' as ErrorType,
+      };
+    }
+
+    const startTime = Date.now();
+    const actionId = trackActionStart(action, pageUrl);
+
+    // Handle dry run
+    const dryRunResult = handleDryRun(action, actionId, startTime, pageUrl);
+    if (dryRunResult) return dryRunResult;
+
+    // Validate permissions
+    const validationResult = await validateActionPermissions(action, pageUrl);
+    if (validationResult !== null) return validationResult;
+
+    // Handle navigation actions
+    const navigationResult = await handleNavigationActions(action, tabId);
+    if (navigationResult) return navigationResult;
+
+    // Handle tab actions
+    const tabResult = await handleTabActions(action, tabId);
+    if (tabResult) return tabResult;
+
+    // Handle workflow actions
+    const workflowResult = await handleWorkflowActions(action, tabId, dryRun, autoRetry);
+    if (workflowResult) return workflowResult;
+
+    // Handle wait action
+    if (action.type === 'wait') {
+      await delay(action.ms);
+      return { success: true };
+    }
+
+    // Execute content script action
+    let result: ActionResult = await attempt(tabId, action);
+
+    // Ensure result is always valid
+    if (!result) {
+      result = {
+        success: false,
+        error: 'Unknown action error',
         errorType: 'ACTION_FAILED' as ErrorType,
       };
     }
-    return response as ActionResult;
-  } catch (err: any) {
-    return {
-      success: false,
-      error: `Content script error: ${err.message}`,
-      errorType: 'ACTION_FAILED' as ErrorType,
-    };
-  }
-};
 
-async function executeAction(
-  tabId: number,
-  action: Action,
-  dryRun: boolean,
-  autoRetry: boolean,
-  pageUrl?: string
-): Promise<ActionResult> {
-  const startTime = Date.now();
-  const actionId = trackActionStart(action, pageUrl);
-
-  // Handle dry run
-  const dryRunResult = handleDryRun(action, actionId, startTime, pageUrl);
-  if (dryRunResult) return dryRunResult;
-
-  // Validate permissions
-  const validationResult = await validateActionPermissions(action, pageUrl);
-  if (validationResult !== null) return validationResult;
-
-  // Handle navigation actions
-  const navigationResult = await handleNavigationActions(action, tabId);
-  if (navigationResult) return navigationResult;
-
-  // Handle tab actions
-  const tabResult = await handleTabActions(action, tabId);
-  if (tabResult) return tabResult;
-
-  // Handle workflow actions
-  const workflowResult = await handleWorkflowActions(action, tabId, dryRun, autoRetry);
-  if (workflowResult) return workflowResult;
-
-  // Handle wait action
-  if (action.type === 'wait') {
-    await delay(action.ms);
-    return { success: true };
-  }
-
-  // Execute content script action
-  let result: ActionResult = await attempt(tabId, action);
-
-  // Ensure result is always valid
-  if (!result) {
-    result = {
-      success: false,
-      error: 'Unknown action error',
-      errorType: 'ACTION_FAILED' as ErrorType,
-    };
-  }
-
-  // Auto-retry with enhanced error classification and recovery tracking
-  if (!result.success && autoRetry) {
-    result = await handleAutoRetry(action, result, tabId, actionId, startTime, pageUrl);
-  }
-
-  // Track metrics for the action result
-  trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
-
-  // Track usage for billing
-  if (result.success) {
-    usageTracker.trackAction(action.type);
-  }
-
-  return result;
-}
-
-async function handleAutoRetry(
-  action: Action, 
-  result: ActionResult, 
-  tabId: number, 
-  actionId: string, 
-  startTime: number, 
-  pageUrl?: string
-): Promise<ActionResult> {
-  // Validate and sanitize error type
-  const validErrorTypes: ErrorType[] = [
-    'ELEMENT_NOT_FOUND',
-    'ELEMENT_NOT_VISIBLE',
-    'ELEMENT_DISABLED',
-    'ACTION_FAILED',
-    'TIMEOUT',
-    'NAVIGATION_ERROR',
-    'UNKNOWN',
-  ];
-  let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
-  if (!validErrorTypes.includes(errorType)) {
-    errorType = 'ACTION_FAILED' as ErrorType;
-  }
-
-  const currentAttempt = agentState.getRecoveryAttempt(action);
-
-  // Check if we've exceeded max recovery attempts
-  if (currentAttempt >= agentState.maxRecoveryAttempts) {
-    agentState.logRecoveryOutcome(action, errorType, 'max-attempts-exceeded', 'failed');
-    agentState.clearRecoveryAttempt(action);
-    trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
-    return result;
-  }
-
-  // Use intelligent failure recovery system
-  const failureAnalysis = failureRecovery.analyzeFailure(errorType, result.error || '', action);
-  const recoveryStrategy = failureRecovery.getRecoveryStrategy(
-    failureAnalysis,
-    currentAttempt + 1
-  );
-
-  console.log(
-    `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
-  );
-
-  // Check if recovery is possible
-  if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
-    agentState.logRecoveryOutcome(action, errorType, 'no-strategy', 'failed');
-    agentState.clearRecoveryAttempt(action);
-    trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
-    return result;
-  }
-
-  // Execute recovery strategy
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ['/content-scripts/content.js'],
-    });
-
-    // Wait if specified by recovery strategy
-    if (recoveryStrategy.waitMs) {
-      await delay(recoveryStrategy.waitMs);
+    // Auto-retry with enhanced error classification and recovery tracking
+    if (!result.success && autoRetry) {
+      result = await handleAutoRetry(action, result, tabId, actionId, startTime, pageUrl);
     }
 
-    // Execute pre-recovery action if specified (e.g., scroll)
-    if (recoveryStrategy.action) {
-      await chrome.tabs.sendMessage(tabId, {
-        type: 'executeActionOnPage',
-        action: recoveryStrategy.action,
-      });
-      await delay(300);
-    }
+    // Track metrics for the action result
+    trackActionEnd(actionId, result.success, Date.now() - startTime, pageUrl);
 
-    // Increment recovery attempt counter (strategy is set; we guarded above)
-    if (recoveryStrategy.strategy) {
-      agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy);
-    }
-
-    result = await attempt(tabId, action);
-
-    // If succeeded, log successful recovery
+    // Track usage for billing
     if (result.success) {
-      // Record successful recovery for learning
+      usageTracker.trackAction(action.type);
+    }
+
+    return result;
+  }
+
+  async function handleAutoRetry(
+    action: Action,
+    result: ActionResult,
+    tabId: number,
+    actionId: string,
+    startTime: number,
+    pageUrl?: string
+  ): Promise<ActionResult> {
+    // Validate and sanitize error type
+    const validErrorTypes: ErrorType[] = [
+      'ELEMENT_NOT_FOUND',
+      'ELEMENT_NOT_VISIBLE',
+      'ELEMENT_DISABLED',
+      'ACTION_FAILED',
+      'TIMEOUT',
+      'NAVIGATION_ERROR',
+      'UNKNOWN',
+    ];
+    let errorType: ErrorType = result.errorType || 'ACTION_FAILED';
+    if (!validErrorTypes.includes(errorType)) {
+      errorType = 'ACTION_FAILED' as ErrorType;
+    }
+
+    const currentAttempt = agentState.getRecoveryAttempt(action);
+
+    // Check if we've exceeded max recovery attempts
+    if (currentAttempt >= agentState.maxRecoveryAttempts) {
+      agentState.logRecoveryOutcome(action, errorType, 'max-attempts-exceeded', 'failed');
+      agentState.clearRecoveryAttempt(action);
+      trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
+      return result;
+    }
+
+    // Use intelligent failure recovery system
+    const failureAnalysis = failureRecovery.analyzeFailure(errorType, result.error || '', action);
+    const recoveryStrategy = failureRecovery.getRecoveryStrategy(
+      failureAnalysis,
+      currentAttempt + 1
+    );
+
+    console.log(
+      `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
+    );
+
+    // Check if recovery is possible
+    if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
+      agentState.logRecoveryOutcome(action, errorType, 'no-strategy', 'failed');
+      agentState.clearRecoveryAttempt(action);
+      trackActionEnd(actionId, false, Date.now() - startTime, pageUrl);
+      return result;
+    }
+
+    // Execute recovery strategy
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['/content-scripts/content.js'],
+      });
+
+      // Wait if specified by recovery strategy
+      if (recoveryStrategy.waitMs) {
+        await delay(recoveryStrategy.waitMs);
+      }
+
+      // Execute pre-recovery action if specified (e.g., scroll)
+      if (recoveryStrategy.action) {
+        await chrome.tabs.sendMessage(tabId, {
+          type: 'executeActionOnPage',
+          action: recoveryStrategy.action,
+        });
+        await delay(300);
+      }
+
+      // Increment recovery attempt counter (strategy is set; we guarded above)
+      if (recoveryStrategy.strategy) {
+        agentState.incrementRecoveryAttempt(action, recoveryStrategy.strategy);
+      }
+
+      result = await attempt(tabId, action);
+
+      // If succeeded, log successful recovery
+      if (result.success) {
+        // Record successful recovery for learning
+        failureRecovery.recordRecovery(
+          {
+            action,
+            error: result.error || '',
+            errorType,
+            attempt: currentAttempt + 1,
+            pageUrl: pageUrl || '',
+            timestamp: Date.now(),
+          },
+          true
+        );
+
+        agentState.logRecoveryOutcome(
+          action,
+          errorType || 'UNKNOWN',
+          recoveryStrategy.strategy,
+          'recovered'
+        );
+        agentState.clearRecoveryAttempt(action);
+      }
+    } catch (err) {
+      // Injection failed — log and return original error
       failureRecovery.recordRecovery(
         {
           action,
-          error: result.error || '',
+          error: String(err),
           errorType,
           attempt: currentAttempt + 1,
           pageUrl: pageUrl || '',
           timestamp: Date.now(),
         },
-        true
+        false
       );
 
       agentState.logRecoveryOutcome(
         action,
         errorType || 'UNKNOWN',
-        recoveryStrategy.strategy,
-        'recovered'
+        recoveryStrategy.strategy ?? 'injection-failed',
+        'injection-failed'
       );
       agentState.clearRecoveryAttempt(action);
     }
-  } catch (err) {
-    // Injection failed — log and return original error
-    failureRecovery.recordRecovery(
-      {
-        action,
-        error: String(err),
-        errorType,
-        attempt: currentAttempt + 1,
-        pageUrl: pageUrl || '',
-        timestamp: Date.now(),
-      },
-      false
-    );
 
-    agentState.logRecoveryOutcome(
-      action,
-      errorType || 'UNKNOWN',
-      recoveryStrategy.strategy ?? 'injection-failed',
-      'injection-failed'
-    );
-    agentState.clearRecoveryAttempt(action);
+    return result;
   }
 
-  return result;
-}
-
   // ─── Main agent loop ──────────────────────────────────────────
-  async function runAgentLoop(command: string) {
+  async function runAgentLoop(command: string, modelOverride?: string) {
     // Prevent concurrent execution (Issue #14)
     if (agentLoopRunning) {
       sendToSidePanel({
@@ -2351,19 +2418,20 @@ async function handleAutoRetry(
       });
       return;
     }
+    agentLoopRunning = true;
 
     // Initialize agent state
     agentState.setRunning(true);
     agentState.setAborted(false);
-    
+
     // Get current tab info before starting
     const currentTabId = await getActiveTabId();
     const currentTab = await chrome.tabs.get(currentTabId);
     const originalTitle = currentTab.title || 'HyperAgent';
-    
+
     // Save original title for proper restoration (Issue #12)
     saveOriginalTabTitle(currentTabId, originalTitle);
-    
+
     // Helper to restore tab title on any exit
     const restoreTabTitle = async () => {
       try {
@@ -2410,56 +2478,16 @@ async function handleAutoRetry(
       agentState.setRunning(false);
       return;
     }
-    
+
     try {
       await chrome.scripting.executeScript({
         target: { tabId: currentTabId },
-        func: () => { document.title = 'HyperAgent'; }
+        func: () => { document.title = '⚡ HyperAgent'; }
       });
     } catch (error) {
       logger.log('warn', 'Failed to change tab title', { error });
     }
-    
-    // Enhanced execution: Ask questions first if needed
-    const llmResponse = await llmClient.callLLM({ command, history: [] });
-    const { needsClarification, clarificationQuestion, needsNavigation, targetUrl, summary = '' } = llmResponse;
-    
-    if (needsClarification && clarificationQuestion) {
-      const reply = await askUserForInfo(clarificationQuestion);
-      if (!reply) {
-        await restoreTabTitle();
-        sendToSidePanel({
-          type: 'agentDone',
-          finalSummary: 'Execution cancelled due to lack of clarification',
-          success: false,
-          stepsUsed: 0
-        });
-        agentState.setRunning(false);
-        return;
-      }
-      // Await recursive call to avoid state leak - finally runs after nested call completes
-      return await runAgentLoop(`${command} ${reply}`);
-    }
-    
-    // If needs navigation, go to the target URL
-    if (needsNavigation && targetUrl) {
-      await navigateTabAndWait(currentTabId, targetUrl);
-    }
-    
-    // Display confirmation before executing actions
-    const shouldContinue = await askUserConfirmation([{ type: 'runMacro', macroId: 'execute-task' }], 1, `I'm ready to execute: ${summary}`);
-    if (!shouldContinue) {
-      await restoreTabTitle();
-      sendToSidePanel({
-        type: 'agentDone',
-        finalSummary: 'Execution cancelled by user',
-        success: false,
-        stepsUsed: 0
-      });
-      agentState.setRunning(false);
-      return;
-    }
-    
+
     logger.log('info', 'Starting agent loop', { command: redact(command) });
 
     const maxSteps = settings.maxSteps;
@@ -2500,6 +2528,7 @@ async function handleAutoRetry(
     const history: HistoryEntry[] = [];
     let requestScreenshot = false;
     let consecutiveFailures = 0;
+    let hasExecutedActionsInThisRun = false;
     const MAX_CONSECUTIVE_FAILURES = 3;
 
     try {
@@ -2524,56 +2553,74 @@ async function handleAutoRetry(
         status: 'Analyzing your request...',
         step: 'plan',
       });
-      
+
       // Get initial context and call LLM once
       let context = await getPageContext(currentTabId);
-      let llmResponse = await llmClient.callLLM({ 
-        command, 
-        history, 
-        context: { 
+      // modelOverride can be set by the UI model selector — pass it through
+      let llmResponse = await llmClient.callLLM({
+        command,
+        history,
+        context: {
           ...context,
-          isInitialQuery: true 
-        } 
+          isInitialQuery: true
+        },
+        modelOverride,
       });
-      
-      // Handle clarification if needed
-      if (llmResponse.needsClarification && llmResponse.clarificationQuestion) {
-        const reply = await askUserForInfo(llmResponse.clarificationQuestion);
-        if (!reply) {
+
+      // Handle clarification: allow multi-turn Q&A (up to 5 rounds)
+      const MAX_CLARIFICATION_ROUNDS = 5;
+      let clarificationRound = 0;
+      while (
+        clarificationRound < MAX_CLARIFICATION_ROUNDS &&
+        (llmResponse.needsClarification && llmResponse.clarificationQuestion ||
+          llmResponse.askUser)
+      ) {
+        clarificationRound++;
+        const question = llmResponse.askUser || llmResponse.clarificationQuestion || '';
+
+        // Show thinking if present
+        if (llmResponse.thinking) {
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Thinking...',
+            step: 'plan',
+            thinking: llmResponse.thinking,
+          });
+        }
+        // Show the summary/response to user before asking
+        if (llmResponse.summary) {
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: llmResponse.summary,
+            step: 'plan',
+            summary: llmResponse.summary,
+          });
+        }
+
+        const reply = await askUserForInfo(question);
+        if (!reply || agentState.isAborted) {
           sendToSidePanel({
             type: 'agentDone',
-            finalSummary: 'Command canceled. Please provide more information.',
+            finalSummary: 'Cancelled.',
             success: false,
             stepsUsed: 0,
           });
           agentState.setRunning(false);
+          agentLoopRunning = false;
           return;
         }
-        
-        // Add user's reply to history and get new response
-        history.push({
-          role: 'user',
-          userReply: reply,
-          context
+
+        // Add the LLM's response and user's reply to history
+        history.push({ role: 'assistant', response: llmResponse });
+        history.push({ role: 'user', userReply: reply, context });
+
+        // Re-call LLM with updated history
+        llmResponse = await llmClient.callLLM({
+          command,
+          history,
+          context: { ...context, isInitialQuery: true },
+          modelOverride,
         });
-        
-        // Re-analyze with additional info
-        llmResponse = await llmClient.callLLM({ 
-          command, 
-          history, 
-          context: { ...context, isInitialQuery: true }
-        });
-        
-        if (llmResponse.needsClarification) {
-          sendToSidePanel({
-            type: 'agentDone',
-            finalSummary: 'Command still unclear. Please provide more specific instructions.',
-            success: false,
-            stepsUsed: 0,
-          });
-          agentState.setRunning(false);
-          return;
-        }
       }
 
       // Check if we need to navigate first
@@ -2624,6 +2671,17 @@ async function handleAutoRetry(
         }
 
         // ── Step 1: Observe ──
+        // Scenario 8: Verify tab still exists before each step (user may have closed it)
+        try {
+          await chrome.tabs.get(currentTabId);
+        } catch {
+          sendAgentDone({
+            finalSummary: 'Tab was closed. Task stopped.',
+            success: false,
+            stepsUsed: step - 1,
+          });
+          return;
+        }
         sendToSidePanel({
           type: 'agentProgress',
           status: `Step ${step}/${maxSteps}: Analyzing page...`,
@@ -2647,13 +2705,23 @@ async function handleAutoRetry(
           command: redact(command),
           historyCount: history.length,
         });
-        const llmCallPromise = llmClient.callLLM({ command, history, context });
+        const signal = agentState.getSignal();
+        const llmCallPromise = llmClient.callLLM({ command, history, context, modelOverride }, signal);
         const llmTimeoutMs = DEFAULTS.LLM_TIMEOUT_MS ?? 45000;
         const timeoutPromise = new Promise((_, reject) =>
           globalThis.setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
         );
         try {
           llmResponse = await Promise.race([llmCallPromise, timeoutPromise]) as typeof llmResponse;
+          if (agentState.isAborted) {
+            sendToSidePanel({
+              type: 'agentDone',
+              finalSummary: 'Agent stopped by user.',
+              success: false,
+              stepsUsed: history.length,
+            });
+            return;
+          }
           logger.log('info', 'LLM response received', {
             summary: llmResponse?.summary,
             actionsCount: llmResponse?.actions?.length,
@@ -2661,40 +2729,115 @@ async function handleAutoRetry(
             askUser: llmResponse?.askUser,
           });
         } catch (err: any) {
+          if (err?.name === 'AbortError' || agentState.isAborted) {
+            sendToSidePanel({
+              type: 'agentDone',
+              finalSummary: 'Agent stopped by user.',
+              success: false,
+              stepsUsed: history.length,
+            });
+            return;
+          }
           logger.log('error', 'LLM call failed or timed out', {
             error: err?.message || String(err),
           });
+          const classified = classifyError(err);
           sendToSidePanel({
-            type: 'agentDone',
-            finalSummary: `LLM call failed: ${err?.message || String(err)}`,
-            success: false,
-            stepsUsed: history.length,
+            type: 'agentError',
+            error: classified.userMessage,
+            errorType: classified.type,
+            retryable: classified.retryable,
+            retryAfter: classified.retryAfter,
           });
+          agentState.setRunning(false);
           return;
         }
 
         if (llmResponse.askUser) {
+          // Show only internal thinking in collapsed bubble; reply comes after user answers
+          if (llmResponse.thinking) {
+            sendToSidePanel({
+              type: 'agentProgress',
+              status: 'Thinking...',
+              step: 'plan',
+              thinking: llmResponse.thinking,
+            });
+          } else {
+            sendToSidePanel({
+              type: 'agentProgress',
+              status: 'Thinking...',
+              step: 'plan',
+            });
+          }
           sendToSidePanel({ type: 'askUser', question: llmResponse.askUser });
           const reply = await askUserForInfo(llmResponse.askUser);
-          if (!reply || agentState.isAborted) return;
+          if (!reply || agentState.isAborted) {
+            sendAgentDone({
+              finalSummary: reply === '' ? 'Cancelled. Please provide more information when ready.' : 'Stopped.',
+              success: false,
+              stepsUsed: step,
+            });
+            return;
+          }
           history.push({ role: 'user', userReply: reply });
           continue;
         }
 
-        sendToSidePanel({
-          type: 'agentProgress',
-          status: 'Thinking...',
-          step: 'plan',
-          summary: llmResponse.summary,
-        });
+        // Show only internal thinking (collapsed); summary is shown once in agentDone
+        if (llmResponse.thinking) {
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Thinking...',
+            step: 'plan',
+            thinking: llmResponse.thinking,
+          });
+        } else {
+          sendToSidePanel({
+            type: 'agentProgress',
+            status: 'Thinking...',
+            step: 'plan',
+          });
+        }
 
-        // Destructive path
-        const hasDestructive = llmResponse.actions.some(isDestructive);
-        if (hasDestructive) {
+        // Check if this is just a conversation (no actions, done=true)
+        if (llmResponse.actions.length === 0 && llmResponse.done) {
+          // Conversation mode - show thinking (collapsed) then the response
+          sendAgentDone({
+            finalSummary: llmResponse.summary || 'Done',
+            success: true,
+            stepsUsed: step,
+          });
+          return;
+        }
+
+        // If no actions but not done, and no askUser - show summary and continue conversation
+        if (llmResponse.actions.length === 0 && !llmResponse.done) {
+          sendAgentDone({
+            finalSummary: llmResponse.summary || 'I understood. What would you like me to do next?',
+            success: true,
+            stepsUsed: step,
+          });
+          return;
+        }
+
+        // Ready-to-control: ask before first browser action in this run
+        if (!hasExecutedActionsInThisRun) {
           const confirmed = await askUserConfirmation(
             llmResponse.actions,
             step,
-            llmResponse.summary
+            `Ready for me to take control of your browser? I'll navigate, click, and type on your behalf.`
+          );
+          if (!confirmed || agentState.isAborted) return;
+          hasExecutedActionsInThisRun = true;
+        }
+
+        // Destructive path: only when requireConfirm is enabled
+        const hasDestructive = llmResponse.actions.some(isDestructive);
+        if (hasDestructive && settings.requireConfirm) {
+          const confirmed = await askUserConfirmation(
+            llmResponse.actions,
+            step,
+            llmResponse.summary || 'Confirm these actions?'
           );
           if (!confirmed || agentState.isAborted) return;
         }
@@ -2783,7 +2926,7 @@ async function handleAutoRetry(
             } else if (userEntry && assistantEntry) {
               compactedHistory.push({
                 role: 'assistant',
-                response: { 
+                response: {
                   summary: (assistantEntry as any).response?.summary || 'Step completed',
                   actions: []
                 },
@@ -2841,7 +2984,7 @@ async function handleAutoRetry(
             timestamp: Date.now(),
             status: 'completed',
             url: tab.url || '',
-          }).catch(() => {});
+          }).catch(() => { });
 
           sendAgentDone({
             finalSummary: llmResponse.summary || 'Done',
@@ -2866,6 +3009,7 @@ async function handleAutoRetry(
     } finally {
       await restoreTabTitle();
       agentState.setRunning(false);
+      agentLoopRunning = false; // Release the loop lock (Issue #14)
     }
   }
 
@@ -2905,7 +3049,7 @@ async function handleAutoRetry(
     try {
       const tab = await chrome.tabs.update(tabId, { active: true });
       if (tab?.windowId) {
-        await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+        await chrome.windows.update(tab.windowId, { focused: true }).catch(() => { });
       }
       await waitForTabLoad(tabId);
       return { success: true };
@@ -3047,7 +3191,7 @@ Return JSON:
 
   // ─── Fallback planner (intentionally unimplemented) ─────────────────
   /** Stub: no automatic fallback when LLM fails. buildIntelligentFallback is used for recovery. */
-   
+
   function _buildFallbackPlan(
     _command: string,
     _context: PageContext

@@ -9,6 +9,23 @@
   <!-- <body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans antialiased selection:bg-indigo-500/30 overflow-hidden m-0 p-0 h-screen flex flex-col"> -->
   <body>
     <a href="#main-content" class="skip-link visually-hidden focus-visible:not-sr-only focus-[not-sr-only]:absolute focus-[not-sr-only]:top-4 focus-[not-sr-only]:px-4 focus-[not-sr-only]:py-2 focus-[not-sr-only]:bg-white focus-[not-sr-only]:text-indigo-500 focus-[not-sr-only]:z-50 focus-[not-sr-only]:rounded-xl focus-[not-sr-only]:shadow-md font-medium">Skip to main content</a>
+    
+    <!-- Offline Banner -->
+    <div id="offline-banner" class="hidden fixed top-0 left-0 right-0 z-[200] bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium shadow-lg" role="alert" aria-live="assertive">
+      <span class="flex items-center justify-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="1" y1="1" x2="23" y2="23"></line>
+          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+          <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+          <line x1="12" y1="20" x2="12.01" y2="20"></line>
+        </svg>
+        You're offline. Some features may not work.
+      </span>
+    </div>
+    
     <div id="app" class="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 text-sm leading-relaxed text-zinc-900 dark:text-zinc-100">
       
       <!-- Header Navigation -->
@@ -34,300 +51,28 @@
         <!-- Primary Tabs -->
         <div id="tabs-nav" role="tablist" aria-label="Main navigation" class="relative flex px-4 mt-2 border-b border-zinc-200 dark:border-zinc-800 hide-scrollbar overflow-x-auto w-full">
           <button class="tab-btn active px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-indigo-500" role="tab" data-tab="chat" aria-selected="true" aria-controls="tab-chat" id="btn-chat">CHAT</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="swarm" aria-selected="false" aria-controls="tab-swarm" id="btn-swarm">SWARM</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="vision" aria-selected="false" aria-controls="tab-vision" id="btn-vision">VISION</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="tasks" aria-selected="false" aria-controls="tab-tasks" id="btn-tasks">TASKS</button>
           <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="memory" aria-selected="false" aria-controls="tab-memory" id="btn-memory">MEMO</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="marketplace" aria-selected="false" aria-controls="tab-marketplace" id="btn-marketplace">MARKETPLACE</button>
           <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="subscription" aria-selected="false" aria-controls="tab-subscription" id="btn-subscription">SUBSCRIPTION</button>
           <!-- Sliding Indicator placeholder (logic in main.ts) -->
           <div id="tab-indicator" class="tab-indicator" style="width: 53px; left: 16px;"></div>
         </div>
-        <!-- Secondary Row for specific tabs -->
-        <div id="secondary-tabs" class="flex px-4 pt-3 gap-2 hide-scrollbar overflow-x-auto">
-          <button class="sec-tab-btn active px-4 py-1.5 text-xs font-medium rounded-full transition-all bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-sm" data-target="memory">MEMORY</button>
-          <button class="sec-tab-btn px-4 py-1.5 text-xs font-medium rounded-full transition-all text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100" data-target="marketplace">MARKETPLACE</button>
-          <button class="sec-tab-btn px-4 py-1.5 text-xs font-medium rounded-full transition-all text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100" data-target="subscription">SUBSCRIPTION</button>
-        </div>
       </header>
 
       <main id="main-content" class="flex-1 overflow-hidden relative">
+        <!-- Scroll to Bottom Button -->
+        <button id="scroll-to-bottom-btn" class="scroll-to-bottom-btn hidden fixed bottom-24 right-4 z-40 bg-indigo-500 hover:bg-indigo-600 text-white p-3 rounded-full shadow-lg transition-all duration-200" aria-label="Scroll to bottom">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+        
         <!-- Chat Tab -->
-        <section id="tab-chat" role="tabpanel" aria-labelledby="btn-chat" class="tab-pane active h-full">
-          <div id="chat-history" aria-live="polite" aria-label="Chat messages" class="flex flex-col gap-4 p-4 pb-0 h-full overflow-y-auto"></div>
-        </section>
-
-        <!-- Swarm Tab -->
-        <section id="tab-swarm" role="tabpanel" aria-labelledby="btn-swarm" class="tab-pane">
-          <div class="flex flex-col gap-6 p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="text-xl font-semibold tracking-tight">Swarm Intelligence</h2>
-              <div class="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 rounded-full text-xs font-medium">
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="12" r="10"></circle></svg>
-                <span id="swarm-state">Active</span>
-              </div>
-            </div>
-
-            <!-- Stats Overview -->
-            <div class="grid grid-cols-4 gap-3">
-              <div class="flex flex-col items-center justify-center p-3 card-base interaction-lift">
-                <span class="text-xl font-semibold text-zinc-900 dark:text-zinc-100" id="missions-completed">0</span>
-                <span class="text-[10px] uppercase font-medium tracking-wider text-zinc-500 mt-1">Completed</span>
-              </div>
-              <div class="flex flex-col items-center justify-center p-3 card-base interaction-lift">
-                <span class="text-xl font-semibold text-zinc-900 dark:text-zinc-100" id="swarm-success-rate">--</span>
-                <span class="text-[10px] uppercase font-medium tracking-wider text-zinc-500 mt-1">Success</span>
-              </div>
-              <div class="flex flex-col items-center justify-center p-3 card-base interaction-lift">
-                <span class="text-xl font-semibold text-zinc-900 dark:text-zinc-100" id="active-missions">0</span>
-                <span class="text-[10px] uppercase font-medium tracking-wider text-zinc-500 mt-1">Active</span>
-              </div>
-              <div class="flex flex-col items-center justify-center p-3 card-base interaction-lift">
-                <span class="text-xl font-semibold text-zinc-900 dark:text-zinc-100" id="agent-count">8</span>
-                <span class="text-[10px] uppercase font-medium tracking-wider text-zinc-500 mt-1">Agents</span>
-              </div>
-            </div>
-
-            <!-- Agents Section -->
-            <div class="flex flex-col gap-3">
-              <h3 class="text-sm font-medium text-zinc-500">Agents</h3>
-              <div class="grid grid-cols-2 gap-3" id="agent-list">
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Intent</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Analyzes user commands to determine intent and goals</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Navigator</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Navigates to target URLs and manages browser tabs</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Executor</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Executes actions like clicking and filling forms</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Extractor</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Extracts data from web pages in structured formats</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Analyst</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Analyzes data and provides insights</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Learner</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Learns from past missions to improve performance</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Planner</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Plans multi-step missions and optimizes workflows</p>
-                </div>
-                <div class="flex flex-col p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 border-transparent dark:border-zinc-800/50 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="font-semibold text-sm">Watcher</span>
-                    <span class="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <svg width="6" height="6" viewBox="0 0 24 24" fill="currentColor" class="text-emerald-500"><circle cx="12" cy="12" r="10"></circle></svg>
-                      Ready
-                    </span>
-                  </div>
-                  <p class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">Monitors mission execution and detects failures</p>
-                </div>
-              </div>
-            </div>
-
-             <!-- Active Missions Section -->
-             <div class="flex flex-col gap-3">
-               <div class="flex items-center justify-between">
-                 <h3 class="text-sm font-medium text-zinc-500">Active Missions</h3>
-                 <button id="btn-clear-active-missions" class="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100">Clear</button>
-               </div>
-               <div id="active-missions-list" class="flex flex-col gap-2">
-                 <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-                   <div class="flex items-center gap-2">
-                     <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                     <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Mission 1: Extracting data</span>
-                   </div>
-                   <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                     <span>25%</span>
-                     <div class="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-                       <div class="h-full bg-emerald-500 rounded-full" style="width: 25%"></div>
-                     </div>
-                   </div>
-                 </div>
-               </div>
-             </div>
-
-             <!-- Mission History -->
-             <div class="flex flex-col gap-3">
-               <div class="flex items-center justify-between">
-                 <h3 class="text-sm font-medium text-zinc-500">Mission History</h3>
-                 <button id="btn-clear-mission-history" class="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100">Clear</button>
-               </div>
-               <div id="mission-history-list" class="flex flex-col gap-2">
-                 <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-                   <div class="flex items-center gap-2">
-                     <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
-                     <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Mission 2: Form submission</span>
-                   </div>
-                   <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                     <span>Completed</span>
-                     <span>2 min ago</span>
-                   </div>
-                 </div>
-               </div>
-             </div>
-
-             <!-- Swarm Configuration -->
-             <div class="flex flex-col gap-3">
-               <h3 class="text-sm font-medium text-zinc-500">Configuration</h3>
-               <div class="flex flex-col gap-2">
-                 <label class="flex items-center justify-between text-sm">
-                   <span class="text-zinc-700 dark:text-zinc-300">Auto-scale agents</span>
-                   <input type="checkbox" id="auto-scale-agents" class="toggle-checkbox" checked>
-                 </label>
-                 <label class="flex items-center justify-between text-sm">
-                   <span class="text-zinc-700 dark:text-zinc-300">Mission timeout</span>
-                   <select id="mission-timeout" class="bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 rounded-lg text-sm">
-                     <option value="30">30 seconds</option>
-                     <option value="60" selected>60 seconds</option>
-                     <option value="120">2 minutes</option>
-                     <option value="300">5 minutes</option>
-                   </select>
-                 </label>
-               </div>
-             </div>
-
-             <!-- Swarm Disabled Notice -->
-             <div id="swarm-disabled-notice" class="flex flex-col items-center justify-center p-4 bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-500/20 rounded-xl hidden">
-               <p class="text-xs text-center font-medium">Enable Swarm Intelligence in Settings to activate multi-agent processing.</p>
-             </div>
+        <section id="tab-chat" role="tabpanel" aria-labelledby="btn-chat" class="tab-pane active h-full flex flex-col">
+          <div id="chat-search-bar" class="flex-shrink-0 px-4 pt-2 pb-1 hidden">
+            <input type="search" id="chat-search-input" placeholder="Search messages..." aria-label="Search chat messages" class="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+            <p id="chat-search-hint" class="text-xs text-zinc-500 mt-1 hidden"></p>
           </div>
-        </section>
-
-             <!-- Use Cases -->
-             <div class="flex flex-col gap-3">
-               <h3 class="text-sm font-medium text-zinc-500">Use Cases</h3>
-               <div id="use-cases-button" class="flex flex-col p-4 card-base interaction-lift cursor-pointer group">
-                 <span class="font-semibold text-sm mb-1 group-hover:text-indigo-500 transition-colors">Multi-site comparison</span>
-                 <span class="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed italic">"Compare laptop prices on Amazon, Best Buy, and Newegg"</span>
-               </div>
-             </div>
-
-            <!-- Saved Missions -->
-            <div class="flex flex-col gap-3">
-              <div class="flex items-center justify-between">
-                <h3 class="text-sm font-medium text-zinc-500">Saved Missions</h3>
-                <button id="btn-clear-snapshots" class="text-xs text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100">Clear</button>
-              </div>
-              <div id="snapshots-list" class="flex items-center justify-center p-8 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/50 empty">
-                <span class="text-sm text-zinc-500">No saved missions.</span>
-              </div>
-            </div>
-
-            <div id="swarm-disabled-notice-alt" class="flex flex-col items-center justify-center p-4 bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-200 dark:border-orange-500/20 rounded-xl">
-              <p class="text-xs text-center font-medium">Enable Swarm Intelligence in Settings to activate multi-agent processing.</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- Vision Tab -->
-        <section id="tab-vision" role="tabpanel" aria-labelledby="btn-vision" class="tab-pane">
-          <div id="vision-container" class="flex flex-col gap-6 p-4 h-full">
-            <div id="vision-feed" class="flex-1 flex flex-col items-center justify-center p-8 bg-zinc-100 dark:bg-zinc-900/50 rounded-xl border border-zinc-200 dark:border-zinc-800 min-h-[200px] relative overflow-hidden">
-              <img id="vision-snapshot" class="hidden absolute inset-0 w-full h-full object-contain" alt="Snapshot" />
-              <div id="vision-placeholder" class="flex flex-col items-center">
-                <div class="h-12 w-12 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center mb-4 text-zinc-400 dark:text-zinc-500">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><circle cx="12" cy="12" r="3"></circle><path d="m16 16-1.9-1.9"></path></svg>
-                </div>
-                <p class="text-sm font-medium text-zinc-600 dark:text-zinc-400 text-center max-w-[200px]">No active vision feed.</p>
-              </div>
-              <div id="vision-overlays"></div>
-            </div>
-            
-            <div class="flex gap-3">
-              <button class="flex-1 flex flex-col items-center justify-center gap-2 py-4 card-base interaction-lift text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
-                Capture Screenshot
-              </button>
-              <button class="flex-1 flex flex-col items-center justify-center gap-2 py-4 card-base interaction-lift text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><circle cx="12" cy="12" r="3"></circle><path d="m16 16-1.9-1.9"></path></svg>
-                Analyze Page
-              </button>
-            </div>
-            <p class="text-xs text-zinc-500 text-center leading-relaxed">Vision mode captures screenshots for AI analysis when DOM extraction fails.<br class="hidden sm:block" />Enable in settings for automatic fallback.</p>
-          </div>
-        </section>
-
-        <!-- Tasks Tab -->
-        <section id="tab-tasks" role="tabpanel" aria-labelledby="btn-tasks" class="tab-pane">
-          <div class="flex flex-col gap-6 p-4">
-            <div class="flex items-center justify-between">
-              <h2 class="text-xl font-semibold tracking-tight">Active Tasks</h2>
-              <button id="btn-add-task-ui" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg> New
-              </button>
-            </div>
-
-            <div class="flex flex-col p-1">
-              <div class="flex items-center gap-3 py-2.5 border-l-2 border-zinc-200 dark:border-zinc-800 pl-4 ml-2 relative group">
-                <span class="absolute -left-[11px] top-1/2 -translate-y-1/2 w-[20px] h-[20px] rounded-full bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-50 dark:border-zinc-950 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-400 group-hover:bg-indigo-500 group-hover:text-white transition-colors">1</span>
-                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Enter a command</p>
-              </div>
-              <div class="flex items-center gap-3 py-2.5 border-l-2 border-zinc-200 dark:border-zinc-800 pl-4 ml-2 relative group">
-                <span class="absolute -left-[11px] top-1/2 -translate-y-1/2 w-[20px] h-[20px] rounded-full bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-50 dark:border-zinc-950 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-400 group-hover:bg-indigo-500 group-hover:text-white transition-colors">2</span>
-                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Agent analyzes</p>
-              </div>
-              <div class="flex items-center gap-3 py-2.5 border-l-2 border-zinc-200 dark:border-zinc-800 pl-4 ml-2 relative group">
-                <span class="absolute -left-[11px] top-1/2 -translate-y-1/2 w-[20px] h-[20px] rounded-full bg-zinc-100 dark:bg-zinc-800 border-2 border-zinc-50 dark:border-zinc-950 flex items-center justify-center text-[10px] font-bold text-zinc-600 dark:text-zinc-400 group-hover:bg-indigo-500 group-hover:text-white transition-colors">3</span>
-                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">Agent executes</p>
-              </div>
-            </div>
-
-            <div id="tasks-list" class="flex flex-col items-center justify-center p-8 mt-2 card-base bg-zinc-50/50 dark:bg-zinc-900/50 text-center border-dashed gap-2">
-              <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">No scheduled tasks.</span>
-              <span class="text-xs text-zinc-500 max-w-[200px] leading-relaxed italic">Use commands like "schedule daily search for news" to create tasks.</span>
-            </div>
-          </div>
+          <div id="chat-history" aria-live="polite" aria-label="Chat messages" class="flex flex-col gap-4 p-4 pb-0 flex-1 overflow-y-auto"></div>
         </section>
 
         <!-- Memory Tab -->
@@ -339,102 +84,6 @@
           </div>
         </section>
 
-        <!-- Marketplace Tab -->
-        <section id="tab-marketplace" role="tabpanel" aria-labelledby="btn-marketplace" class="tab-pane">
-          <div class="flex flex-col gap-6 p-4">
-            <div>
-              <h2 class="text-xl font-semibold tracking-tight mb-2">Workflow Marketplace</h2>
-              <p class="text-xs text-zinc-500">Discover and install pre-built automation workflows designed to save time.</p>
-            </div>
-            
-            <div class="relative">
-              <label for="marketplace-search-input" class="visually-hidden">Search workflows</label>
-              <input id="marketplace-search-input" type="text" placeholder="Search workflows..." class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-2 text-sm shadow-sm" />
-            </div>
-
-            <div class="flex items-center justify-between">
-              <div id="marketplace-categories" class="flex gap-2 overflow-x-auto hide-scrollbar">
-                <button class="category-btn active px-3 py-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-white rounded-full text-xs font-medium" data-category="all">All</button>
-                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="data">Data Extraction</button>
-                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="communication">Communication</button>
-                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="research">Research</button>
-                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="ecommerce">E-commerce</button>
-                <button class="category-btn px-3 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full text-xs font-medium" data-category="social">Social Media</button>
-              </div>
-              <label class="flex items-center gap-2 text-xs text-zinc-500 cursor-pointer">
-                <input type="checkbox" id="filter-free" class="w-3 h-3 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500" />
-                <span>Free only</span>
-              </label>
-            </div>
-
-            <div id="marketplace-list" class="flex flex-col gap-3">
-              <div class="flex flex-col p-4 card-base interaction-lift cursor-pointer">
-                <div class="flex items-start justify-between mb-2">
-                  <h4 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Web Scraper Pro</h4>
-                  <span class="px-2 py-0.5 text-[10px] font-bold tracking-wider rounded border border-emerald-500/20 text-emerald-500 bg-emerald-500/10">FREE</span>
-                </div>
-                <p class="text-xs text-zinc-500 mb-4">Extract clean data from any site into CSV</p>
-                <div class="flex items-center justify-between mt-auto">
-                  <div class="flex items-center gap-1 text-[10px] text-zinc-400 font-medium whitespace-nowrap"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg> 1.2k installs</div>
-                  <button class="px-3 py-1 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">Install</button>
-                </div>
-              </div>
-              
-              <div class="flex flex-col p-4 card-base interaction-lift cursor-pointer">
-                <div class="flex items-start justify-between mb-2">
-                  <h4 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Form Filler Master</h4>
-                  <span class="px-2 py-0.5 text-[10px] font-bold tracking-wider rounded border border-emerald-500/20 text-emerald-500 bg-emerald-500/10">FREE</span>
-                </div>
-                <p class="text-xs text-zinc-500 mb-4">Autofill forms with your saved data</p>
-                <div class="flex items-center justify-between mt-auto">
-                  <div class="flex items-center gap-1 text-[10px] text-zinc-400 font-medium whitespace-nowrap"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg> 856 installs</div>
-                  <button class="px-3 py-1 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">Install</button>
-                </div>
-              </div>
-              
-              <div class="flex flex-col p-4 card-base interaction-lift cursor-pointer">
-                <div class="flex items-start justify-between mb-2">
-                  <h4 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Competitor Tracker</h4>
-                  <span class="px-2 py-0.5 text-[10px] font-bold tracking-wider rounded border border-emerald-500/20 text-emerald-500 bg-emerald-500/10">FREE</span>
-                </div>
-                <p class="text-xs text-zinc-500 mb-4">Monitor competitor prices and products</p>
-                <div class="flex items-center justify-between mt-auto">
-                  <div class="flex items-center gap-1 text-[10px] text-zinc-400 font-medium whitespace-nowrap"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg> 632 installs</div>
-                  <button class="px-3 py-1 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">Install</button>
-                </div>
-              </div>
-              
-              <div class="flex flex-col p-4 card-base interaction-lift cursor-pointer">
-                <div class="flex items-start justify-between mb-2">
-                  <h4 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Social Media Manager</h4>
-                  <span class="px-2 py-0.5 text-[10px] font-bold tracking-wider rounded border border-emerald-500/20 text-emerald-500 bg-emerald-500/10">PRO</span>
-                </div>
-                <p class="text-xs text-zinc-500 mb-4">Schedule and publish social media posts</p>
-                <div class="flex items-center justify-between mt-auto">
-                  <div class="flex items-center gap-1 text-[10px] text-zinc-400 font-medium whitespace-nowrap"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg> 328 installs</div>
-                  <button class="px-3 py-1 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">Install</button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Featured Workflow -->
-            <div class="flex flex-col gap-3 p-4 card-base bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/50 dark:to-purple-900/50 border-indigo-200 dark:border-indigo-800">
-              <div class="flex items-start justify-between">
-                <div>
-                  <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Featured: Deep Research Assistant</h3>
-                  <p class="text-xs text-zinc-500 mt-1">Comprehensive research on any topic with sources</p>
-                </div>
-                <button class="px-3 py-1 text-xs font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-full transition-colors">Try Now</button>
-              </div>
-              <div class="flex gap-2 mt-2 text-[10px] text-zinc-500">
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Research</span>
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Data Collection</span>
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Free</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
         <!-- Subscription Tab -->
         <section id="tab-subscription" role="tabpanel" aria-labelledby="btn-subscription" class="tab-pane">
           <div class="flex flex-col gap-6 p-4">
@@ -443,7 +92,7 @@
             <!-- Current Plan Banner -->
             <div id="current-plan-banner" class="flex items-center justify-between p-4 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-xl shadow-md plan-banner free">
               <div class="plan-banner-info flex flex-col">
-                <span class="text-base font-bold plan-banner-tier" id="banner-tier">Community</span>
+                <span class="text-base font-bold plan-banner-tier" id="banner-tier">Free</span>
                 <span class="text-xs opacity-70 plan-banner-period" id="banner-period"></span>
               </div>
               <span id="banner-badge" class="px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase bg-emerald-500 text-white rounded-full shadow-sm">Active</span>
@@ -479,7 +128,7 @@
             <!-- Plan Cards -->
             <div class="grid grid-cols-2 gap-4">
               <div class="flex flex-col p-5 card-base border-zinc-200 dark:border-zinc-800 plan-card" data-plan="community">
-                <h4 class="text-base font-semibold mb-1">Community</h4>
+                <h4 class="text-base font-semibold mb-1">Free</h4>
                 <div class="flex items-baseline gap-1 mb-4">
                   <span class="text-2xl font-bold tracking-tight">$0</span>
                   <span class="text-xs text-zinc-500">/forever</span>
@@ -533,7 +182,7 @@
                   <span class="text-xs font-medium dark:text-zinc-300">Pay with Card</span>
                 </button>
                 <button id="btn-pay-crypto" class="flex flex-col items-center gap-2 p-4 card-base interaction-lift payment-btn">
-                  <span class="text-xl">🪙</span>
+                  <span class="text-xl"></span>
                   <span class="text-xs font-medium dark:text-zinc-300">Pay with Crypto</span>
                 </button>
               </div>
@@ -542,7 +191,7 @@
             <div id="crypto-payment-info" class="crypto-section hidden mt-4 p-4 bg-zinc-100 dark:bg-zinc-800 rounded-xl relative">
               <h4 class="text-sm font-semibold mb-2">Send Crypto Payment</h4>
               <p class="text-xs text-zinc-500 mb-2">Send $5 worth of ETH to:</p>
-              <div id="crypto-address" class="font-mono text-[10px] break-all p-2 bg-white dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700 mb-3">Configure wallet in settings</div>
+              <div id="crypto-address" class="font-mono text-[10px] break-all p-2 bg-white dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700 mb-3" data-crypto-placeholder="true">Configure wallet address in Settings</div>
               <div class="flex gap-2 flex-wrap">
                 <select id="crypto-chain-select" class="px-3 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg">
                   <option value="1">Ethereum</option>
@@ -563,17 +212,28 @@
       <!-- Bottom Bar Area -->
       <div class="flex flex-col border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shrink-0 relative z-20">
         <!-- Status Bar -->
-        <div id="status-bar" class="hidden mb-3 relative">
-          <div class="stepper flex items-center justify-between w-full max-w-[200px]">
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="observe">Obs</div>
+        <div id="status-bar" class="hidden mb-3 relative" role="status">
+          <div class="stepper flex items-center justify-between w-full max-w-[200px]" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-label="Agent progress">
+            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="observe" aria-label="Observe step">Obs</div>
             <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="plan">Plan</div>
+            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="plan" aria-label="Plan step">Plan</div>
             <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="act">Act</div>
+            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="act" aria-label="Act step">Act</div>
             <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="verify">Ver</div>
+            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="verify" aria-label="Verify step">Ver</div>
           </div>
           <span id="status-text" aria-live="polite" class="text-xs font-medium text-indigo-500 ml-2 mt-1 block h-4">Ready</span>
+        </div>
+        
+        <!-- AI Provider Status -->
+        <div id="provider-status" class="flex items-center justify-between mb-2 px-1">
+          <div class="flex items-center gap-2">
+            <label class="text-[10px] text-zinc-400 uppercase font-medium tracking-wider">AI Provider:</label>
+            <div class="flex items-center gap-1">
+              <span id="provider-indicator" class="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+              <span id="provider-name" class="text-[10px] text-zinc-400">Not configured</span>
+            </div>
+          </div>
         </div>
 
         <!-- Input Area -->
@@ -640,7 +300,7 @@
               <div class="w-8 h-8 shrink-0 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-sm border border-indigo-100 dark:border-indigo-500/20 shadow-sm relative shrink-0">1</div>
               <div>
                 <strong class="block text-sm font-semibold mb-1">Add your API Key</strong>
-                <p class="text-xs text-zinc-500 leading-relaxed">Open Settings and add your <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" class="text-indigo-500 hover:underline relative z-50">AI API Key</a> (free from OpenRouter) to get started.</p>
+                <p class="text-xs text-zinc-500 leading-relaxed">Open Settings and add your AI API Key. Get a FREE key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="text-indigo-500 hover:underline relative z-50">Google AI Studio</a>.</p>
               </div>
             </div>
             <div class="flex items-start gap-4">
@@ -660,7 +320,6 @@
           </div>
           <p class="text-[11px] text-zinc-400 text-center mb-6 px-4 leading-relaxed font-medium bg-zinc-50/50 dark:bg-zinc-900/50 p-2 border border-zinc-200 dark:border-zinc-800 rounded-lg relative">
              Your data stays local. Only commands are sent to your chosen AI provider.
-            <a href="chrome-extension://__MSG_@@extension_id__/privacy-policy.html" target="_blank" class="text-indigo-500 hover:underline relative z-50 inline-block ml-1">Privacy Policy</a>
           </p>
           <div class="modal-actions flex gap-3 mt-auto relative z-50">
             <button id="btn-onboarding-settings" class="flex-1 py-2.5 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all shadow-sm">Open Settings</button>
@@ -668,50 +327,92 @@
           </div>
         </div>
       </div>
+
+      <!-- Settings Modal -->
+      <div id="settings-modal" class="modal hidden">
+        <div class="modal-content relative flex flex-col" style="max-width: 440px; max-height: 90vh; overflow-y: auto;">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-xl font-semibold tracking-tight">Settings</h3>
+            <button id="btn-settings-close" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+
+          <!-- API Configuration -->
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-2">AI Provider</label>
+              <select id="settings-provider" class="w-full px-3 py-2.5 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="openai">OpenAI (GPT)</option>
+                <option value="google">Google AI Studio (FREE)</option>
+                <option value="anthropic">Anthropic (Claude)</option>
+              </select>
+              <p id="settings-provider-hint" class="text-xs text-zinc-500 mt-1.5">OpenAI keys start with sk-</p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium mb-2">API Key</label>
+              <div class="relative">
+                <input type="password" id="settings-api-key" placeholder="Enter your API key..." class="w-full px-3 py-2.5 pr-10 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+                <button id="btn-toggle-key-visibility" type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                </button>
+              </div>
+              <p id="settings-key-status" class="text-xs mt-1.5"></p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium mb-2">Model</label>
+              <select id="settings-model" class="w-full px-3 py-2.5 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Fast)</option>
+                <option value="gpt-4o">GPT-4o (Vision)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Behavior Settings -->
+          <div class="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+            <h4 class="text-sm font-medium mb-3">Behavior</h4>
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <label for="settings-vision" class="text-sm text-zinc-600 dark:text-zinc-400">Enable Vision</label>
+                <input type="checkbox" id="settings-vision" class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500" checked />
+              </div>
+              <div class="flex items-center justify-between">
+                <label for="settings-confirm" class="text-sm text-zinc-600 dark:text-zinc-400">Confirm Actions</label>
+                <input type="checkbox" id="settings-confirm" class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500" />
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <label for="settings-max-steps" class="text-sm text-zinc-600 dark:text-zinc-400">Max Steps</label>
+                  <span id="settings-max-steps-value" class="text-sm font-medium">12</span>
+                </div>
+                <input type="range" id="settings-max-steps" min="3" max="20" value="12" class="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full appearance-none cursor-pointer" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Save Button -->
+          <div class="mt-6 flex gap-3">
+            <button id="btn-settings-save" class="flex-1 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Save Settings</button>
+          </div>
+
+          <!-- Quick Links -->
+          <div class="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700 text-center">
+            <p class="text-xs text-zinc-500 mb-2">Need an API key?</p>
+            <div class="flex gap-2 justify-center flex-wrap">
+              <a href="https://aistudio.google.com/apikey" target="_blank" class="text-xs text-indigo-500 hover:underline">Google AI (Free)</a>
+              <span class="text-zinc-300">•</span>
+              <a href="https://platform.openai.com/api-keys" target="_blank" class="text-xs text-indigo-500 hover:underline">OpenAI</a>
+              <span class="text-zinc-300">•</span>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-xs text-indigo-500 hover:underline">Anthropic</a>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
     <script type="module" src="./main.ts"></script>
-    <script>
-      // Quick logic to wire up secondary tabs routing since main.ts might not do it specifically for the new UI's "subtabs"
-      document.addEventListener('DOMContentLoaded', () => {
-        const primaryBtns = document.querySelectorAll('#tabs-nav .tab-btn');
-        const secondaryBtns = document.querySelectorAll('#secondary-tabs .sec-tab-btn');
-        
-        primaryBtns.forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            const tabId = e.target.dataset.tab;
-            let showSecondary = ['memory', 'marketplace', 'subscription'].includes(tabId);
-            document.getElementById('secondary-tabs').style.display = showSecondary ? 'flex' : 'none';
-            if (showSecondary) {
-               secondaryBtns.forEach(b => {
-                 b.classList.toggle('bg-zinc-900', b.dataset.target === tabId);
-                 b.classList.toggle('text-white', b.dataset.target === tabId);
-                 b.classList.toggle('text-zinc-500', b.dataset.target !== tabId);
-                 b.classList.toggle('shadow-sm', b.dataset.target === tabId);
-                 
-                 // Light/Dark mode reactive classes - manually toggled if needed
-                 if(b.dataset.target === tabId) {
-                    b.classList.add('dark:bg-zinc-100', 'dark:text-zinc-900');
-                    b.classList.remove('hover:bg-zinc-200', 'hover:text-zinc-900');
-                 } else {
-                    b.classList.remove('dark:bg-zinc-100', 'dark:text-zinc-900');
-                    b.classList.add('hover:bg-zinc-200', 'hover:text-zinc-900');
-                 }
-               });
-            }
-          });
-        });
-
-        // Trigger secondary clicks
-        secondaryBtns.forEach(btn => {
-          btn.addEventListener('click', (e) => {
-            const target = e.target.dataset.target;
-            const correspondingPrimary = document.querySelector(`#tabs-nav .tab-btn[data-tab="${target}"]`);
-            if (correspondingPrimary) correspondingPrimary.click();
-          });
-        });
-      });
-    </script>
   </body>
 </html>

@@ -86,8 +86,6 @@ export async function setPrivacySettings(settings: Partial<PrivacySettings>): Pr
   await chrome.storage.local.set({
     [SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS]: updated,
   });
-
-  console.log('[HyperAgent] Privacy settings updated:', updated);
 }
 
 // ─── Get Security Policy ───────────────────────────────────────────────
@@ -113,8 +111,6 @@ export async function setSecurityPolicy(policy: Partial<SecurityPolicy>): Promis
   await chrome.storage.local.set({
     [SECURITY_STORAGE_KEYS.SECURITY_POLICY]: updated,
   });
-
-  console.log('[HyperAgent] Security policy updated:', updated);
 }
 
 // ─── Check Domain Allowed ───────────────────────────────────────────────
@@ -127,7 +123,6 @@ export async function checkDomainAllowed(url: string): Promise<boolean> {
   // Check blocked domains first
   for (const blocked of settings.blockedDomains) {
     if (domainMatches(hostname, blocked)) {
-      console.log('[HyperAgent] Domain blocked:', hostname);
       return false;
     }
   }
@@ -139,7 +134,6 @@ export async function checkDomainAllowed(url: string): Promise<boolean> {
         return true;
       }
     }
-    console.log('[HyperAgent] Domain not in allowed list:', hostname);
     return false;
   }
 
@@ -203,7 +197,6 @@ export async function checkRateLimit(actionType: string): Promise<{
   if (now - entry.windowStart < windowMs) {
     if (entry.count >= maxPerMinute) {
       const waitTime = windowMs - (now - entry.windowStart);
-      console.log(`[HyperAgent] Rate limit exceeded for ${actionType}. Wait ${waitTime}ms`);
       return { allowed: false, waitTimeMs: waitTime };
     }
     entry.count++;
@@ -218,7 +211,6 @@ export async function checkRateLimit(actionType: string): Promise<{
 // ─── Clear Rate Limits ─────────────────────────────────────────────────
 export function clearRateLimits(): void {
   actionRateLimits.clear();
-  console.log('[HyperAgent] Rate limits cleared');
 }
 
 // ─── Initialize Default Security Settings ──────────────────────────────
@@ -232,8 +224,6 @@ export async function initializeSecuritySettings(): Promise<void> {
     [SECURITY_STORAGE_KEYS.PRIVACY_SETTINGS]: privacy,
     [SECURITY_STORAGE_KEYS.SECURITY_POLICY]: policy,
   });
-
-  console.log('[HyperAgent] Security settings initialized:', { privacy, policy });
 }
 // ─── Data Redaction & Sanitization ─────────────────────────────────────
 export function redact(value: any): string {

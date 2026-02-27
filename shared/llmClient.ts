@@ -27,17 +27,59 @@ import { IntelligenceContext } from './ai-types';
 import { apiCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
+
+/** Patterns that suggest prompt injection; strip or neutralize before sending to LLM */
+const PROMPT_INJECTION_PATTERNS = [
+  /\bignore\s+(all\s+)?(previous|prior|above|prior)\s+instructions?\b/gi,
+  /\bdisregard\s+(all\s+)?(previous|prior|above)\s+instructions?\b/gi,
+  /\byou\s+are\s+now\s+(a\s+)?(different|new)\s+(model|assistant|AI)\b/gi,
+  /\b(new\s+)?(system\s+)?(prompt|instruction)\s*:\s*/gi,
+  /\b\[system\]\s*:/gi,
+  /\b<\|(system|im_start|im_end)\|>\s*/gi,
+  /\boverride\s+(your\s+)?(instructions?|rules?)\b/gi,
+  /\bpretend\s+(you\s+)?(are|to\s+be)\b/gi,
+  /\bact\s+as\s+if\s+you\s+have\s+no\s+restrictions\b/gi,
+  /\bforget\s+(everything|all)\s+(above|before)\b/gi,
+];
+
+function sanitizeForPrompt(text: string): string {
+  if (!text || typeof text !== 'string') return '';
+  let out = text;
+  for (const p of PROMPT_INJECTION_PATTERNS) {
+    out = out.replace(p, '[filtered]');
+  }
+  return out.slice(0, 15000); // Cap length
+}
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 import { ollamaClient, checkOllamaStatus } from './ollamaClient';
 
-const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_MODEL = 'gpt-3.5-turbo';
 
-// ─── Model Cascade Configuration ───────────────────────────────────────────
-const MODEL_CASCADE = {
-  simple: 'google/gemini-2.0-flash-lite-001',
-  standard: 'google/gemini-2.0-flash-001',
-  complex: 'anthropic/claude-3.5-sonnet',
+// Provider configurations
+const PROVIDERS = {
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    models: {
+      chat: 'gpt-3.5-turbo',
+      vision: 'gpt-4o',
+    },
+  },
+  anthropic: {
+    baseUrl: 'https://api.anthropic.com/v1',
+    models: {
+      chat: 'claude-3-haiku-20240307',
+      vision: 'claude-3-sonnet-20240229',
+    },
+  },
+  google: {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    models: {
+      chat: 'gemini-2.0-flash',
+      vision: 'gemini-2.0-flash',
+    },
+  },
 } as const;
+// This lets OpenRouter's smart routing handle model and provider selection
 
 type TaskComplexity = 'simple' | 'standard' | 'complex';
 
@@ -50,21 +92,58 @@ interface AgentTask {
 }
 
 // ─── Cached System Prefix (stable for provider caching) ────────────────────
-const CACHED_SYSTEM_PREFIX = `[HYPERAGENT v3.0]
-You are an autonomous browser agent with enhanced reasoning capabilities.
+const CACHED_SYSTEM_PREFIX = `[HYPERAGENT v4.0]
+You are HyperAgent, a friendly AI assistant that can chat AND fully control the user's browser.
 
-CORE CAPABILITIES:
-- Observe DOM and understand page context
-- Plan multi-step actions strategically  
-- Execute precise element interactions
-- Verify outcomes and adapt
+## YOUR PERSONALITY
+- Be warm, casual, and helpful
+- Like a smart colleague, not a robot
+- Use natural language, emojis when appropriate
+- Keep responses concise and engaging
 
-REASONING FRAMEWORK:
-1. ASSESS: What is the current state?
-2. ANALYZE: What needs to happen?
-3. STRATEGIZE: What's the optimal approach?
-4. EXECUTE: Take precise action
-5. VERIFY: Did it work? Adjust if needed.`;
+## YOUR CAPABILITIES
+- Chat naturally about anything
+- Ask questions to understand needs
+- Navigate websites, click, type, extract data
+- Handle multi-step web automation
+- Self-correct: when an action fails, try alternatives (different locator, scroll first, etc.)
+- Continue without stopping: complete the full task even if one step fails
+
+## HOW YOU WORK
+
+1. CONVERSATION: Just chat normally when users greet or ask questions
+2. GATHERING: If they mention a task but info is missing, ask ONE question at a time via "askUser"
+3. CONFIRMING: Before big/destructive actions, use summary to confirm your plan
+4. EXECUTING: When you have enough info, take browser actions
+5. SELF-HEAL: If an action fails, adapt and try another approach—don't give up
+
+## WHEN TO ASK (askUser)
+- Missing critical info: URL, search term, form data, filters, quantity
+- Ambiguous: "that button" (which?), "the form" (which site?)
+- Destructive without context: "delete" (delete what?)
+- One question at a time—don't overwhelm
+
+## WHEN TO EXECUTE (actions)
+- You have enough info to proceed
+- User confirmed (e.g. "yes", "go ahead", "do it")
+- No askUser needed—you know what to do
+
+## CRITICAL RULES
+
+NEVER put reasoning in "summary" - use "thinking" for that
+- "thinking" = your thoughts (user sees collapsed)
+- "summary" = what you SAY to user (user sees prominently)
+
+Example:
+User: "hey"
+❌ WRONG: "summary": "The user said hey, I should greet them back"
+✅ CORRECT: 
+  "thinking": "Casual greeting, respond warmly"
+  "summary": "Hey!  What's up?"
+
+NEVER execute without enough info - ASK first via "askUser"
+NEVER assume missing details - clarify instead
+When actions fail: try alternatives, scroll, use different locators—keep going`;
 
 import { sanitizeMessages } from './security';
 
@@ -77,6 +156,8 @@ function userFriendlyApiError(status: number): string | null {
       return 'API key invalid or expired. Check your key in Settings.';
     case 403:
       return 'Access denied. Check your API key and subscription.';
+    case 404:
+      return 'Model or provider not available for your API key. Try a different model in Settings.';
     case 500:
       return 'Server error. Please try again in a few minutes.';
     case 502:
@@ -87,6 +168,146 @@ function userFriendlyApiError(status: number): string | null {
     default:
       return null;
   }
+}
+
+export type LLMErrorType =
+  | 'network_error'
+  | 'timeout'
+  | 'rate_limit'
+  | 'auth_error'
+  | 'invalid_request'
+  | 'parse_error'
+  | 'model_unavailable'
+  | 'context_too_long'
+  | 'unknown';
+
+export interface ClassifiedError {
+  type: LLMErrorType;
+  userMessage: string;
+  retryable: boolean;
+  retryAfter?: number;
+  originalError?: unknown;
+}
+
+export function classifyError(error: unknown): ClassifiedError {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    const name = error.name?.toLowerCase() || '';
+
+    if (name === 'aborterror' || message.includes('abort')) {
+      return {
+        type: 'timeout',
+        userMessage: 'Request was cancelled.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('rate limit') || message.includes('429')) {
+      const retryMatch = message.match(/(\d+)\s*(second|minute)/i);
+      const retryAfter = retryMatch ? Number.parseInt(retryMatch[1], 10) : 60;
+      return {
+        type: 'rate_limit',
+        userMessage: `Rate limit reached. Please wait ${retryAfter} seconds before trying again.`,
+        retryable: true,
+        retryAfter,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('api key') || message.includes('401') || message.includes('unauthorized')) {
+      return {
+        type: 'auth_error',
+        userMessage: 'API key is invalid or missing. Please check your settings.',
+        retryable: false,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('403') || message.includes('forbidden')) {
+      return {
+        type: 'auth_error',
+        userMessage: 'Access denied. Your API key may lack permission for this model.',
+        retryable: false,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('network') || message.includes('fetch') || message.includes('connection') || message.includes('enotfound')) {
+      return {
+        type: 'network_error',
+        userMessage: 'Network error. Please check your internet connection.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('timeout') || message.includes('timed out')) {
+      return {
+        type: 'timeout',
+        userMessage: 'Request timed out. The server may be busy. Try again with a simpler command.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('context') || message.includes('token') || message.includes('too long') || message.includes('maximum')) {
+      return {
+        type: 'context_too_long',
+        userMessage: 'Your request is too long. Try a simpler command or clear chat history.',
+        retryable: false,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('model') && (message.includes('not found') || message.includes('unavailable'))) {
+      return {
+        type: 'model_unavailable',
+        userMessage: 'The selected AI model is currently unavailable. Try a different model in Settings.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('parse') || message.includes('json') || message.includes('invalid response')) {
+      return {
+        type: 'parse_error',
+        userMessage: 'Received an unexpected response. Please try again.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('400') || message.includes('bad request') || message.includes('invalid request')) {
+      return {
+        type: 'invalid_request',
+        userMessage: 'Invalid request format. Please simplify your command.',
+        retryable: false,
+        originalError: error,
+      };
+    }
+
+    if (message.includes('500') || message.includes('502') || message.includes('503') || message.includes('server error')) {
+      return {
+        type: 'model_unavailable',
+        userMessage: 'Server error. The service may be experiencing issues. Please try again in a moment.',
+        retryable: true,
+        originalError: error,
+      };
+    }
+  }
+
+  return {
+    type: 'unknown',
+    userMessage: 'An unexpected error occurred. Please try again.',
+    retryable: true,
+    originalError: error,
+  };
+}
+
+export function formatErrorForUser(error: unknown): string {
+  const classified = classifyError(error);
+  return classified.userMessage;
 }
 
 // ─── Utility Classes ──────────────────────────────────────────────────────
@@ -133,70 +354,105 @@ class CostTracker {
 
 // ─── Dynamic System Prompt Builder (cached prefix + dynamic suffix) ────────
 const DYNAMIC_ACTIONS_SUFFIX = `
-## Available Actions
-Each action must include "type" and "description". Actions that target elements need a "locator".
 
-### Element Actions (require "locator")
-- **click**: Click an element. Locator: { "strategy": "css"|"xpath"|"text"|"role"|"ariaLabel"|"id", "value": "..." }
-- **fill**: Type into an input. Also needs "value" (text to type) and optionally "clearFirst" (default true).
-- **select**: Select a dropdown option. Needs "value" (option text or value).
-- **hover**: Hover over an element.
-- **focus**: Focus an element.
-- **extract**: Extract text from element. Optional: "multiple" (bool), "filter" (regex), "format" ("text"|"json"|"csv"), "attribute" (attr name).
-
-### Navigation Actions
-- **navigate**: Go to URL. Needs "url".
-- **goBack**: Go back in browser history.
-- **scroll**: Scroll the page. Optional: "direction" ("up"|"down"|"left"|"right"), "amount" (pixels, default 500), or "locator" to scroll to element.
-- **wait**: Wait for page to settle.
-- **pressKey**: Press a key. Needs "key" (e.g. "Enter", "Tab"). Optional: "modifiers" (["ctrl", "shift", "alt", "meta"]).
-
-## Locator Strategy
-Use the most reliable strategy. Preference order:
-1. "id" — most stable
-2. "ariaLabel" — accessibility labels
-3. "role" — ARIA roles (button, link, textbox, etc.)
-4. "text" — visible text content
-5. "css" — CSS selector
-6. "xpath" — last resort
-
-## Response Format
-Always respond with valid JSON:
+## Response Format (ALWAYS use valid JSON)
 {
-  "thinking": "Your internal reasoning (optional)",
-  "summary": "Brief user-facing explanation of what you're doing",
-  "actions": [{ "type": "...", "description": "...", ... }],
-  "needsScreenshot": false,
-  "done": false,
-  "askUser": "Question for user if you need input (optional)"
+  "thinking": "Your PRIVATE reasoning - NOT shown to user directly",
+  "summary": "What you say TO the user - this is your actual response",
+  "actions": [],
+  "askUser": "Optional: ask a clarifying question",
+  "done": true|false
 }
 
-Set "done": true when the task is complete. Include a final "summary" explaining what was accomplished.
-Set "askUser" to ask the user a clarifying question instead of executing actions.
+## CRITICAL: thinking vs summary
 
-### Tab Management
-- **openTab**: Open a new tab. Needs "url". Optional: "active" (default true).
-- **closeTab**: Close a tab. Optional: "tabId" (closes current if omitted).
-- **switchTab**: Switch to another tab. Needs "tabId" or "urlPattern" (regex to find tab).
-- **getTabs**: Get list of all open tabs.
+"thinking" = Your internal monologue (shown in a collapsed box)
+- What are you analyzing?
+- What's missing?
+- Should you ask or act?
+- Example: "User said 'hey'. This is a greeting. I should respond warmly and ask what they need."
 
-### Macro/Workflow Actions
-- **runMacro**: Execute a saved macro. Needs "macroId".
-- **runWorkflow**: Execute a saved workflow. Needs "workflowId".
+"summary" = Your actual words TO the user (shown prominently)
+- This is what the user reads
+- Be natural, helpful, conversational
+- Example: "Hey!  Great to hear from you. What can I help you with today?"
+
+## EXAMPLE RESPONSES
+
+### Greeting:
+User: "hey"
+{
+  "thinking": "User is greeting me. I should respond in a friendly, casual way and offer help.",
+  "summary": "Hey!  What's up? I'm here to help - want to chat or need me to do something on the web?",
+  "actions": [],
+  "done": true
+}
+
+### Question:
+User: "what's the weather"
+{
+  "thinking": "User is asking about weather. I don't have direct weather access, but I could navigate to a weather site. Or I should ask their location first.",
+  "summary": "I can check the weather for you! What city are you in?",
+  "actions": [],
+  "askUser": "What's your city?",
+  "done": false
+}
+
+### Task with missing info:
+User: "find me leads"
+{
+  "thinking": "User wants leads but I need to know: what industry, location, how many, what format. Let me ask one question at a time.",
+  "summary": "I can help find leads! What industry are you targeting?",
+  "actions": [],
+  "askUser": "What industry?",
+  "done": false
+}
+
+### Ready to execute:
+User: "yes go ahead"
+{
+  "thinking": "User confirmed. I have all the info. Now I'll navigate to the site and start extracting.",
+  "summary": "On it! Starting now...",
+  "actions": [{"type": "navigate", "url": "https://linkedin.com", "description": "Go to LinkedIn"}],
+  "done": false
+}
+
+### After action failed (self-heal):
+Action results: [{"type": "click", "desc": "Click Search", "ok": false, "err": "Element not found"}]
+{
+  "thinking": "Click failed - element not found. I'll try scrolling first to reveal it, or use a different locator like aria-label or index.",
+  "summary": "Search button wasn't visible. Scrolling to find it...",
+  "actions": [{"type": "scroll", "direction": "down", "description": "Scroll to reveal search"}, {"type": "click", "locator": {"strategy": "aria-label", "value": "Search"}, "description": "Click search"}],
+  "done": false
+}
+
+## Available Actions (only when EXECUTING)
+- navigate: {"type": "navigate", "url": "https://...", "description": "..."}
+- click: {"type": "click", "locator": {"strategy": "text", "value": "Button"}, "description": "..."}
+- fill: {"type": "fill", "locator": {...}, "value": "text", "description": "..."}
+- pressKey: {"type": "pressKey", "key": "Enter", "description": "..."}
+- scroll: {"type": "scroll", "direction": "down", "description": "..."}
+- extract: {"type": "extract", "locator": {...}, "description": "..."}
+
+## Self-Healing (when actions fail)
+- You receive action results in history. If something failed, adapt:
+  - Try a different locator (text, aria-label, role, index)
+  - Scroll before locating (elements may be off-screen)
+  - Break into smaller steps
+- NEVER stop with "I couldn't find it" unless you've tried alternatives
+- Keep the task going—partial success is better than quitting
 
 ## Rules
-1. Always examine the page context (URL, elements, body text) before acting.
-2. Use at most 3 actions per response.
-3. If an element is not found, try alternative locator strategies.
-4. Never fill sensitive fields (passwords, SSNs) without user confirmation.
-5. For search tasks, navigate to a search engine first.
-6. Prefer "index" strategy for locators when an element index is available in the page context.
-7. Use "text" strategy for buttons and links when their visible text is clear and unique.
-8. Include "description" on every action explaining what it does in plain language.`;
+1. "thinking" is for YOUR reasoning - the user sees this collapsed
+2. "summary" is what you SAY to the user - make it natural and helpful
+3. Never put reasoning in "summary" - that goes in "thinking"
+4. Ask ONE question at a time via "askUser"
+5. Only use "actions" when ready to execute
+6. When actions fail, adapt and retry—don't give up`;
 
 function buildDynamicSystemPrompt(task: AgentTask): string {
   const basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}`;
-  
+
   if (task.complexity === 'complex') {
     return `${basePrompt}
 
@@ -207,36 +463,91 @@ For this complex task, think through step by step:
 3. What's the best approach?
 4. How will I verify success?`;
   }
-  
+
   return basePrompt;
 }
 
 // ─── Model Selection ──────────────────────────────────────────────────────
-function selectModelForTask(task: AgentTask): string {
-  if (task.type === 'click' || task.type === 'type' || task.type === 'fill') {
-    return MODEL_CASCADE.simple;
+function selectModelForTask(_task: AgentTask): string {
+  return DEFAULT_MODEL;
+}
+
+// Detect provider from API key
+function detectProviderFromKey(apiKey: string): 'openai' | 'anthropic' | 'google' {
+  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
+  if (apiKey.startsWith('AIza')) return 'google';
+  return 'openai';
+}
+
+// Get API headers for each provider
+function getProviderHeaders(provider: string, apiKey: string): Record<string, string> {
+  const baseHeaders: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  switch (provider) {
+    case 'anthropic':
+      return {
+        ...baseHeaders,
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      };
+    case 'google':
+      return baseHeaders; // Google uses key in URL
+    default: // openai
+      return {
+        ...baseHeaders,
+        'Authorization': `Bearer ${apiKey}`,
+      };
   }
-  if (task.requiresReasoning || task.multiStep || task.complexity === 'complex') {
-    return MODEL_CASCADE.complex;
+}
+
+// Build request body for each provider
+function buildProviderRequest(provider: string, model: string, messages: any[], maxTokens: number, temperature: number): Record<string, unknown> {
+  switch (provider) {
+    case 'anthropic':
+      return {
+        model,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        max_tokens: maxTokens,
+        temperature,
+      };
+    case 'google':
+      return {
+        contents: messages.filter(m => m.role !== 'system').map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }],
+        })),
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature,
+        },
+      };
+    default: // openai
+      return {
+        model,
+        messages,
+        max_tokens: maxTokens,
+        temperature,
+      };
   }
-  return MODEL_CASCADE.standard;
 }
 
 function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentTask {
   const commandLower = command.toLowerCase();
   const stepCount = history.filter(h => h?.role === 'assistant').length;
-  
+
   const isSimple = /^(click|press|type|fill|scroll|select)\s/i.test(commandLower);
   const isComplex = /\b(analyze|compare|research|find all|extract|summarize|navigate|search|multi|complex)\b/i.test(commandLower);
   const multiStep = stepCount > 3 || /\b(and|then|after|next|also)\b/i.test(commandLower);
-  
+
   let complexity: TaskComplexity = 'standard';
   if (isSimple && !multiStep) complexity = 'simple';
   if (isComplex || multiStep || stepCount > 5) complexity = 'complex';
-  
+
   const actionMatch = /^(click|type|fill|scroll|navigate|extract|press|select|hover|focus)/.exec(commandLower);
   const actionType = actionMatch ? actionMatch[1] : 'unknown';
-  
+
   return {
     type: actionType,
     description: command,
@@ -296,24 +607,44 @@ interface APIResponse {
   };
 }
 
-// ─── History Compression ───────────────────────────────────────────────────
+// ─── History Compression (importance-aware) ──────────────────────────────────
+function importanceScore(entry: HistoryEntry): number {
+  if (entry.role === 'user') {
+    if (entry.userReply) return 9; // User replies are high value
+    return 5;
+  }
+  if (entry.role === 'assistant' && entry.response) {
+    if (entry.response.askUser) return 10; // Clarification questions - keep
+    if (entry.response.done && entry.response.actions?.length === 0) return 8; // Conversation turns
+    const hasErrors = entry.actionsExecuted?.some(r => !r.success);
+    if (hasErrors) return 9; // Failed actions - keep for context
+    return 6;
+  }
+  return 4;
+}
+
 function compressHistory(history: HistoryEntry[]): HistoryEntry[] {
   if (history.length <= 10) return history;
-  
-  const recent = history.slice(-5);
-  const older = history.slice(0, -5);
-  
-  const actions = older
+
+  const recent = history.slice(-4); // Always keep last 4
+  const older = history.slice(0, -4);
+
+  // Keep high-importance older entries (askUser, errors, user replies)
+  const scored = older.map(e => ({ entry: e, score: importanceScore(e) }));
+  const keep = scored.filter(s => s.score >= 8).map(s => s.entry);
+  const dropEntries = scored.filter(s => s.score < 8).map(s => s.entry);
+
+  const actions = dropEntries
     .filter(m => m.role === 'assistant' && m.response?.actions)
-    .flatMap(m => m.response?.actions?.map(a => a.type) || [])
+    .flatMap(m => m.response?.actions?.map((a: any) => a.type) || [])
     .filter(Boolean);
-  
+
   const summaryEntry: HistoryEntry = {
     role: 'user',
     context: {
       url: 'summary',
       title: 'Compressed History',
-      bodyText: `[Previous ${older.length} turns: ${actions.length} actions - ${actions.slice(0, 5).join(', ')}${actions.length > 5 ? '...' : ''}]`,
+      bodyText: `[Previous ${dropEntries.length} turns: ${actions.length} actions - ${actions.slice(0, 5).join(', ')}${actions.length > 5 ? '...' : ''}]`,
       metaDescription: '',
       formCount: 0,
       semanticElements: [],
@@ -323,8 +654,8 @@ function compressHistory(history: HistoryEntry[]): HistoryEntry[] {
       pageHeight: 0,
     },
   };
-  
-  return [summaryEntry, ...recent];
+
+  return [...keep, summaryEntry, ...recent];
 }
 
 // ─── Semantic Cache ────────────────────────────────────────────────────────
@@ -339,20 +670,20 @@ class SemanticCache {
   private readonly cache = new Map<string, CachedResponse>();
   private readonly maxSize = 50;
   private readonly similarityThreshold = 0.95;
-  
+
   async get(query: string, getEmbedding: (text: string) => Promise<number[]>): Promise<CachedResponse | null> {
     if (this.cache.size === 0) return null;
-    
+
     try {
       const queryEmbedding = await getEmbedding(query);
       if (!queryEmbedding.length) return null;
-      
+
       for (const [key, cached] of this.cache) {
         if (Date.now() - cached.timestamp > 30 * 60 * 1000) {
           this.cache.delete(key);
           continue;
         }
-        
+
         const similarity = this.cosineSimilarity(queryEmbedding, cached.embedding);
         if (similarity > this.similarityThreshold) {
           console.log(`[SemanticCache] Hit with similarity ${similarity.toFixed(3)}`);
@@ -364,13 +695,13 @@ class SemanticCache {
       return null;
     }
   }
-  
+
   async set(query: string, response: LLMResponse, getEmbedding: (text: string) => Promise<number[]>): Promise<void> {
     if (this.cache.size >= this.maxSize) {
       const oldest = [...this.cache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
       if (oldest) this.cache.delete(oldest[0]);
     }
-    
+
     try {
       const embedding = await getEmbedding(query);
       if (embedding.length) {
@@ -381,7 +712,7 @@ class SemanticCache {
       // Silently fail on embedding errors
     }
   }
-  
+
   private cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) return 0;
     let dotProduct = 0;
@@ -395,7 +726,7 @@ class SemanticCache {
     if (normA === 0 || normB === 0) return 0;
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
   }
-  
+
   clear(): void {
     this.cache.clear();
   }
@@ -423,7 +754,7 @@ function _extractMinimalContext(context: PageContext): MinimalContext {
       role: el.role || '',
       index: el.index ?? idx,
     }));
-  
+
   const headings = context.semanticElements
     .filter(el => /^h[1-6]$/i.test(el.tag))
     .slice(0, 10)
@@ -431,7 +762,7 @@ function _extractMinimalContext(context: PageContext): MinimalContext {
       level: Number.parseInt(el.tag.slice(1)),
       text: (el.visibleText || '').slice(0, 80),
     }));
-  
+
   const forms = context.semanticElements
     .filter(el => el.tag.toLowerCase() === 'form')
     .slice(0, 5)
@@ -442,7 +773,7 @@ function _extractMinimalContext(context: PageContext): MinimalContext {
         .slice(0, 10)
         .map(f => f.name || f.placeholder || f.id || 'field'),
     }));
-  
+
   return {
     interactive,
     headings,
@@ -465,7 +796,7 @@ interface StrategicContext {
 function _enhanceWithStrategicReasoning(context: StrategicContext): string {
   const patterns = analyzePatterns(context);
   const alternatives = identifyAlternatives(context);
-  
+
   return `
 STRATEGIC ANALYSIS:
 Goal: ${context.goal}
@@ -486,7 +817,7 @@ function analyzePatterns(context: StrategicContext): string {
   const actionTypes = context.previousActions.map(a => a.split(':')[0] || a);
   const clickCount = actionTypes.filter(a => a === 'click').length;
   const navCount = actionTypes.filter(a => a === 'navigate').length;
-  
+
   if (clickCount > 5) return 'Multiple click attempts - consider alternative locators';
   if (navCount > 2) return 'Multiple navigations - verify target page';
   return 'Normal execution pattern';
@@ -504,21 +835,23 @@ function identifyAlternatives(context: StrategicContext): string {
 
 // ─── Build messages for the API ─────────────────────────────────────
 function buildMessages(command: string, history: HistoryEntry[], context: PageContext): Message[] {
-  const task = analyzeTaskComplexity(command, history);
+  const safeCommand = sanitizeForPrompt(command || '');
+  const task = analyzeTaskComplexity(safeCommand, history);
   const systemPrompt = buildDynamicSystemPrompt(task);
   const messages: Message[] = [{ role: 'system', content: systemPrompt }];
-  
+
   const contextManager = getContextManager();
-  
+
   const compressedHistory = compressHistory(history);
-  
+
   for (let i = 0; i < compressedHistory.length; i++) {
     const entry = compressedHistory[i];
     if (entry.role === 'user') {
       if (entry.userReply) {
+        const safeReply = sanitizeForPrompt(entry.userReply);
         messages.push({
           role: 'user',
-          content: `User replied: ${entry.userReply}`,
+          content: `User replied: ${safeReply}`,
         });
         contextManager.addContextItem({
           type: 'result',
@@ -531,11 +864,12 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
         const ctx = isOld
           ? compactContext(entry.context)
           : (() => {
-              const c = { ...entry.context };
-              delete c.screenshotBase64;
-              return c;
-            })();
-        const content = `Command: ${entry.command}\n\nPage context:\n${JSON.stringify(ctx, null, isOld ? 0 : 2)}`;
+            const c = { ...entry.context };
+            delete c.screenshotBase64;
+            return c;
+          })();
+        const safeCmd = sanitizeForPrompt(entry.command || '');
+        const content = `Command: ${safeCmd}\n\nPage context:\n${JSON.stringify(ctx, null, isOld ? 0 : 2)}`;
         messages.push({
           role: 'user',
           content,
@@ -619,7 +953,7 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
   if (screenshot) delete currentContext.screenshotBase64;
 
   const safeHistory = history || [];
-  const textContent = `Command: ${command || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
+  const textContent = `Command: ${safeCommand || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
 
   if (screenshot) {
     messages.push({
@@ -722,31 +1056,40 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    const model = settings.backupModel || DEFAULT_MODEL;
+    // Detect provider from API key
+    const provider = detectProviderFromKey(settings.apiKey);
+    const providerConfig = PROVIDERS[provider];
+    const model = providerConfig.models.chat;
+
+    const baseUrl = provider === 'google' 
+      ? `${providerConfig.baseUrl}/models/${model}:generateContent?key=${settings.apiKey}`
+      : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
+    
+    const headers = getProviderHeaders(provider, settings.apiKey);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const resp = await fetch(`${settings.baseUrl}/chat/completions`, {
+        const requestBody = buildProviderRequest(provider, model, [{ role: 'user', content: reasoningPrompt }], 1000, 0.1);
+
+        const resp = await fetch(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${settings.apiKey}`,
-            'HTTP-Referer': 'https://hyperagent.ai',
-            'X-Title': 'HyperAgent',
-          },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: 'user', content: reasoningPrompt }],
-            temperature: 0.1,
-            max_tokens: 1000,
-          }),
-          signal: AbortSignal.timeout(30000), // 30 second timeout for fallback
+          headers,
+          body: JSON.stringify(requestBody),
+          signal: AbortSignal.timeout(30000),
         });
 
         if (!resp?.ok) continue;
 
         const data = await resp.json();
-        const content = data?.choices?.[0]?.message?.content;
+        
+        let content: string;
+        if (provider === 'google') {
+          content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else if (provider === 'anthropic') {
+          content = data?.content?.[0]?.text || data?.completion || '';
+        } else {
+          content = data?.choices?.[0]?.message?.content || '';
+        }
 
         if (!content) continue;
 
@@ -962,25 +1305,23 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
+      const provider = detectProviderFromKey(settings.apiKey);
+      const providerConfig = PROVIDERS[provider];
+      const model = providerConfig.models.chat;
+      
+      console.log(`[HyperAgent] Using completion model: ${model} (provider: ${provider})`);
 
-      const completionModel = settings.modelName || DEFAULT_MODEL;
+      const baseUrl = provider === 'google' 
+        ? `${providerConfig.baseUrl}/models/${model}:generateContent?key=${settings.apiKey}`
+        : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
+      
+      const headers = getProviderHeaders(provider, settings.apiKey);
+      const requestBody = buildProviderRequest(provider, model, safeMessages, request.maxTokens ?? 1000, request.temperature ?? 0.7);
 
-      console.log(`[HyperAgent] Using completion model: ${completionModel}`);
-
-      const response = await fetch(`${settings.baseUrl}/chat/completions`, {
+      const response = await fetch(baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
-          'HTTP-Referer': 'https://hyperagent.ai',
-          'X-Title': 'HyperAgent',
-        },
-        body: JSON.stringify({
-          model: completionModel,
-          messages: safeMessages,
-          temperature: request.temperature ?? 0.7,
-          max_tokens: request.maxTokens ?? 1000,
-        }),
+        headers,
+        body: JSON.stringify(requestBody),
         signal: signal || AbortSignal.timeout(60000),
       });
 
@@ -997,7 +1338,13 @@ export class EnhancedLLMClient implements LLMClientInterface {
       }
 
       const data = await response.json();
-      return data.choices?.[0]?.message?.content || '';
+      
+      if (provider === 'google') {
+        return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      } else if (provider === 'anthropic') {
+        return data?.content?.[0]?.text || data?.completion || '';
+      }
+      return data?.choices?.[0]?.message?.content || '';
     } catch (error) {
       console.error('[HyperAgent] Completion failed:', error);
       throw error;
@@ -1036,12 +1383,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
           return response;
         }
       } catch (ollamaError) {
-        console.log('[HyperAgent] Ollama not available, falling back to OpenRouter:', ollamaError);
-        // Fall through to OpenRouter
+        console.log('[HyperAgent] Ollama not available, falling back to cloud API:', ollamaError);
       }
     }
 
-    // Proceed with OpenRouter API call
+    // Sanitize input
     const sanitizedCommand = inputSanitizer.sanitize(request.command || '', {
       maxLength: 10000,
       preserveWhitespace: true,
@@ -1052,14 +1398,16 @@ export class EnhancedLLMClient implements LLMClientInterface {
     }
 
     const task = analyzeTaskComplexity(sanitizedCommand.sanitizedValue, request.history || []);
-    const selectedModel = settings.modelName || selectModelForTask(task);
-    
+    const selectedModel = selectModelForTask(task);
+
+    // Check semantic cache
     const semanticCached = await semanticCache.get(sanitizedCommand.sanitizedValue, (text) => this.getEmbedding(text));
     if (semanticCached) {
       console.log('[HyperAgent] Using semantically cached response');
       return semanticCached.response;
     }
 
+    // Build messages
     const rawMessages = buildMessages(
       sanitizedCommand.sanitizedValue,
       request.history || [],
@@ -1067,6 +1415,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
     );
     const messages = sanitizeMessages(rawMessages);
 
+    // Check cache
     const cacheKey = `llm_${selectedModel}_${this.hashMessages(messages)}`;
     const cachedResponse = await apiCache.get(cacheKey);
     if (cachedResponse) {
@@ -1074,25 +1423,27 @@ export class EnhancedLLMClient implements LLMClientInterface {
       return cachedResponse;
     }
 
-    console.log(`[HyperAgent] Using model: ${selectedModel} (complexity: ${task.complexity})`);
+    // Detect provider from API key
+    const provider = detectProviderFromKey(settings.apiKey);
+    console.log(`[HyperAgent] Using provider: ${provider}, model: ${selectedModel}`);
 
-    const requestBody = {
-      model: selectedModel,
-      messages,
-      temperature: task.complexity === 'complex' ? 0.5 : 0.7,
-      max_tokens: task.complexity === 'complex' ? 4096 : 2048,
-    };
+    // Get provider-specific configuration
+    const providerConfig = PROVIDERS[provider];
+    const baseUrl = provider === 'google' 
+      ? `${providerConfig.baseUrl}/models/${providerConfig.models.chat}:generateContent?key=${settings.apiKey}`
+      : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
+    
+    const headers = getProviderHeaders(provider, settings.apiKey);
+    const maxTokens = task.complexity === 'complex' ? 4096 : 2048;
+    const temperature = task.complexity === 'complex' ? 0.5 : 0.7;
+    const requestBody = buildProviderRequest(provider, selectedModel, messages, maxTokens, temperature);
 
+    // Make API call
     const retryResult = await retryManager.retry(
       async () => {
-        const response = await fetch(`${settings.baseUrl}/chat/completions`, {
+        const response = await fetch(baseUrl, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${settings.apiKey}`,
-            'HTTP-Referer': 'https://hyperagent.ai',
-            'X-Title': 'HyperAgent',
-          },
+          headers,
           body: JSON.stringify(requestBody),
           signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
         });
@@ -1100,26 +1451,44 @@ export class EnhancedLLMClient implements LLMClientInterface {
         if (!response?.ok) {
           const errorText = response ? await response.text() : '';
           console.error(`[HyperAgent] API error ${response?.status ?? 'unknown'}:`, errorText);
+          
           if (response?.status === 429) {
             const retryAfter = response?.headers?.get('Retry-After');
             const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
             throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
           }
+          
           const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
           throw new Error(friendly || `API request failed: ${response?.status ?? 'unknown'}`);
         }
 
+        // Parse response based on provider
+        let content: string;
         const data = await response.json();
-        const content = data?.choices?.[0]?.message?.content;
+        
+        if (provider === 'google') {
+          content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } else if (provider === 'anthropic') {
+          content = data?.content?.[0]?.text || data?.completion || '';
+        } else {
+          content = data?.choices?.[0]?.message?.content || '';
+        }
 
         if (!content) {
           throw new Error('No content in response');
         }
 
+        // Try to parse JSON, fallback to plain text
         const parsed = extractJSON(content);
         if (!parsed) {
-          console.warn('[HyperAgent] Failed to parse JSON from response:', content.slice(0, 500));
-          throw new Error('Failed to parse LLM response');
+          console.warn('[HyperAgent] Failed to parse JSON from response, using plain text:', content.slice(0, 500));
+          return {
+            summary: content.slice(0, 200),
+            thinking: 'Simple text response',
+            actions: [],
+            done: true,
+            needsScreenshot: false,
+          };
         }
 
         return validateResponse(parsed);
@@ -1131,7 +1500,7 @@ export class EnhancedLLMClient implements LLMClientInterface {
           console.log(`[HyperAgent] LLM call attempt ${attempt} failed, retrying:`, error);
         },
       },
-      'llm-api'
+      undefined
     );
 
     if (retryResult.success && retryResult.result) {
@@ -1140,22 +1509,16 @@ export class EnhancedLLMClient implements LLMClientInterface {
       return retryResult.result;
     }
 
-    const fallback = await buildIntelligentFallback(
-      request.command || '',
-      request.context || this.createEmptyContext(),
-      {
-        baseUrl: settings.baseUrl,
-        apiKey: settings.apiKey,
-      }
-    );
-    return (
-      fallback || {
-        thinking: 'Failed to get response after retries.',
-        summary: 'I encountered an error after multiple attempts.',
-        actions: [],
-        done: true,
-      }
-    );
+    const errorMessage =
+      retryResult.error instanceof Error
+        ? retryResult.error.message
+        : String(retryResult.error ?? 'Request failed');
+    return {
+      thinking: 'Failed to get response after retries.',
+      summary: errorMessage || 'I encountered an error after multiple attempts.',
+      actions: [],
+      done: true,
+    };
   }
 
   private hashMessages(messages: any[]): string {
@@ -1185,27 +1548,36 @@ export class EnhancedLLMClient implements LLMClientInterface {
   }
 
   private buildSystemPrompt(request: LLMRequest): string {
-    return `You are HyperAgent, an autonomous browser agent with enhanced reasoning capabilities.
+    return `[HYPERAGENT v4.0]
+You are an intelligent AI assistant with browser automation capabilities.
 
-CORE CAPABILITIES:
-- Observe DOM and understand page context
-- Plan multi-step actions strategically  
-- Execute precise element interactions
-- Verify outcomes and adapt
+## THINK → ASK → CONFIRM → ACT
 
-AVAILABLE ACTIONS:
-- click, fill, select, hover, focus, extract
-- navigate, goBack, scroll, wait, pressKey
-- openTab, closeTab, switchTab, getTabs
-- runMacro, runWorkflow
+Before responding, always think:
+1. What does the user want?
+2. What information am I missing?
+3. Should I ask, confirm, or act?
 
-RESPONSE FORMAT (JSON):
+## MODES
+- CONVERSATION: Chat naturally (actions: [], done: true)
+- GATHERING: Ask clarifying questions (askUser: "...", done: false)
+- CONFIRMING: Verify plan before acting (askUser: "Ready?")
+- EXECUTING: Perform browser actions (actions: [...], done: false)
+
+## Response Format (JSON)
 {
-  "summary": "Brief explanation",
-  "actions": [{"type": "...", "description": "...", ...}],
-  "needsScreenshot": false,
-  "done": false
+  "thinking": "Your internal reasoning",
+  "summary": "Your response to user",
+  "actions": [],
+  "askUser": "optional question",
+  "done": true/false
 }
+
+## Rules
+1. Never execute with missing info - ASK first
+2. Ask ONE question at a time
+3. Confirm before major actions
+4. Be conversational and helpful
 
 USER COMMAND: ${request.command || 'No command'}
 `;

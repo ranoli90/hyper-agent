@@ -1,13 +1,13 @@
 /**
  * @fileoverview HyperAgent side panel UI.
- * Chat, commands, tabs (Swarm, Vision, Tasks, Memory, Marketplace, Subscription).
+ * Chat, commands, tabs (Memory, Subscription).
  */
 
 import type { ExtensionMessage } from '../../shared/types';
-import { billingManager } from '../../shared/billing';
 import { validateAndFilterImportData, STORAGE_KEYS } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 import { debounce } from '../../shared/utils';
+import { billingManager } from '../../shared/billing';
 
 // ─── DOM Elements ───────────────────────────────────────────────
 const safeGetElement = <T extends HTMLElement>(id: string, optional = false): T | null => {
@@ -37,7 +37,6 @@ const components = {
 
   usageActions: safeGetElement<HTMLElement>('usage-actions')!,
   usageTier: safeGetElement<HTMLElement>('usage-tier')!,
-  marketplaceList: safeGetElement<HTMLElement>('marketplace-list')!,
   btnUpgradePremium: safeGetElement<HTMLButtonElement>('btn-upgrade-premium')!,
   btnPayCard: safeGetElement<HTMLButtonElement>('btn-pay-card', true)!,
   btnPayCrypto: safeGetElement<HTMLButtonElement>('btn-pay-crypto', true)!,
@@ -48,11 +47,6 @@ const components = {
   btnCancelSubscription: safeGetElement<HTMLButtonElement>('btn-cancel-subscription')!,
 
   subscriptionBadge: safeGetElement<HTMLElement>('subscription-badge')!,
-  toastContainer: safeGetElement<HTMLElement>('toast-container')!,
-
-  // Vision
-  visionSnapshot: safeGetElement<HTMLImageElement>('vision-snapshot', true)!, // Optional if vision disabled
-  visionPlaceholder: safeGetElement<HTMLElement>('vision-placeholder')!,
 
   // Modals
   confirmModal: safeGetElement<HTMLElement>('confirm-modal')!,
@@ -124,14 +118,14 @@ function updateCharCounter(value: string) {
 // ─── Tab Logic ──────────────────────────────────────────────────
 function switchTab(tabId: string) {
   state.activeTab = tabId;
-  
+
   // Update tab buttons
   components.tabs.forEach(btn => {
     const isSelected = (btn as HTMLElement).dataset.tab === tabId;
     btn.classList.toggle('active', isSelected);
     btn.setAttribute('aria-selected', String(isSelected));
   });
-  
+
   // Update tab panes
   components.panes.forEach(pane => {
     pane.classList.toggle('active', pane.id === `tab-${tabId}`);
@@ -143,7 +137,7 @@ function switchTab(tabId: string) {
   if (tabIndicator && selectedButton) {
     const buttonRect = selectedButton.getBoundingClientRect();
     const navRect = document.getElementById('tabs-nav')?.getBoundingClientRect();
-    
+
     if (navRect) {
       tabIndicator.style.width = `${buttonRect.width}px`;
       tabIndicator.style.left = `${buttonRect.left - navRect.left}px`;
@@ -151,18 +145,29 @@ function switchTab(tabId: string) {
   }
 
   // Load tab-specific content
-  if (tabId === 'marketplace') {
-    loadMarketplace();
-  } else if (tabId === 'subscription') {
+  if (tabId === 'subscription') {
     updateUsageDisplay();
   } else if (tabId === 'memory') {
-    loadMemoryTab();
-  } else if (tabId === 'tasks') {
-    loadTasksTab();
-  } else if (tabId === 'vision') {
-    loadVisionTab();
-  } else if (tabId === 'swarm') {
-    loadSwarmTab();
+    // Load memory stats inline (function was removed during cleanup)
+    (async () => {
+      try {
+        const resp = await chrome.runtime.sendMessage({ type: 'getMemoryStats' });
+        if (resp?.ok) {
+          const statsEl = document.getElementById('memory-stats');
+          if (statsEl) {
+            const strategies = resp.strategies ? Object.keys(resp.strategies).length : 0;
+            statsEl.innerHTML = `
+              <div style="padding:16px;color:var(--text-secondary);font-size:0.875rem;">
+                <p><strong>Site Strategies:</strong> ${strategies}</p>
+                <p><strong>Action History:</strong> ${resp.totalActions || 0} actions logged</p>
+                <p><strong>Sessions:</strong> ${resp.totalSessions || 0}</p>
+              </div>`;
+          }
+        }
+      } catch (err) {
+        console.warn('[HyperAgent] Failed to load memory stats:', err);
+      }
+    })();
   }
 }
 
@@ -208,7 +213,7 @@ if (tabsNav) {
 // Confirm / cancel modal actions
 components.btnConfirm.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
     if (state.confirmTimeoutId) {
       clearTimeout(state.confirmTimeoutId);
@@ -221,7 +226,7 @@ components.btnConfirm.addEventListener('click', () => {
 
 components.btnCancel.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   if (state.confirmResolve) {
     if (state.confirmTimeoutId) {
       clearTimeout(state.confirmTimeoutId);
@@ -265,14 +270,14 @@ components.askModal.addEventListener('click', e => {
 components.btnAskReply.addEventListener('click', () => {
   const reply = components.askReply.value.trim();
   components.askModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   components.askReply.value = '';
   chrome.runtime.sendMessage({ type: 'userReply', reply });
 });
 
 components.btnAskCancel.addEventListener('click', () => {
   components.askModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
   components.askReply.value = '';
   chrome.runtime.sendMessage({ type: 'userReply', reply: '' });
 });
@@ -292,9 +297,6 @@ const SLASH_COMMANDS = {
   '/memory': () => {
     switchTab('memory');
     addMessage('Analyzing memory patterns...', 'status');
-  },
-  '/schedule': () => {
-    switchTab('tasks');
   },
   '/tools': () => {
     addMessage(
@@ -318,13 +320,12 @@ const SLASH_COMMANDS = {
     }
     executeAutonomousCommand(cmd);
   },
-'/help': () => {
+  '/help': () => {
     addMessage(
       `
 **Hyper-Commands:**
 - \`/think\`: Advanced autonomous reasoning
 - \`/memory\`: View stored knowledge
-- \`/schedule\`: Manage background tasks
 - \`/tools\`: List agent capabilities
 - \`/clear\`: Clear chat history
 - \`/shortcuts\`: Show keyboard shortcuts
@@ -359,7 +360,7 @@ const SLASH_COMMANDS = {
       'agent'
     );
   },
-'/export': () => {
+  '/export': () => {
     showExportOptions();
   },
   '/export-all': () => {
@@ -378,7 +379,6 @@ const SLASH_COMMANDS = {
 
 const SUGGESTIONS = [
   { command: '/memory', description: 'Search stored knowledge' },
-  { command: '/schedule', description: 'Manage background tasks' },
   { command: '/tools', description: 'List available agent tools' },
   { command: '/clear', description: 'Clear chat history' },
   { command: '/export', description: 'Export data (options menu)' },
@@ -456,19 +456,56 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
     console.error('[HyperAgent] Chat history component not found');
     return null;
   }
-  
+
   clearExampleCommands();
-  
-  // Validate content
+
+  // Validate and sanitize content (strip control chars; prevent injection)
   if (!content || typeof content !== 'string') {
     content = 'Empty message';
+  } else {
+    content = content.replaceAll(/\x00/g, '').replaceAll(/[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
   }
-  
+
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
   try {
-    if (type === 'agent') {
+    if (type === 'thinking') {
+      // Create collapsible thinking message
+      div.classList.add('thinking-msg');
+
+      // Header with animated dots
+      const header = document.createElement('div');
+      header.className = 'thinking-header';
+      header.innerHTML = `
+        <svg class="thinking-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 6v6l4 2"/>
+        </svg>
+        <span class="thinking-label">Thinking</span>
+        <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>
+        <svg class="thinking-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      `;
+
+      // Content container (hidden by default)
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'thinking-content';
+      contentDiv.innerHTML = renderMarkdown(content);
+      contentDiv.style.display = 'none';
+
+      // Click to toggle
+      header.addEventListener('click', () => {
+        const isExpanded = contentDiv.style.display !== 'none';
+        contentDiv.style.display = isExpanded ? 'none' : 'block';
+        header.classList.toggle('expanded', !isExpanded);
+        div.classList.toggle('expanded', !isExpanded);
+      });
+
+      div.appendChild(header);
+      div.appendChild(contentDiv);
+    } else if (type === 'agent') {
       div.innerHTML = renderMarkdown(content);
     } else {
       div.textContent = content;
@@ -482,38 +519,73 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
     components.chatHistory.appendChild(div);
     scrollToBottom();
     saveHistory(); // Persist
+    updateChatSearchVisibility();
   } catch (appendErr) {
     console.error('[HyperAgent] Error adding message to chat history:', appendErr);
   }
-  
+
   return div;
+}
+
+function updateChatSearchVisibility() {
+  const bar = document.getElementById('chat-search-bar');
+  const msgs = components.chatHistory?.querySelectorAll('.chat-msg');
+  const hasMessages = msgs && msgs.length > 0;
+  if (bar) bar.style.display = hasMessages ? 'block' : 'none';
+}
+
+function filterChatBySearch(query: string) {
+  const msgs = components.chatHistory?.querySelectorAll('.chat-msg');
+  const hint = document.getElementById('chat-search-hint');
+  if (!msgs) return;
+
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    msgs.forEach(el => {
+      (el as HTMLElement).style.display = '';
+      (el as HTMLElement).classList.remove('search-highlight');
+    });
+    if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+    return;
+  }
+
+  let matchCount = 0;
+  msgs.forEach(el => {
+    const html = el as HTMLElement;
+    const text = html.textContent || '';
+    const matches = text.toLowerCase().includes(q);
+    html.style.display = matches ? '' : 'none';
+    if (matches) matchCount++;
+    html.classList.toggle('search-highlight', matches);
+  });
+  if (hint) {
+    hint.style.display = 'block';
+    hint.textContent = matchCount > 0 ? `${matchCount} message${matchCount === 1 ? '' : 's'} match` : 'No matches';
+  }
 }
 
 function renderMarkdown(text: string): string {
   try {
     // First escape all HTML to prevent XSS
     let html = escapeHtml(text);
-    
+
     // Then apply markdown transformations (order matters - code blocks first)
-    // Code blocks
+    // Code blocks - lang in attribute; code from escaped text (escapeHtml applied first above)
     html = html.replaceAll(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-      return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
+      return `<pre><code class="language-${escapeHtml(lang)}">${code.trim()}</code></pre>`;
     });
-    
+
     // Inline code
-    html = html.replaceAll(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
-    
-    // Bold
+    html = html.replaceAll(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+
+    // Bold and italic (captured groups are from escaped text)
     html = html.replaceAll(/\*\*([^*]+)\*\*/g, (_, t) => `<strong>${t}</strong>`);
-    
-    // Italic
     html = html.replaceAll(/\*([^*]+)\*/g, (_, t) => `<em>${t}</em>`);
-    
-    // Links - validate href is safe
+
+    // Links - validate href is safe (http/https only; captured text already escaped)
     html = html.replaceAll(
       /\[([^\]]+)\]\(([^)]+)\)/g,
       (_, linkText, href) => {
-        // Only allow http/https links
         const safeHref = /^https?:\/\//i.test(href) ? href : '#';
         return `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">${linkText}</a>`;
       }
@@ -524,7 +596,7 @@ function renderMarkdown(text: string): string {
       .split('\n\n')
       .map(p => `<p>${p.replaceAll(/\n/g, '<br>')}</p>`)
       .join('');
-    
+
     return html;
   } catch {
     return escapeHtml(text);
@@ -575,6 +647,7 @@ function scrollToBottom() {
 }
 
 function updateStatus(text: string, stateClass: string = 'active') {
+  if (!components.statusBar || !components.statusText) return;
   components.statusBar.classList.remove('hidden');
   components.statusText.textContent = text;
   if (stateClass === 'hidden') components.statusBar.classList.add('hidden');
@@ -586,8 +659,17 @@ function updateStepper(stepId: string) {
   });
 }
 
-function handleCommand(text: string) {
+async function handleCommand(text: string) {
   const cmd = sanitizeInput(text).trim();
+
+  // API key required for AI commands (skip for slash commands)
+  const { [STORAGE_KEYS.API_KEY]: apiKey } = await chrome.storage.local.get(STORAGE_KEYS.API_KEY);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    addMessage('Please add your API key in Settings to run commands.', 'status');
+    showToast('Open Settings to add your API key', 'warning');
+    components.btnSettings?.focus();
+    return;
+  }
 
   // Match slash commands — exact match first, then prefix match for commands with args
   const slashKey = Object.keys(SLASH_COMMANDS).find(
@@ -620,7 +702,10 @@ function handleCommand(text: string) {
   switchTab('chat');
   updateStatus('Orchestrating AI...', 'active');
 
-  chrome.runtime.sendMessage({ type: 'executeCommand', command: cmd } as ExtensionMessage);
+  // Pass the currently selected model from the UI dropdown
+  const modelSelector = document.getElementById('model-selector') as HTMLSelectElement | null;
+  const selectedModel = modelSelector?.value || undefined;
+  chrome.runtime.sendMessage({ type: 'executeCommand', command: cmd, model: selectedModel } as ExtensionMessage);
 }
 
 function executeAutonomousCommand(cmd: string) {
@@ -644,7 +729,7 @@ function setRunning(running: boolean) {
   state.isRunning = running;
   components.btnExecute.classList.toggle('hidden', running);
   components.btnStop.classList.toggle('hidden', !running);
-  components.commandInput.disabled = running;
+  components.commandInput.disabled = running || !navigator.onLine;
 
   if (running) {
     showLoading('Processing your command...');
@@ -656,10 +741,23 @@ function setRunning(running: boolean) {
   }
 }
 
+// Max chat history size to avoid storage limit (~5MB for chrome.storage.local)
+const MAX_CHAT_HISTORY_BYTES = 1024 * 1024; // 1MB
+
 // ─── Persistence ────────────────────────────────────────────────
 async function saveHistoryImmediate() {
   try {
-    const historyHTML = components.chatHistory.innerHTML;
+    let historyHTML = components.chatHistory.innerHTML;
+    let bytes = new TextEncoder().encode(historyHTML).length;
+    if (bytes > MAX_CHAT_HISTORY_BYTES) {
+      const container = components.chatHistory;
+      const messages = Array.from(container.querySelectorAll('.chat-msg'));
+      for (let i = 0; i < messages.length - 5 && bytes > MAX_CHAT_HISTORY_BYTES; i++) {
+        messages[i]?.remove();
+        historyHTML = container.innerHTML;
+        bytes = new TextEncoder().encode(historyHTML).length;
+      }
+    }
     await chrome.storage.local.set({ chat_history_backup: historyHTML });
   } catch (err) {
     // Removed console.warn
@@ -678,27 +776,55 @@ async function loadHistory() {
   try {
     const data = await chrome.storage.local.get('chat_history_backup');
     if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
-      // Sanitize HTML before inserting to prevent XSS (Issue #81)
-      // We only allow a limited set of tags that our renderMarkdown function produces
-      const result = inputSanitizer.sanitize(data.chat_history_backup, {
+      const savedHtml = data.chat_history_backup;
+
+      // Check if the saved HTML is corrupted (missing angle brackets)
+      // Corrupted HTML looks like: div class="chat-msg" instead of <div class="chat-msg">
+      const hasCorruptedHtml =
+        // Pattern 1: div or span tags without opening angle bracket
+        /(^|[^<])div class=/.test(savedHtml) ||
+        /(^|[^<])span class=/.test(savedHtml) ||
+        // Pattern 2: closing tags without angle bracket
+        /div\s*$/.test(savedHtml) ||
+        /\/div/.test(savedHtml) && !/<\/div>/.test(savedHtml) ||
+        // Pattern 3: any HTML tag pattern missing angle brackets
+        /[a-z]+\s+(class|id|style)=["'][^"']*["']/.test(savedHtml) &&
+        !/<[a-z]+\s+(class|id|style)=["']/.test(savedHtml);
+
+      if (hasCorruptedHtml) {
+        // Clear corrupted history and start fresh
+        await chrome.storage.local.remove('chat_history_backup');
+        console.log('[HyperAgent] Cleared corrupted chat history - missing angle brackets detected');
+        showExampleCommandsIfNeeded();
+        return;
+      }
+
+      // The saved HTML was already processed by renderMarkdown and addMessage.
+      // We use alreadySafeHtml to skip XSS protection which incorrectly 
+      // strips angle brackets from valid HTML tags.
+      // We only do basic tag filtering to ensure only safe HTML tags remain.
+      const result = inputSanitizer.sanitize(savedHtml, {
         allowHtml: true,
+        alreadySafeHtml: true, // Skip XSS protection - this HTML is already safe
         allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'],
         allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
       });
       components.chatHistory.innerHTML = result.sanitizedValue;
       scrollToBottom();
     }
+    updateChatSearchVisibility();
     showExampleCommandsIfNeeded();
   } catch (err) {
     // Removed console.warn
     showExampleCommandsIfNeeded();
   }
+  updateChatSearchVisibility();
 }
 
 function showExampleCommandsIfNeeded() {
   const chatHistory = components.chatHistory;
   if (!chatHistory) return;
-  
+
   const hasRealContent = chatHistory.querySelector('.chat-msg');
   if (hasRealContent) return;
 
@@ -712,7 +838,7 @@ function showExampleCommandsIfNeeded() {
   const examplesContainer = document.createElement('div');
   examplesContainer.className = 'example-commands';
   examplesContainer.style.cssText = 'padding: 24px; text-align: center;';
-  
+
   const title = document.createElement('p');
   title.style.cssText = 'color: var(--text-tertiary); margin-bottom: 16px; font-size: 0.875rem; font-weight: 500;';
   title.textContent = 'Try one of these commands:';
@@ -730,7 +856,7 @@ function showExampleCommandsIfNeeded() {
                          border-radius: 12px; padding: 14px 16px; cursor: pointer; text-align: left;
                          font-size: 0.875rem; color: var(--text-primary); transition: all 0.2s; font-family: inherit;
                          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);`;
-    
+
     btn.addEventListener('click', () => {
       components.commandInput.value = cmd;
       components.commandInput.focus();
@@ -806,7 +932,8 @@ function navigateHistory(direction: 'up' | 'down'): string | null {
   return state.commandHistory[state.historyIndex] || null;
 }
 
-let _selectedBillingInterval: 'month' | 'year' = 'month';
+// billingInterval unused in MVP; kept as placeholder for future billing cycle toggle
+// let _selectedBillingInterval: 'month' | 'year' = 'month';
 
 async function updateUsageDisplay() {
   try {
@@ -825,7 +952,7 @@ async function updateUsageDisplay() {
     if (actionsProgress) {
       const pct = limitActions === -1 ? 0 : Math.min(100, (actions / limitActions) * 100);
       actionsProgress.style.width = `${pct}%`;
-      
+
       let progressClass = 'progress-bar-fill';
       if (pct > 90) {
         progressClass += ' danger';
@@ -900,524 +1027,6 @@ async function updateUsageDisplay() {
   }
 }
 
-interface MarketplaceWorkflow {
-  id: string;
-  name: string;
-  description: string;
-  price: string;
-  category: string;
-  tier: 'free' | 'premium' | 'unlimited';
-  rating: number;
-  installs: string;
-  icon: string;
-}
-
-const MARKETPLACE_WORKFLOWS: MarketplaceWorkflow[] = [
-  { id: 'web-scraper', name: 'Web Scraper Pro', description: 'Extract structured data from any webpage with CSS selectors and pagination support', price: 'Free', category: 'data', tier: 'free', rating: 4.8, installs: '12.3k', icon: '' },
-  { id: 'form-filler', name: 'Smart Form Filler', description: 'Auto-fill forms using stored profiles with intelligent field matching', price: 'Free', category: 'productivity', tier: 'free', rating: 4.6, installs: '8.7k', icon: '' },
-  { id: 'price-tracker', name: 'Price Tracker', description: 'Monitor product prices across e-commerce sites and alert on drops', price: 'Free', category: 'data', tier: 'free', rating: 4.7, installs: '15.1k', icon: '' },
-  { id: 'email-automation', name: 'Email Outreach', description: 'Send personalized emails in bulk with templates and tracking', price: 'Premium', category: 'communication', tier: 'premium', rating: 4.5, installs: '5.2k', icon: '️' },
-  { id: 'social-media-poster', name: 'Social Publisher', description: 'Schedule and post content to Twitter, LinkedIn, and Facebook', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.4, installs: '3.8k', icon: '' },
-  { id: 'invoice-processor', name: 'Invoice Extractor', description: 'Extract line items, totals, and dates from invoice PDFs', price: 'Premium', category: 'business', tier: 'premium', rating: 4.9, installs: '6.4k', icon: '' },
-  { id: 'seo-auditor', name: 'SEO Auditor', description: 'Comprehensive on-page SEO analysis with actionable recommendations', price: 'Premium', category: 'marketing', tier: 'premium', rating: 4.3, installs: '4.1k', icon: '' },
-  { id: 'lead-generator', name: 'Lead Generator', description: 'Extract business contacts from directories and social profiles', price: 'Premium', category: 'business', tier: 'premium', rating: 4.6, installs: '7.9k', icon: '' },
-  { id: 'competitor-monitor', name: 'Competitor Monitor', description: 'Track competitor pricing, content changes, and new features', price: 'Unlimited', category: 'business', tier: 'unlimited', rating: 4.7, installs: '2.1k', icon: '️' },
-  { id: 'data-pipeline', name: 'Data Pipeline', description: 'ETL workflows: extract, transform, and load data across platforms', price: 'Unlimited', category: 'data', tier: 'unlimited', rating: 4.8, installs: '1.5k', icon: '' },
-  { id: 'report-generator', name: 'Report Generator', description: 'Auto-generate weekly reports from multiple data sources', price: 'Premium', category: 'productivity', tier: 'premium', rating: 4.5, installs: '3.3k', icon: '' },
-  { id: 'tab-organizer', name: 'Tab Organizer', description: 'Automatically group, sort, and manage browser tabs by project', price: 'Free', category: 'productivity', tier: 'free', rating: 4.2, installs: '9.4k', icon: '️' },
-];
-
-let activeCategory = 'all';
-let searchQuery = '';
-let marketplaceListenersAttached = false;
-let installedWorkflowIds: Set<string> = new Set();
-
-async function loadMarketplace() {
-  // Reset flag to re-attach listeners when switching back to marketplace
-  // (DOM nodes are replaced on tab switch, so stale listeners must be rebound)
-  marketplaceListenersAttached = false;
-
-  // Load installed workflows from background
-  try {
-    const resp = await chrome.runtime.sendMessage({ type: 'getInstalledWorkflows' });
-    if (resp?.ok && Array.isArray(resp.workflows)) {
-      installedWorkflowIds = new Set(resp.workflows);
-    }
-  } catch (e) {
-    // Removed console.warn
-  }
-
-  renderMarketplaceWorkflows();
-
-  if (marketplaceListenersAttached) return;
-  marketplaceListenersAttached = true;
-
-  const searchInput = document.getElementById('marketplace-search-input') as HTMLInputElement;
-  if (searchInput) {
-    searchInput.addEventListener('input', debounce(() => {
-      searchQuery = searchInput.value.toLowerCase().trim();
-      renderMarketplaceWorkflows();
-    }, 200));
-  }
-
-  document.querySelectorAll('.category-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.category-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      activeCategory = (btn as HTMLElement).dataset.category || 'all';
-      renderMarketplaceWorkflows();
-    });
-  });
-
-  const freeFilter = document.getElementById('filter-free') as HTMLInputElement;
-  if (freeFilter) {
-    freeFilter.addEventListener('change', renderMarketplaceWorkflows);
-  }
-}
-
-function renderMarketplaceWorkflows() {
-  let filtered = MARKETPLACE_WORKFLOWS;
-
-  if (activeCategory !== 'all') {
-    filtered = filtered.filter(w => w.category === activeCategory);
-  }
-  if (searchQuery) {
-    filtered = filtered.filter(w =>
-      w.name.toLowerCase().includes(searchQuery) ||
-      w.description.toLowerCase().includes(searchQuery)
-    );
-  }
-
-  // Filter by price (free) if requested
-  const isFreeFilter = document.getElementById('filter-free') as HTMLInputElement;
-  if (isFreeFilter && isFreeFilter.checked) {
-    filtered = filtered.filter(w => w.price === 'Free');
-  }
-
-  components.marketplaceList.innerHTML = '';
-
-  if (filtered.length === 0) {
-    components.marketplaceList.innerHTML = '<p class="empty-state">No workflows found matching your criteria.</p>';
-    return;
-  }
-
-  filtered.forEach(workflow => {
-    const currentTier = billingManager.getTier();
-    // Map new tier names to legacy for comparison
-    const tierOrder = { community: 0, beta: 1, free: 0, premium: 1, unlimited: 2 };
-    const currentTierLevel = tierOrder[currentTier] || 0;
-    const workflowTierLevel = tierOrder[workflow.tier] || 0;
-    const canInstall = currentTierLevel >= workflowTierLevel;
-    const isInstalled = installedWorkflowIds.has(workflow.id);
-    const stars = ''.repeat(Math.floor(workflow.rating)) + (workflow.rating % 1 >= 0.5 ? '½' : '');
-
-    let btnLabel: string;
-    let btnClass: string;
-    let btnDisabled = '';
-    if (isInstalled) {
-      btnLabel = ' Installed';
-      btnClass = 'install-btn installed';
-      btnDisabled = 'disabled';
-    } else if (!canInstall) {
-      btnLabel = ' Upgrade to ' + workflow.tier.charAt(0).toUpperCase() + workflow.tier.slice(1);
-      btnClass = 'install-btn locked';
-    } else {
-      btnLabel = 'Install';
-      btnClass = 'install-btn';
-    }
-
-    const card = document.createElement('div');
-    card.className = `workflow-card${!canInstall && !isInstalled ? ' locked' : ''}`;
-    card.innerHTML = `
-      <div class="workflow-card-header">
-        <span class="workflow-icon">${workflow.icon}</span>
-        <div class="workflow-title-group">
-          <h4>${escapeHtml(workflow.name)}</h4>
-          <span class="workflow-tier-badge ${workflow.tier}">${workflow.price}</span>
-        </div>
-      </div>
-      <p class="workflow-desc">${escapeHtml(workflow.description)}</p>
-      <div class="workflow-meta">
-        <span class="workflow-rating" title="${workflow.rating}/5">${stars} ${workflow.rating}</span>
-        <span class="workflow-installs">${workflow.installs} installs</span>
-      </div>
-      <button class="${btnClass}" data-workflow-id="${workflow.id}" ${btnDisabled}>
-        ${btnLabel}
-      </button>
-    `;
-    components.marketplaceList.appendChild(card);
-  });
-
-  components.marketplaceList.querySelectorAll('.install-btn').forEach(btn => {
-    btn.addEventListener('click', e => {
-      const target = e.target as HTMLElement;
-      const workflowId = target.dataset.workflowId;
-      if (!workflowId) return;
-
-      if (target.classList.contains('locked')) {
-        switchTab('subscription');
-        showToast('Upgrade required for this workflow', 'warning');
-        return;
-      }
-
-      installWorkflow(workflowId);
-    });
-  });
-}
-
-async function installWorkflow(workflowId: string) {
-  addMessage(`Installing workflow: ${workflowId}...`, 'status');
-
-  try {
-    const response = await chrome.runtime.sendMessage({ type: 'installWorkflow', workflowId });
-    if (response?.ok) {
-      installedWorkflowIds.add(workflowId);
-      addMessage(`Workflow "${escapeHtml(workflowId)}" installed successfully!`, 'agent');
-      showToast('Workflow installed', 'success');
-      renderMarketplaceWorkflows();
-    } else {
-      addMessage(`Failed to install workflow: ${escapeHtml(response?.error || 'Unknown error')}`, 'error');
-    }
-  } catch {
-    addMessage('Failed to install workflow: connection error', 'error');
-  }
-}
-
-// ─── Memory Tab ────────────────────────────────────────────────
-async function loadMemoryTab() {
-  const memoryList = document.getElementById('memory-list');
-  const memoryStats = document.getElementById('memory-stats');
-
-  if (!memoryList || !memoryStats) return;
-
-  try {
-    const response = await chrome.runtime.sendMessage({ type: 'getMemoryStats' });
-
-    if (response) {
-      memoryStats.textContent = `${response.domainsCount || 0} domains tracked, ${response.totalActions || 0} actions logged`;
-
-      if (response.strategies && Object.keys(response.strategies).length > 0) {
-        memoryList.innerHTML = '';
-
-        for (const [domain, strategy] of Object.entries(response.strategies)) {
-          const card = document.createElement('div');
-          card.className = 'memory-card';
-          const s = strategy as any;
-          const successCount = Number(s.successfulLocators?.length) || 0;
-          const failedCount = Number(s.failedLocators?.length) || 0;
-          const lastUsedStr = s.lastUsed ? new Date(s.lastUsed).toLocaleDateString() : 'Never';
-          card.innerHTML = `
-            <div class="memory-domain">${escapeHtml(domain)}</div>
-            <div class="memory-stats-row">
-              <span>Success: ${successCount}</span>
-              <span>Failed: ${failedCount}</span>
-            </div>
-            <div class="memory-last-used">Last used: ${escapeHtml(lastUsedStr)}</div>
-          `;
-          memoryList.appendChild(card);
-        }
-      } else {
-        memoryList.innerHTML =
-          '<p class="empty-state">No memory data yet. The agent learns from your interactions.</p>';
-      }
-    }
-  } catch {
-    memoryList.innerHTML = '<p class="error-state">Failed to load memory data</p>';
-  }
-}
-
-// ─── Tasks Tab ────────────────────────────────────────────────
-let tasksListenersAttached = false;
-async function loadTasksTab() {
-  const tasksList = document.getElementById('tasks-list');
-  if (!tasksList) return;
-
-  const addTaskBtn = document.getElementById('btn-add-task-ui');
-  if (addTaskBtn && !tasksListenersAttached) {
-    tasksListenersAttached = true;
-    addTaskBtn.addEventListener('click', () => {
-      switchTab('chat');
-      components.commandInput.value = '';
-      components.commandInput.placeholder = 'e.g. schedule daily search for news';
-      components.commandInput.focus();
-    });
-  }
-
-  try {
-    const response = await chrome.runtime.sendMessage({ type: 'getScheduledTasks' });
-
-    if (response?.tasks && response.tasks.length > 0) {
-      tasksList.innerHTML = '';
-
-      response.tasks.forEach((task: any) => {
-        const item = document.createElement('div');
-        item.className = 'task-item';
-        const safeId = escapeHtml(String(task.id || ''));
-        const lastErrorHtml = task.lastError
-          ? `<div class="task-error">Error: ${escapeHtml(task.lastError)}</div>`
-          : '';
-        item.innerHTML = `
-          <div class="task-header">
-            <span class="task-name">${escapeHtml(task.name || 'Unnamed')}</span>
-            <span class="task-status ${task.enabled ? 'enabled' : 'disabled'}">${task.enabled ? 'Active' : 'Paused'}</span>
-          </div>
-          <div class="task-command">${escapeHtml(task.command || '')}</div>
-          <div class="task-schedule">${escapeHtml(formatSchedule(task.schedule))}</div>
-          <div class="task-next-run">Next: ${task.nextRun ? escapeHtml(new Date(task.nextRun).toLocaleString()) : 'Not scheduled'}</div>
-          ${lastErrorHtml}
-          <div class="task-actions">
-            <button class="btn-small" data-task-id="${safeId}" data-action="toggle" data-enabled="${task.enabled}">${task.enabled ? 'Pause' : 'Enable'}</button>
-            <button class="btn-small btn-danger" data-task-id="${safeId}" data-action="delete">Delete</button>
-          </div>
-        `;
-        tasksList.appendChild(item);
-      });
-
-      tasksList.querySelectorAll('.btn-small').forEach(btn => {
-        btn.addEventListener('click', e => {
-          const target = e.target as HTMLButtonElement;
-          const taskId = target.dataset.taskId;
-          const action = target.dataset.action;
-          const currentEnabled = action === 'toggle' ? target.dataset.enabled === 'true' : undefined;
-          handleTaskAction(taskId, action, currentEnabled);
-        });
-      });
-    } else {
-      tasksList.innerHTML = `
-        <p class="empty-state">No scheduled tasks.</p>
-        <p class="hint">Use commands like "schedule daily search for news" to create tasks.</p>
-      `;
-    }
-  } catch {
-    tasksList.innerHTML = '<p class="error-state">Failed to load tasks</p>';
-  }
-}
-
-function formatSchedule(schedule: any): string {
-  if (!schedule) return 'Unknown';
-
-  switch (schedule.type) {
-    case 'once':
-      return `Once at ${new Date(schedule.time).toLocaleString()}`;
-    case 'interval':
-      return `Every ${schedule.intervalMinutes} minutes`;
-    case 'daily':
-      return 'Daily';
-    case 'weekly':
-      return `Weekly on ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][schedule.dayOfWeek || 0]}`;
-    default:
-      return 'Custom schedule';
-  }
-}
-
-async function handleTaskAction(taskId: string | undefined, action: string | undefined, currentEnabled?: boolean) {
-  if (!taskId || !action) return;
-
-  if (action === 'toggle') {
-    // Toggle: pass opposite of current state (Pause = disable, Enable = enable)
-    const enabled = currentEnabled !== undefined ? !currentEnabled : true;
-    await chrome.runtime.sendMessage({ type: 'toggleScheduledTask', taskId, enabled });
-    loadTasksTab();
-  } else if (action === 'delete') {
-    await chrome.runtime.sendMessage({ type: 'deleteScheduledTask', taskId });
-    loadTasksTab();
-  }
-}
-
-// ─── Vision Tab ────────────────────────────────────────────────
-let visionListenersAttached = false;
-function loadVisionTab() {
-  const visionContainer = document.getElementById('vision-container');
-  const visionOverlays = document.getElementById('vision-overlays');
-
-  if (!visionContainer || !visionOverlays) return;
-
-  if (components.visionSnapshot?.src && components.visionSnapshot.src !== '') {
-    components.visionSnapshot.classList.remove('hidden');
-    components.visionPlaceholder.classList.add('hidden');
-  }
-
-  visionOverlays.innerHTML = `
-    <div class="vision-controls">
-      <button id="btn-capture-vision" class="btn-secondary">Capture Screenshot</button>
-      <button id="btn-analyze-vision" class="btn-secondary">Analyze Page</button>
-    </div>
-    <div class="vision-info">
-      <p>Vision mode captures screenshots for AI analysis when DOM extraction fails.</p>
-      <p>Enable in settings for automatic fallback on sparse pages.</p>
-    </div>
-  `;
-
-  if (visionListenersAttached) return;
-  visionListenersAttached = true;
-
-  const captureBtn = document.getElementById('btn-capture-vision');
-  if (captureBtn) {
-    captureBtn.addEventListener('click', async () => {
-      try {
-        const response = await chrome.runtime.sendMessage({ type: 'captureScreenshot' });
-        if (response?.dataUrl && components.visionSnapshot) {
-          components.visionSnapshot.src = `data:image/jpeg;base64,${response.dataUrl}`;
-          components.visionSnapshot.classList.remove('hidden');
-          components.visionPlaceholder.classList.add('hidden');
-          addMessage('Screenshot captured for analysis.', 'status');
-        }
-      } catch {
-        addMessage('Failed to capture screenshot.', 'error');
-      }
-    });
-  }
-  const analyzeBtn = document.getElementById('btn-analyze-vision');
-  if (analyzeBtn) {
-    analyzeBtn.addEventListener('click', () => {
-      switchTab('chat');
-      components.commandInput.value = 'Analyze this page and describe what you see.';
-      components.commandInput.focus();
-    });
-  }
-}
-
-// ─── Swarm Tab ───────────────────────────────────────────────────
-let _swarmListenersAttached = false;
-// ─── Swarm Tab ───────────────────────────────────────────────────
-async function loadSwarmTab() {
-  const agentList = document.getElementById('agent-list');
-  const activeMissions = document.getElementById('active-missions');
-  const activeMissionsList = document.getElementById('active-missions-list');
-  const missionHistoryList = document.getElementById('mission-history-list');
-  const snapshotsList = document.getElementById('snapshots-list');
-  const swarmState = document.getElementById('swarm-state');
-
-  if (!agentList || !activeMissions || !activeMissionsList || !missionHistoryList || !snapshotsList) {
-    return;
-  }
-
-  try {
-    // Load swarm status from background
-    const swarmStatus = await chrome.runtime.sendMessage({ type: 'getSwarmStatus' });
-    const isSwarmActive = swarmStatus?.ok && swarmStatus.status?.enabled;
-    
-    // Update swarm state indicator
-    if (swarmState) {
-      swarmState.textContent = isSwarmActive ? 'Active' : 'Inactive';
-      swarmState.parentElement?.classList.toggle('bg-emerald-500/10', isSwarmActive);
-      swarmState.parentElement?.classList.toggle('text-emerald-500', isSwarmActive);
-      swarmState.parentElement?.classList.toggle('bg-orange-500/10', !isSwarmActive);
-      swarmState.parentElement?.classList.toggle('text-orange-400', !isSwarmActive);
-    }
-
-    // Load agent status from background
-    if (swarmStatus?.ok && swarmStatus.status?.agents) {
-      agentList.innerHTML = swarmStatus.status.agents.map((agent: any) => `
-        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-          <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full ${agent.status === 'Active' ? 'bg-emerald-500 animate-pulse' : 'bg-zinc-400'}"></div>
-            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${agent.displayName}</span>
-          </div>
-          <span class="text-xs text-zinc-500 dark:text-zinc-400">${agent.status}</span>
-        </div>
-      `).join('');
-    } else {
-      agentList.innerHTML = '<p class="empty-state">Swarm intelligence not available</p>';
-    }
-
-    // Load saved snapshots
-    const snapshots = await chrome.runtime.sendMessage({ type: 'listSnapshots' });
-    if (snapshots?.ok && snapshots.snapshots?.length > 0) {
-      snapshotsList.innerHTML = snapshots.snapshots.map((snap: any) => `
-        <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-          <div class="flex items-center gap-2">
-            <div class="w-2 h-2 rounded-full bg-blue-500"></div>
-            <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${escapeHtml(snap.command.slice(0, 30))}...</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <button class="btn-small" data-task-id="${snap.taskId}" data-action="resume">Resume</button>
-            <button class="btn-small btn-danger" data-task-id="${snap.taskId}" data-action="delete">Delete</button>
-          </div>
-        </div>
-      `).join('');
-
-      snapshotsList.querySelectorAll('.btn-small').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const taskId = (btn as HTMLButtonElement).dataset.taskId;
-          const action = (btn as HTMLButtonElement).dataset.action;
-          if (taskId && action === 'resume') {
-            const resp = await chrome.runtime.sendMessage({ type: 'resumeSnapshot', taskId });
-            if (resp?.ok) {
-              showToast('Resuming mission...', 'info');
-            } else {
-              showToast(resp?.error || 'Failed to resume', 'error');
-            }
-          } else if (taskId && action === 'delete') {
-            const resp = await chrome.runtime.sendMessage({ type: 'clearSnapshot', taskId });
-            if (resp?.ok) {
-              showToast('Snapshot deleted', 'success');
-              loadSwarmTab();
-            } else {
-              showToast(resp?.error || 'Failed to delete', 'error');
-            }
-          }
-        });
-      });
-    } else {
-      snapshotsList.innerHTML = `
-        <p class="empty-state">No saved missions.</p>
-        <p class="hint">Use commands like "extract data from website" to create snapshots.</p>
-      `;
-    }
-
-    // Load active missions (from real data)
-    const activeMissionsData: Array<{ name: string; progress: number }> = []; // Replace with real data from background
-    activeMissionsList.innerHTML = activeMissionsData.map(mission => `
-      <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-        <div class="flex items-center gap-2">
-          <div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
-        </div>
-        <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-          <span>${mission.progress}%</span>
-          <div class="w-24 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
-            <div class="h-full bg-emerald-500 rounded-full" style="width: ${mission.progress}%"></div>
-          </div>
-        </div>
-      </div>
-    `).join('');
-
-    if (activeMissions) activeMissions.textContent = activeMissionsData.length.toString();
-
-    // Load mission history (from real data)
-    const missionHistoryData: Array<{ name: string; status: string; time: string }> = []; // Replace with real data from background
-    missionHistoryList.innerHTML = missionHistoryData.map(mission => `
-      <div class="flex items-center justify-between p-3 card-base bg-zinc-50/50 dark:bg-zinc-900/50 rounded-lg">
-        <div class="flex items-center gap-2">
-          <div class="w-2 h-2 rounded-full ${mission.status === 'Completed' ? 'bg-emerald-500' : 'bg-red-500'}"></div>
-          <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${mission.name}</span>
-        </div>
-        <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-          <span>${mission.status}</span>
-          <span>${mission.time}</span>
-        </div>
-      </div>
-    `).join('');
-
-    if (missionHistoryData.length === 0) {
-      missionHistoryList.innerHTML = `
-        <p class="empty-state">No mission history.</p>
-        <p class="hint">Complete missions to see history.</p>
-      `;
-    }
-
-    _swarmListenersAttached = true;
-
-  } catch (err) {
-    console.error('[HyperAgent] Failed to load swarm tab:', err);
-    // Show error state
-    if (agentList) {
-      agentList.innerHTML = '<p class="empty-state">Failed to load swarm status. Check your connection.</p>';
-    }
-  }
-}
-
 // ─── Event Listeners ────────────────────────────────────────────
 components.btnExecute.addEventListener('click', () => {
   if (!navigator.onLine) {
@@ -1425,18 +1034,18 @@ components.btnExecute.addEventListener('click', () => {
     return;
   }
   const text = components.commandInput.value;
-  if (text.trim()) handleCommand(text);
+  if (text.trim()) void handleCommand(text);
 });
 
 components.btnStop.addEventListener('click', async () => {
   if (!state.isRunning) return;
-  
+
   try {
     components.btnStop.disabled = true;
     addMessage('Stopping...', 'status');
-    
+
     const response = await chrome.runtime.sendMessage({ type: 'stopAgent' });
-    
+
     if (response?.ok) {
       setRunning(false);
       updateStatus('Agent stopped', 'hidden');
@@ -1453,22 +1062,37 @@ components.btnStop.addEventListener('click', async () => {
 components.commandInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
+    if (!navigator.onLine) {
+      showToast('You are offline. Check your connection.', 'error');
+      return;
+    }
     const text = components.commandInput.value;
-    if (text.trim()) handleCommand(text);
+    if (text.trim()) void handleCommand(text);
   }
 });
 
-// Offline indicator
+// Offline handling: banner, disable input, block commands
+function updateOfflineState() {
+  const offline = !navigator.onLine;
+  const banner = document.getElementById('offline-banner');
+  if (banner) banner.classList.toggle('hidden', !offline);
+  components.commandInput.disabled = offline || state.isRunning;
+  components.btnExecute.disabled = offline;
+}
+
+updateOfflineState(); // Initial state
 globalThis.addEventListener('offline', () => {
+  updateOfflineState();
   showToast('You are offline. Some features may not work.', 'warning');
 });
 globalThis.addEventListener('online', () => {
+  updateOfflineState();
   showToast('Back online!', 'success');
 });
 const handleInput = debounce((e: Event) => {
   const target = e.target as HTMLTextAreaElement;
 
-  // Enforce max length
+  // Enforce max length (toast shown in immediate input handler)
   if (target.value.length > MAX_COMMAND_LENGTH) {
     target.value = target.value.slice(0, MAX_COMMAND_LENGTH);
   }
@@ -1491,6 +1115,7 @@ components.commandInput.addEventListener('input', e => {
   const target = e.target as HTMLTextAreaElement;
   if (target.value.length > MAX_COMMAND_LENGTH) {
     target.value = target.value.slice(0, MAX_COMMAND_LENGTH);
+    showToast(`Command truncated to ${MAX_COMMAND_LENGTH} characters`, 'warning');
   }
 
   target.style.height = 'auto';
@@ -1507,7 +1132,7 @@ components.commandInput.addEventListener('input', e => {
 components.commandInput.addEventListener('keydown', e => {
   const suggestionsVisible = !components.suggestions.classList.contains('hidden');
   const suggestionItems = components.suggestions.querySelectorAll('.suggestion-item');
-  
+
   // Handle suggestion navigation
   if (suggestionsVisible && suggestionItems.length > 0) {
     if (e.key === 'ArrowDown') {
@@ -1540,7 +1165,7 @@ components.commandInput.addEventListener('keydown', e => {
       return;
     }
   }
-  
+
   // Handle command history navigation
   if (e.key === 'ArrowUp' && !suggestionsVisible) {
     e.preventDefault();
@@ -1565,17 +1190,46 @@ function highlightSuggestion(items: NodeListOf<Element>, index: number) {
   });
 }
 
-// Load history on start
-requestIdleCallback(() => loadHistory(), { timeout: 100 });
-loadCommandHistory();
-
-// Show changelog on update
-chrome.storage.local.get('hyperagent_show_changelog').then((data) => {
+// Load history on start, then check for missed result (panel closed during task - Scenario 7)
+async function initChat() {
+  // Clear completion badge when panel opens (user can now see results)
+  try {
+    chrome.action?.setBadgeText?.({ text: '' });
+  } catch {
+    /* action API may be unavailable in some contexts */
+  }
+  await loadHistory();
+  loadCommandHistory();
+  const data = await chrome.storage.local.get([
+    'hyperagent_last_agent_result',
+    'hyperagent_show_changelog',
+    'hyperagent_agent_interrupted_by_update',
+  ]);
+  if (data.hyperagent_agent_interrupted_by_update) {
+    await chrome.storage.local.remove('hyperagent_agent_interrupted_by_update');
+    addMessage('Your previous task was interrupted by an extension update. You can run it again.', 'status');
+  }
+  const result = data.hyperagent_last_agent_result;
+  if (result && typeof result === 'object') {
+    const age = Date.now() - (result.timestamp || 0);
+    if (age <= 60 * 1000) {
+      addMessage(result.finalSummary || 'Task completed', result.success ? 'agent' : 'error');
+      showToast('Previous task completed while panel was closed', 'info');
+      await chrome.storage.local.remove('hyperagent_last_agent_result');
+    }
+  }
   if (data.hyperagent_show_changelog) {
-    chrome.storage.local.remove('hyperagent_show_changelog');
+    await chrome.storage.local.remove('hyperagent_show_changelog');
     showToast('HyperAgent updated! Check the repository for release notes.', 'info');
   }
-});
+}
+if (typeof requestIdleCallback === 'function') {
+  requestIdleCallback(() => initChat(), { timeout: 100 });
+} else {
+  setTimeout(() => initChat(), 0);
+}
+
+// Changelog and update-interrupt shown from initChat after history loads
 
 // Show onboarding for new installs
 chrome.storage.local.get('hyperagent_show_onboarding').then((data) => {
@@ -1600,12 +1254,10 @@ document.getElementById('btn-onboarding-settings')?.addEventListener('click', ()
   const modal = document.getElementById('onboarding-modal');
   modal?.classList.add('hidden');
   if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
-  openOptionsPageSafe();
+  openSettingsModal();
 });
 
-components.btnSettings.addEventListener('click', () => {
-  openOptionsPageSafe();
-});
+// Settings button listener is handled in the settings modal section below
 
 // Dark mode toggle
 const btnDarkMode = document.getElementById('btn-dark-mode');
@@ -1630,7 +1282,7 @@ document.addEventListener('keydown', e => {
   // Ctrl/Cmd + S: Open settings
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault();
-    openOptionsPageSafe();
+    openSettingsModal();
   }
   // Ctrl/Cmd + K: Focus command input
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
@@ -1643,14 +1295,14 @@ document.addEventListener('keydown', e => {
     components.confirmModal.classList.add('hidden');
     components.askModal.classList.add('hidden');
     components.suggestions.classList.add('hidden');
-    
+
     // Close onboarding modal and persist dismissal (Issue #39)
     const onboardingModal = document.getElementById('onboarding-modal');
     if (onboardingModal && !onboardingModal.classList.contains('hidden')) {
       onboardingModal.classList.add('hidden');
-      chrome.storage.local.remove('hyperagent_show_onboarding').catch(() => {});
+      chrome.storage.local.remove('hyperagent_show_onboarding').catch(() => { });
     }
-    
+
     // Always cleanup focus trap - don't check if modal is open first
     if (state.cleanupFocusTrap) {
       state.cleanupFocusTrap();
@@ -1680,7 +1332,10 @@ chrome.runtime.onMessage.addListener((message: any) => {
         setLoadingText(message.status);
       }
       if (typeof message.step === 'string') updateStepper(message.step);
-      if (typeof message.summary === 'string') addMessage(message.summary, 'thinking');
+      // Show only internal thinking (collapsed); never show summary here to avoid duplicate reply
+      if (typeof message.thinking === 'string' && message.thinking.trim()) {
+        addMessage(message.thinking.trim(), 'thinking');
+      }
 
       // Compute progress from status text "Step N/M" pattern, or use explicit progress
       if (typeof message.progress === 'number') {
@@ -1700,7 +1355,8 @@ chrome.runtime.onMessage.addListener((message: any) => {
         );
         if (validDescriptions.length > 0) {
           const trace = validDescriptions.map((d: string) => `• ${d}`).join('\n');
-          addMessage(`*Executing actions:* \n${trace}`, 'status');
+          // Use 'agent' type so markdown renders (bold for the header, bullets for actions)
+          addMessage(`**Executing actions:**\n${trace}`, 'agent');
         }
       }
       break;
@@ -1779,11 +1435,11 @@ chrome.runtime.onMessage.addListener((message: any) => {
           // Ensure confirmed is boolean
           chrome.runtime.sendMessage({ type: 'confirmResponse', confirmed: !!confirmed });
           components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+          if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         })
         .catch(() => {
           components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+          if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
         });
       break;
     }
@@ -1793,6 +1449,16 @@ chrome.runtime.onMessage.addListener((message: any) => {
       const success = Boolean(message.success);
       addMessage(summary, success ? 'agent' : 'error');
       setRunning(false);
+      updateProgress(success ? 100 : 0);
+      // For scheduled tasks, also show a toast so user notices even if panel is collapsed
+      if (message.scheduled) {
+        showToast(
+          success
+            ? `✅ Scheduled task completed: ${summary.slice(0, 60)}${summary.length > 60 ? '…' : ''}`
+            : `❌ Scheduled task failed: ${summary.slice(0, 60)}${summary.length > 60 ? '…' : ''}`,
+          success ? 'success' : 'error'
+        );
+      }
       break;
     }
     case 'contextMenuCommand': {
@@ -1848,7 +1514,7 @@ if (components.btnPayCrypto) {
   components.btnPayCrypto.addEventListener('click', () => {
     if (components.cryptoPaymentInfo) {
       components.cryptoPaymentInfo.classList.toggle('hidden');
-      
+
       // Update crypto address if visible
       if (!components.cryptoPaymentInfo.classList.contains('hidden')) {
         const config = billingManager.getPaymentConfig();
@@ -1864,12 +1530,17 @@ if (components.btnPayCrypto) {
 
 if (components.btnConfirmCrypto) {
   components.btnConfirmCrypto.addEventListener('click', async () => {
-    const txHash = prompt('Enter your transaction hash:');
-    if (!txHash) return;
-    
+    const txHash = prompt('Enter your transaction hash (0x...):');
+    if (!txHash?.trim()) return;
+
+    const walletAddr = prompt('Enter your wallet address (optional, for records):');
+    const fromAddress = (walletAddr?.trim() && /^0x[a-fA-F0-9]{40}$/.test(walletAddr.trim()))
+      ? walletAddr.trim()
+      : 'unknown';
+
     const chainId = components.cryptoChainSelect ? Number.parseInt(components.cryptoChainSelect.value) : 1;
-    const result = await billingManager.confirmCryptoPayment(txHash, 'user', chainId);
-    
+    const result = await billingManager.confirmCryptoPayment(txHash.trim(), fromAddress, chainId);
+
     if (result.success) {
       showToast('Payment confirmed! Upgrading to Beta...', 'success');
       updateSubscriptionBadge();
@@ -1913,7 +1584,10 @@ if (licenseBtn && licenseInput) {
         licenseStatus.textContent = 'License activated successfully! Refreshing...';
         licenseStatus.className = 'license-status success';
         showToast('License activated!', 'success');
-        setTimeout(() => updateUsageDisplay(), 500);
+        setTimeout(() => {
+          updateUsageDisplay();
+          updateSubscriptionBadge();
+        }, 500);
       } else {
         licenseStatus.textContent = result.error || 'Activation failed';
         licenseStatus.className = 'license-status error';
@@ -1933,6 +1607,13 @@ if (cancelSubBtn) {
       updateUsageDisplay();
     }
   });
+}
+
+// Chat search
+const chatSearchInput = document.getElementById('chat-search-input') as HTMLInputElement | null;
+if (chatSearchInput) {
+  chatSearchInput.addEventListener('input', () => filterChatBySearch(chatSearchInput.value));
+  chatSearchInput.addEventListener('search', () => filterChatBySearch(chatSearchInput.value));
 }
 
 // Init
@@ -1985,16 +1666,256 @@ function showToast(message: string, type: 'success' | 'error' | 'info' | 'warnin
   }, 5000);
 }
 
-function openOptionsPageSafe(): void {
-  try {
-    // Directly open options.html instead of relying on chrome.runtime.openOptionsPage()
-    const optionsUrl = chrome.runtime.getURL('options.html');
-    chrome.tabs.create({ url: optionsUrl });
-  } catch (e) {
-    // Removed console.warn
-    showToast('Could not open settings', 'error');
+// ─── Settings Modal ────────────────────────────────────────────────────
+const PROVIDER_URLS: Record<string, string> = {
+  openai: 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  google: 'https://generativelanguage.googleapis.com/v1beta',
+};
+
+const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+  openai: [
+    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Fast)' },
+    { value: 'gpt-4o', label: 'GPT-4o (Vision)' },
+    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
+  ],
+  anthropic: [
+    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' },
+    { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (Vision)' },
+    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Best)' },
+  ],
+  google: [
+    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (FREE)' },
+    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+  ],
+};
+
+const PROVIDER_KEY_HINTS: Record<string, string> = {
+  openai: 'OpenAI keys start with sk-',
+  anthropic: 'Anthropic keys start with sk-ant-',
+  google: 'Google AI Studio keys start with AIza',
+};
+
+function detectProviderFromKey(apiKey: string): string {
+  if (!apiKey) return 'openai';
+  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
+  if (apiKey.startsWith('AIza')) return 'google';
+  if (apiKey.startsWith('sk-or-')) return 'openrouter';
+  if (apiKey.startsWith('sk-')) return 'openai';
+  return 'openai';
+}
+
+function updateModelOptions(provider: string): void {
+  const modelSelect = document.getElementById('settings-model') as HTMLSelectElement;
+  if (!modelSelect) return;
+  
+  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.openai;
+  modelSelect.innerHTML = models.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+}
+
+function updateProviderHint(provider: string): void {
+  const hint = document.getElementById('settings-provider-hint');
+  if (hint) {
+    hint.textContent = PROVIDER_KEY_HINTS[provider] || 'Enter your API key';
   }
 }
+
+async function loadSettingsToModal(): Promise<void> {
+  const data = await chrome.storage.local.get([
+    'hyperagent_api_key',
+    'hyperagent_base_url',
+    'hyperagent_model_name',
+    'hyperagent_max_steps',
+    'hyperagent_require_confirm',
+    'hyperagent_enable_vision',
+  ]);
+  
+  const apiKey = data['hyperagent_api_key'] || '';
+  const provider = detectProviderFromKey(apiKey);
+  
+  const providerSelect = document.getElementById('settings-provider') as HTMLSelectElement;
+  const apiKeyInput = document.getElementById('settings-api-key') as HTMLInputElement;
+  const modelSelect = document.getElementById('settings-model') as HTMLSelectElement;
+  const visionCheckbox = document.getElementById('settings-vision') as HTMLInputElement;
+  const confirmCheckbox = document.getElementById('settings-confirm') as HTMLInputElement;
+  const maxStepsInput = document.getElementById('settings-max-steps') as HTMLInputElement;
+  const maxStepsValue = document.getElementById('settings-max-steps-value');
+  const keyStatus = document.getElementById('settings-key-status');
+  
+  if (providerSelect) {
+    providerSelect.value = provider;
+    updateModelOptions(provider);
+    updateProviderHint(provider);
+  }
+  
+  if (apiKeyInput) {
+    apiKeyInput.value = apiKey;
+    if (keyStatus) {
+      keyStatus.textContent = apiKey ? '✓ API key configured' : '';
+      keyStatus.className = `text-xs mt-1.5 ${apiKey ? 'text-emerald-500' : ''}`;
+    }
+  }
+  
+  if (modelSelect) {
+    modelSelect.value = data['hyperagent_model_name'] || PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
+  }
+  
+  if (visionCheckbox) visionCheckbox.checked = data['hyperagent_enable_vision'] !== false;
+  if (confirmCheckbox) confirmCheckbox.checked = data['hyperagent_require_confirm'] === true;
+  if (maxStepsInput) {
+    maxStepsInput.value = String(data['hyperagent_max_steps'] || 12);
+    if (maxStepsValue) maxStepsValue.textContent = maxStepsInput.value;
+  }
+}
+
+async function saveSettingsFromModal(): Promise<void> {
+  const providerSelect = document.getElementById('settings-provider') as HTMLSelectElement;
+  const apiKeyInput = document.getElementById('settings-api-key') as HTMLInputElement;
+  const modelSelect = document.getElementById('settings-model') as HTMLSelectElement;
+  const visionCheckbox = document.getElementById('settings-vision') as HTMLInputElement;
+  const confirmCheckbox = document.getElementById('settings-confirm') as HTMLInputElement;
+  const maxStepsInput = document.getElementById('settings-max-steps') as HTMLInputElement;
+  
+  const provider = providerSelect?.value || 'openai';
+  const apiKey = apiKeyInput?.value.trim() || '';
+  const model = modelSelect?.value || 'gpt-3.5-turbo';
+  const baseUrl = PROVIDER_URLS[provider] || PROVIDER_URLS.openai;
+  
+  await chrome.storage.local.set({
+    hyperagent_api_key: apiKey,
+    hyperagent_base_url: baseUrl,
+    hyperagent_model_name: model,
+    hyperagent_backup_model: model,
+    hyperagent_enable_vision: visionCheckbox?.checked !== false,
+    hyperagent_require_confirm: confirmCheckbox?.checked === true,
+    hyperagent_max_steps: parseInt(maxStepsInput?.value || '12', 10),
+  });
+  
+  // Update status display
+  const keyStatus = document.getElementById('settings-key-status');
+  if (keyStatus) {
+    keyStatus.textContent = '✓ Settings saved!';
+    keyStatus.className = 'text-xs mt-1.5 text-emerald-500';
+    setTimeout(() => { keyStatus.textContent = ''; }, 2000);
+  }
+  
+  // Update the provider status display
+  await updateProviderStatus();
+  
+  showToast('Settings saved!', 'success');
+  closeSettingsModal();
+}
+
+function openSettingsModal(): void {
+  const modal = document.getElementById('settings-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    loadSettingsToModal();
+  }
+}
+
+function closeSettingsModal(): void {
+  const modal = document.getElementById('settings-modal');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+}
+
+// Update the provider status display in the UI
+async function updateProviderStatus(): Promise<void> {
+  const STORAGE_KEY_MODEL = 'hyperagent_model_name';
+  const STORAGE_KEY_API = 'hyperagent_api_key';
+  
+  const data = await chrome.storage.local.get([STORAGE_KEY_API, STORAGE_KEY_MODEL]);
+  const apiKey = data[STORAGE_KEY_API] || '';
+  const model = data[STORAGE_KEY_MODEL] || '';
+  
+  const providerIndicator = document.getElementById('provider-indicator');
+  const providerName = document.getElementById('provider-name');
+  
+  if (!apiKey) {
+    if (providerIndicator) providerIndicator.className = 'w-1.5 h-1.5 rounded-full bg-red-500';
+    if (providerName) providerName.textContent = 'No API key';
+    return;
+  }
+  
+  const provider = detectProviderFromKey(apiKey);
+  const providerNames: Record<string, string> = {
+    openai: 'OpenAI',
+    anthropic: 'Claude',
+    google: 'Gemini',
+    openrouter: 'OpenRouter',
+  };
+  
+  const modelNames: Record<string, string> = {
+    'gpt-3.5-turbo': 'GPT-3.5',
+    'gpt-4o': 'GPT-4o',
+    'gpt-4-turbo': 'GPT-4',
+    'claude-3-haiku-20240307': 'Claude Haiku',
+    'claude-3-sonnet-20240229': 'Claude Sonnet',
+    'claude-3-opus-20240229': 'Claude Opus',
+    'gemini-2.0-flash': 'Gemini 2.0',
+    'gemini-1.5-pro': 'Gemini 1.5',
+  };
+  
+  const displayName = modelNames[model] || providerNames[provider] || provider;
+  
+  if (providerIndicator) providerIndicator.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+  if (providerName) providerName.textContent = displayName;
+}
+
+// Call updateProviderStatus on load and after settings changes
+updateProviderStatus();
+
+// Settings modal event listeners
+const settingsModal = document.getElementById('settings-modal');
+const btnSettingsClose = document.getElementById('btn-settings-close');
+const btnSettingsSave = document.getElementById('btn-settings-save');
+const settingsProvider = document.getElementById('settings-provider');
+const settingsApiKey = document.getElementById('settings-api-key');
+const settingsMaxSteps = document.getElementById('settings-max-steps');
+const btnToggleKeyVisibility = document.getElementById('btn-toggle-key-visibility');
+
+if (btnSettingsClose) {
+  btnSettingsClose.addEventListener('click', closeSettingsModal);
+}
+
+if (btnSettingsSave) {
+  btnSettingsSave.addEventListener('click', saveSettingsFromModal);
+}
+
+if (settingsProvider) {
+  settingsProvider.addEventListener('change', () => {
+    const provider = (settingsProvider as HTMLSelectElement).value;
+    updateModelOptions(provider);
+    updateProviderHint(provider);
+  });
+}
+
+if (settingsMaxSteps) {
+  settingsMaxSteps.addEventListener('input', () => {
+    const value = document.getElementById('settings-max-steps-value');
+    if (value) value.textContent = (settingsMaxSteps as HTMLInputElement).value;
+  });
+}
+
+if (btnToggleKeyVisibility && settingsApiKey) {
+  btnToggleKeyVisibility.addEventListener('click', () => {
+    const input = settingsApiKey as HTMLInputElement;
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+}
+
+// Close modal when clicking outside
+if (settingsModal) {
+  settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+      closeSettingsModal();
+    }
+  });
+}
+
+components.btnSettings.addEventListener('click', openSettingsModal);
 
 // ─── Dark Mode ────────────────────────────────────────────────────
 async function toggleDarkMode() {
@@ -2006,7 +1927,7 @@ async function toggleDarkMode() {
 async function initDarkMode() {
   const data = await chrome.storage.local.get('dark_mode');
   let useDark: boolean;
-  
+
   if (data.dark_mode === true) {
     useDark = true;
   } else if (data.dark_mode === false) {
@@ -2145,7 +2066,7 @@ async function exportChatHistory() {
       showToast('No chat history to export', 'info');
       return;
     }
-    
+
     const exportData = {
       version: '1.0',
       timestamp: Date.now(),
@@ -2170,7 +2091,7 @@ async function exportChatHistory() {
 async function exportAllUserData(): Promise<void> {
   try {
     const allData = await chrome.storage.local.get(null) as Record<string, unknown>;
-    
+
     const exportData = {
       exportDate: new Date().toISOString(),
       version: '3.1.0',
@@ -2192,7 +2113,7 @@ async function exportAllUserData(): Promise<void> {
         chatHistory: allData.chat_history_backup || allData[STORAGE_KEYS.CHAT_HISTORY] || '',
         commandHistory: allData.command_history || allData[STORAGE_KEYS.COMMAND_HISTORY] || [],
         workflows: Object.fromEntries(
-          Object.entries(allData).filter(([key]) => 
+          Object.entries(allData).filter(([key]) =>
             key.startsWith('workflow_') || key === STORAGE_KEYS.WORKFLOWS || key === STORAGE_KEYS.INSTALLED_WORKFLOWS
           )
         ),
@@ -2248,7 +2169,7 @@ async function deleteAllUserData(): Promise<void> {
   if (!confirm('This will permanently delete ALL your data. This cannot be undone. Continue?')) {
     return;
   }
-  
+
   if (!confirm('Are you REALLY sure? This includes your API key, chat history, workflows, and all settings.')) {
     return;
   }
