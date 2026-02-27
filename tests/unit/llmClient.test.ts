@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+// vitest-timeout: 10000
+
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 

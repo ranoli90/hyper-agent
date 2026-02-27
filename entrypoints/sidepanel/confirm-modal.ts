@@ -74,4 +74,3 @@ export function createConfirmModalController() {
 
   return { showConfirm };
 }
-

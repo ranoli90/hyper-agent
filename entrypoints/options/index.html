@@ -45,7 +45,11 @@
         </div>
         <div class="status-item">
           <span class="status-dot" id="model-status"></span>
-          <span id="model-status-text">Model: Gemini 2.5 Flash (via OpenRouter)</span>
+          <span id="model-status-text">Model: openrouter/auto (via OpenRouter)</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot" id="env-status-dot"></span>
+          <span id="env-status-text">Environment: Production (https://openrouter.ai/api/v1)</span>
         </div>
       </div>
 
@@ -70,20 +74,29 @@
 
               <div class="form-row">
                 <label for="api-key">API Key</label>
-                <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..."
-                  autocomplete="off" />
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <input type="password" id="api-key" class="compact-input" placeholder="Enter your API key..."
+                    autocomplete="off" style="flex: 1;" />
+                  <button id="btn-toggle-api-key-visibility" type="button" title="Show/Hide API key"
+                    style="border: none; background: transparent; cursor: pointer; font-size: 0.8rem; padding: 4px 6px; border-radius: 6px;">
+                    
+                  </button>
+                </div>
                 <small style="color: #888; margin-top: 4px; display: block;">
                   <span id="key-hint">Get your key at openrouter.ai/keys</span>
+                  ·
+                  <a href="https://openrouter.ai/docs" target="_blank" rel="noopener"
+                    style="color: #6366f1; text-decoration: underline;">OpenRouter key docs</a>
                 </small>
+                <button id="btn-test-api-connection" class="btn-secondary" style="margin-top: 6px; font-size: 0.75rem;">
+                  Test connection
+                </button>
               </div>
 
               <div class="form-row">
                 <label for="model-select">AI Model</label>
                 <select id="model-select" class="compact-select">
-                  <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
-                  <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
-                  <option value="deepseek/deepseek-chat">DeepSeek V3</option>
-                  <option value="meta-llama/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+                  <option value="openrouter/auto">Auto (OpenRouter smart router)</option>
                 </select>
               </div>
             </div>
@@ -119,6 +132,28 @@
                   <input type="checkbox" id="dry-run" />
                   <span>Simulation Mode</span>
                 </label>
+              </div>
+
+              <div class="form-row" style="margin-top: 12px;">
+                <label class="toggle-item">
+                  <input type="checkbox" id="settings-debug-mode" />
+                  <span>Enable Debug Mode (more detailed logs, with sensitive fields redacted)</span>
+                </label>
+              </div>
+
+              <div class="form-row">
+                <label for="settings-log-level">Log Level</label>
+                <select id="settings-log-level" class="compact-select">
+                  <option value="1">Error</option>
+                  <option value="2">Warn</option>
+                  <option value="3">Info</option>
+                  <option value="4">Debug</option>
+                  <option value="5">Verbose</option>
+                </select>
+              </div>
+
+              <div class="form-row">
+                <button id="btn-download-debug-log" class="btn-secondary">Download Debug Log</button>
               </div>
             </div>
           </div>
@@ -229,8 +264,11 @@
 
         <!-- Tips -->
         <div class="tips-banner" id="tips-banner">
-          <strong>Info:</strong> <span id="tips-model-info">All API calls go through OpenRouter. Gemini 2.5 Flash is
-            selected by default. Get your API key at openrouter.ai/keys.</span>
+          <strong>Info:</strong>
+          <span id="tips-model-info">
+            All API calls go through OpenRouter using the single model
+            <strong>openrouter/auto</strong>. Get your API key at openrouter.ai/keys.
+          </span>
         </div>
       </div>
 

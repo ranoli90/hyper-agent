@@ -228,10 +228,9 @@ export async function initializeSecuritySettings(): Promise<void> {
   });
 }
 // ─── Data Redaction & Sanitization ─────────────────────────────────────
-export function redact(value: any): string {
-  const s = typeof value === 'string' ? value : JSON.stringify(value ?? '', (_k, v) => v, 2);
-  const REDACTION_TOKEN = '***REDACTED***';
-  const patterns: RegExp[] = [
+export class RedactionService {
+  private readonly REDACTION_TOKEN = '***REDACTED***';
+  private readonly patterns: RegExp[] = [
     // OpenRouter API keys (sk-or-v1-...)
     /sk-or-v1-[a-zA-Z0-9_-]{20,}/g,
     // OpenRouter/OpenAI-style API keys
@@ -251,11 +250,66 @@ export function redact(value: any): string {
     /\b[A-Fa-f0-9]{32,}\b/g, // long hex ids
     /\b(?:session|auth|token|secret|password|apikey|api_key)\s*[:=]\s*['"][^'"\n]+['"]/gi,
   ];
-  return patterns.reduce((acc, re) => acc.replace(re, REDACTION_TOKEN), s).slice(0, 20000);
+
+  public redact(value: any): any {
+    if (typeof value === 'string') {
+      return this.patterns.reduce((acc, re) => acc.replace(re, this.REDACTION_TOKEN), value).slice(0, 20000);
+    } else if (typeof value === 'object' && value !== null) {
+      const redactedObject: { [key: string]: any } = {};
+      for (const key in value) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          // Recursively redact values
+          redactedObject[key] = this.redact(value[key]);
+        }
+      }
+      return redactedObject;
+    }
+    return value;
+  }
+}
+
+export function redact(value: any): string {
+  const redactionService = new RedactionService();
+  return redactionService.redact(value) as string;
+}
+
+function isSafeUrlScheme(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const scheme = parsed.protocol.toLowerCase();
+    return scheme === 'http:' || scheme === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeToolCalls(toolCalls: any[]): any[] {
+  if (!Array.isArray(toolCalls)) return [];
+
+  return toolCalls.filter((call) => {
+    if (!call || typeof call !== 'object') return false;
+    const url =
+      (call as any).url ||
+      (call as any).targetUrl ||
+      (call as any).arguments?.url ||
+      (call as any).arguments?.targetUrl;
+    if (typeof url === 'string' && !isSafeUrlScheme(url)) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function sanitizeMessages(messages: any[]): any[] {
   return (messages || []).map((m) => {
+    // Drop or sanitize any tool calls with unsafe URLs
+    if (Array.isArray((m as any).tool_calls)) {
+      (m as any).tool_calls = sanitizeToolCalls((m as any).tool_calls);
+    }
+    if (Array.isArray((m as any).tools)) {
+      (m as any).tools = sanitizeToolCalls((m as any).tools);
+    }
+
     if (Array.isArray(m.content)) {
       return {
         ...m,

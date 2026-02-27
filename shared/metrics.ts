@@ -32,9 +32,26 @@ export interface ActionTrackingEntry {
   domain?: string;
 }
 
+export interface AgentRunTrackingEntry {
+  id: string;
+  startTime: number;
+  endTime?: number;
+  success?: boolean;
+  durationMs?: number;
+}
+
+export interface RateLimitTrackingEntry {
+  timestamp: number;
+  model: string;
+  source: 'OpenRouter' | 'Hyperagent';
+  retryAfter: number;
+}
+
 // ─── Storage Keys ─────────────────────────────────────────────────────────
 const _METRICS_STORAGE_KEY = 'hyperagent_metrics';
 const ACTION_TRACKING_KEY = 'hyperagent_action_tracking';
+const AGENT_RUN_TRACKING_KEY = 'hyperagent_agent_run_tracking';
+const RATE_LIMIT_TRACKING_KEY = 'hyperagent_rate_limit_tracking'; // New storage key
 const MAX_TRACKING_ENTRIES = 1000;
 
 // ─── Action Tracking State ───────────────────────────────────────────────
@@ -96,6 +113,83 @@ export function trackActionEnd(
   activeActions.delete(actionId);
 }
 
+// ─── Agent Run Tracking ──────────────────────────────────────────────────
+const activeAgentRuns = new Map<string, AgentRunTrackingEntry>();
+
+export function trackAgentRunStart(): string {
+  const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const entry: AgentRunTrackingEntry = {
+    id: runId,
+    startTime: Date.now(),
+  };
+  activeAgentRuns.set(runId, entry);
+  return runId;
+}
+
+export async function trackAgentRunEnd(runId: string, success: boolean, durationMs: number): Promise<void> {
+  const entry = activeAgentRuns.get(runId);
+  if (!entry) {
+    console.warn(`[Metrics] No tracking entry found for agentRunId: ${runId}`);
+    return;
+  }
+
+  entry.endTime = Date.now();
+  entry.success = success;
+  entry.durationMs = durationMs;
+
+  try {
+    const entries = await loadFromStorage<AgentRunTrackingEntry[]>(AGENT_RUN_TRACKING_KEY);
+    const trackingEntries: AgentRunTrackingEntry[] = entries || [];
+
+    trackingEntries.push(entry);
+
+    // Keep only last MAX_TRACKING_ENTRIES
+    while (trackingEntries.length > MAX_TRACKING_ENTRIES) {
+      trackingEntries.shift();
+    }
+
+    await saveToStorage(AGENT_RUN_TRACKING_KEY, trackingEntries);
+  } catch (err) {
+    console.error('[Metrics] Failed to save agent run tracking entry:', err);
+  }
+
+  activeAgentRuns.delete(runId);
+}
+
+export async function getDailyAgentRunCounts(): Promise<Record<string, number>> {
+  const trackingEntries = await loadFromStorage<AgentRunTrackingEntry[]>(AGENT_RUN_TRACKING_KEY);
+  if (!trackingEntries) {
+    return {};
+  }
+
+  const dailyCounts: Record<string, number> = {};
+  for (const entry of trackingEntries) {
+    if (entry.startTime) {
+      const date = new Date(entry.startTime);
+      const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      dailyCounts[dateString] = (dailyCounts[dateString] || 0) + 1;
+    }
+  }
+  return dailyCounts;
+}
+
+export async function getDailyActionCounts(): Promise<Record<string, number>> {
+  const trackingEntries = await loadFromStorage<ActionTrackingEntry[]>(ACTION_TRACKING_KEY);
+  if (!trackingEntries) {
+    return {};
+  }
+
+  const dailyCounts: Record<string, number> = {};
+  for (const entry of trackingEntries) {
+    if (entry.startTime) {
+      const date = new Date(entry.startTime);
+      const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
+      dailyCounts[dateString] = (dailyCounts[dateString] || 0) + 1;
+    }
+  }
+  return dailyCounts;
+}
+
 // ─── Save tracking entry to storage ──────────────────────────────────────
 async function saveTrackingEntry(entry: ActionTrackingEntry): Promise<void> {
   try {
@@ -113,6 +207,46 @@ async function saveTrackingEntry(entry: ActionTrackingEntry): Promise<void> {
   } catch (err) {
     console.error('[Metrics] Failed to save tracking entry:', err);
   }
+}
+
+// ─── Track Rate Limit Event ──────────────────────────────────────────
+export async function trackRateLimitEvent(entry: RateLimitTrackingEntry): Promise<void> {
+  try {
+    const entries = await loadFromStorage<RateLimitTrackingEntry[]>(RATE_LIMIT_TRACKING_KEY);
+    const trackingEntries: RateLimitTrackingEntry[] = entries || [];
+
+    trackingEntries.push(entry);
+
+    // Keep only last MAX_TRACKING_ENTRIES
+    while (trackingEntries.length > MAX_TRACKING_ENTRIES) {
+      trackingEntries.shift();
+    }
+
+    await saveToStorage(RATE_LIMIT_TRACKING_KEY, trackingEntries);
+  } catch (err) {
+    console.error('[Metrics] Failed to save rate limit tracking entry:', err);
+  }
+}
+
+// ─── Get Daily Rate Limit Counts ──────────────────────────────────────────
+export async function getDailyRateLimitCounts(): Promise<Record<string, Record<string, number>>> {
+  const trackingEntries = await loadFromStorage<RateLimitTrackingEntry[]>(RATE_LIMIT_TRACKING_KEY);
+  if (!trackingEntries) {
+    return {};
+  }
+
+  const dailyCounts: Record<string, Record<string, number>> = {};
+  for (const entry of trackingEntries) {
+    const date = new Date(entry.timestamp);
+    const dateString = date.toISOString().split('T')[0]; // YYYY-MM-DD
+
+    if (!dailyCounts[dateString]) {
+      dailyCounts[dateString] = {};
+    }
+    const key = `${entry.model}_${entry.source}`;
+    dailyCounts[dateString][key] = (dailyCounts[dateString][key] || 0) + 1;
+  }
+  return dailyCounts;
 }
 
 // ─── Get All Metrics ────────────────────────────────────────────────────
@@ -154,6 +288,26 @@ export async function getMetrics(): Promise<PerformanceMetric[]> {
   });
 
   return metrics;
+}
+
+// ─── Get Monthly Action Counts ────────────────────────────────────────────
+export async function getMonthlyActionCounts(): Promise<{ totalActions: number; monthlyActions: number }> {
+  const trackingEntries = await loadFromStorage<ActionTrackingEntry[]>(ACTION_TRACKING_KEY);
+  if (!trackingEntries) {
+    return { totalActions: 0, monthlyActions: 0 };
+  }
+
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  let monthlyActions = 0;
+  for (const entry of trackingEntries) {
+    if (entry.startTime && entry.startTime >= startOfMonth) {
+      monthlyActions++;
+    }
+  }
+
+  return { totalActions: trackingEntries.length, monthlyActions };
 }
 
 // ─── Get Action Metrics by Type ───────────────────────────────────────────

@@ -8,14 +8,125 @@ const extensionPath = path.join(__dirname, '..', '.output', 'chrome-mv3');
 
 test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
   test.beforeEach(async ({ context }) => {
+    // Mock OpenRouter endpoints for local testing
+    await context.route('https://openrouter.ai/api/v1/**', async (route) => {
+      const url = route.request().url();
+      if (url.endsWith('/models')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: [] }),
+        });
+        return;
+      }
+      if (url.endsWith('/chat/completions')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '{"summary":"test","actions":[],"done":true}',
+                },
+              },
+            ],
+          }),
+        });
+        return;
+      }
+      if (url.endsWith('/embeddings')) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ data: [{ embedding: [0.1, 0.2, 0.3] }] }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ok: true }),
+      });
+    });
+
     // Comprehensive Chrome API mock
     await context.addInitScript(() => {
       // Mock chrome.runtime with full functionality
       const mockRuntime = {
         sendMessage: (message: any, callback?: (response: any) => void) => {
-          setTimeout(() => {
-            if (callback) callback({ ok: true });
-          }, 10);
+          // Track all outbound messages for assertions
+          (window as any).__sentMessages = (window as any).__sentMessages || [];
+          (window as any).__sentMessages.push(message);
+
+          // Handle specific message types used by the sidepanel
+          if (message.type === 'getMemoryStats') {
+            const response = {
+              ok: true,
+              strategies: {
+                'example.com': {
+                  successfulLocators: [
+                    { locator: 'button.buy', actionType: 'click', successCount: 3 },
+                  ],
+                  failedLocators: [],
+                  lastUsed: Date.now(),
+                  summary: 'Top successful locator patterns: click (1)',
+                },
+              },
+              totalActions: 10,
+              totalSessions: 2,
+              domainsCount: 1,
+              oldestEntry: Date.now() - 1000 * 60 * 60,
+              workflowRuns: {
+                'example.com': [
+                  { type: 'workflow', id: 'wf-1', timestamp: Date.now(), success: true },
+                  { type: 'macro', id: 'macro-1', timestamp: Date.now(), success: true },
+                ],
+              },
+            };
+            setTimeout(() => callback?.(response), 10);
+            return;
+          }
+
+          if (message.type === 'runMemoryHealthCheck') {
+            const response = {
+              ok: true,
+              result: { healthy: true, issues: [], repaired: false },
+            };
+            setTimeout(() => callback?.(response), 10);
+            return;
+          }
+
+          if (message.type === 'getMetrics') {
+            const response = {
+              ok: true,
+              metrics: {
+                logs: [
+                  { timestamp: new Date().toISOString(), level: 'INFO', subsystem: 'test', message: 'log-1' },
+                ],
+                recovery: { activeAttempts: 0, totalLoggedRecoveries: 0, recentFailures: 0 },
+                rateLimitStatus: { canAccept: true, timeUntilReset: 0 },
+              },
+            };
+            setTimeout(() => callback?.(response), 10);
+            return;
+          }
+
+          if (message.type === 'getAgentStatus') {
+            const response = {
+              ok: true,
+              status: {
+                isRunning: false,
+                isAborted: false,
+                currentSessionId: null,
+                hasPendingConfirm: false,
+                hasPendingReply: false,
+                recoveryStats: { activeAttempts: 0, totalLoggedRecoveries: 0, recentFailures: 0 },
+              },
+            };
+            setTimeout(() => callback?.(response), 10);
+            return;
+          }
 
           if (message.type === 'executeCommand') {
             setTimeout(() => {
@@ -59,6 +170,11 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
               }
             }, 50);
           }
+
+          // Default OK response for other message types
+          setTimeout(() => {
+            callback?.({ ok: true });
+          }, 10);
         },
         onMessage: {
           listeners: [] as Array<
@@ -179,6 +295,39 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
     expect(messageCount >= 0 && typeof inputValue === 'string').toBeTruthy();
   });
 
+  test('should show debug info when /debug is executed', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+
+    const commandInput = page.locator('#command-input');
+    await commandInput.fill('/debug');
+    await commandInput.press('Enter');
+
+    await page.waitForTimeout(300);
+
+    const agentMessages = page.locator('.chat-msg.agent');
+    const texts = await agentMessages.allTextContents();
+    expect(texts.some(t => t.includes('Debug info for last task'))).toBe(true);
+  });
+
+  test('should send resetPageSession when /reset is executed', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+
+    // Reset recorded messages
+    await page.evaluate(() => {
+      (window as any).__sentMessages = [];
+    });
+
+    const commandInput = page.locator('#command-input');
+    await commandInput.fill('/reset');
+    await commandInput.press('Enter');
+
+    await page.waitForTimeout(200);
+
+    const sentMessages = await page.evaluate(() => (window as any).__sentMessages || []);
+    const hasReset = sentMessages.some((m: any) => m && m.type === 'resetPageSession');
+    expect(hasReset).toBe(true);
+  });
+
   test('should switch tabs with proper state management', async ({ page }) => {
     await page.goto(`file://${extensionPath}/sidepanel.html`);
 
@@ -228,6 +377,85 @@ test.describe('HyperAgent Extension with Full Chrome API Mock', () => {
 
     // Height should increase or stay the same (if already at max)
     expect(newHeight).toBeGreaterThanOrEqual(initialHeight);
+  });
+
+  test('should render memory tab strategies and recent workflows', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+
+    // Open Memory tab
+    await page.click('[data-tab="memory"]');
+
+    // Wait for memory stats to load and list to render
+    const list = page.locator('#memory-list');
+    await expect(list).toBeAttached();
+
+    const domainCard = list.locator('div.p-3').first();
+    await expect(domainCard).toBeAttached();
+    await expect(domainCard).toContainText('example.com');
+    await expect(domainCard).toContainText('Recent workflows & macros');
+    await expect(domainCard).toContainText('wf-1');
+    await expect(domainCard).toContainText('macro-1');
+  });
+
+  test('should send clearDomainMemory message when Forget this site is clicked', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+    await page.click('[data-tab="memory"]');
+
+    // Wait for domain card to appear
+    const forgetButton = page.locator('button[data-domain="example.com"]').first();
+    await expect(forgetButton).toBeAttached();
+
+    await page.evaluate(() => {
+      const btn = document.querySelector('button[data-domain="example.com"]') as HTMLButtonElement | null;
+      btn?.click();
+    });
+
+    // Inspect captured messages in the mock runtime
+    const messages = await page.evaluate(() => (window as any).__sentMessages || []);
+    const hasClearDomain = messages.some(
+      (m: any) => m && m.type === 'clearDomainMemory' && m.domain === 'example.com'
+    );
+    expect(hasClearDomain).toBeTruthy();
+  });
+
+  test('should toggle learning flag from memory tab', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+    await page.click('[data-tab="memory"]');
+
+    const toggle = page.locator('#memory-learning-toggle');
+    await expect(toggle).toBeAttached();
+
+    const initialPressed = await toggle.getAttribute('aria-pressed');
+    await page.evaluate(() => {
+      const t = document.getElementById('memory-learning-toggle') as HTMLButtonElement | null;
+      t?.click();
+    });
+    const afterPressed = await toggle.getAttribute('aria-pressed');
+
+    expect(initialPressed).not.toBe(afterPressed);
+
+    // Verify the mock storage was updated
+    const learningEnabled = await page.evaluate(
+      () => (window as any).chrome.storage.local.data['hyperagent_learning_enabled']
+    );
+    expect(typeof learningEnabled).toBe('boolean');
+  });
+
+  test('should send runMemoryHealthCheck message from Memory tab', async ({ page }) => {
+    await page.goto(`file://${extensionPath}/sidepanel.html`);
+    await page.click('[data-tab="memory"]');
+
+    const healthBtn = page.locator('#btn-memory-health-check');
+    await expect(healthBtn).toBeAttached();
+
+    await page.evaluate(() => {
+      const btn = document.getElementById('btn-memory-health-check') as HTMLButtonElement | null;
+      btn?.click();
+    });
+
+    const messages = await page.evaluate(() => (window as any).__sentMessages || []);
+    const hasHealthCheck = messages.some((m: any) => m && m.type === 'runMemoryHealthCheck');
+    expect(hasHealthCheck).toBeTruthy();
   });
 
   test('should handle slash commands with simulated responses', async ({ page }) => {

@@ -4,6 +4,8 @@
 
 // ─── Type Aliases ────────────────────────────────────────────────
 
+import { RateLimitError } from './llmClient';
+
 type CircuitBreakerState = 'closed' | 'open' | 'half-open';
 type OperationError = Error | unknown;
 
@@ -362,13 +364,15 @@ export const networkRetryPolicy: RetryConfig = {
   backoffMultiplier: 2,
   jitterEnabled: true,
   retryCondition: (error) => {
+    if (error instanceof RateLimitError) {
+      return true; // Always retry on RateLimitError
+    }
     if (error instanceof Error) {
       const message = error.message.toLowerCase();
       return message.includes('network') ||
              message.includes('timeout') ||
              message.includes('connection') ||
-             message.includes('server error') ||
-             message.includes('rate limit');
+             message.includes('server error');
     }
     return true;
   },

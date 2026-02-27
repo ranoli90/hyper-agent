@@ -31,8 +31,8 @@ graph TD
 ### 1. The Background Service Worker (Orchestrator)
 Located at `entrypoints/background.ts`. Because MV3 enforces ephemeral service workers, state management is critical.
 - **Lifecycle Management**: Starts, resumes, and terminates Agent tasks.
-- **Usage Tracker**: Implements a `UsageTracker` class to track executed actions, monitor token costs, rate limits, and compute subscription boundaries.
-- **Structured Logger**: Implements `StructuredLogger` providing unified, searchable event history for debugging distributed processes.
+- **Usage Tracker**: Implements a `UsageTracker` class to track executed actions, monitor approximate token/cost usage, enforce per-tier limits, and compute daily/monthly usage.
+- **Debug Service**: Uses `debugService` (in `shared/debug.ts`) for structured logging with redaction and log levels. Each task run is tagged with a short correlation ID that is also surfaced to the UI so logs can be correlated to user-visible runs.
 
 ### 2. Autonomous Intelligence (`shared/autonomous-intelligence.ts`)
 The algorithmic brain of the system.

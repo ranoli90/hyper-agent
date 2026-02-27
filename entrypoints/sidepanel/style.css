@@ -110,7 +110,7 @@
 
   /* Enhanced Chat Message Styles */
   .chat-msg {
-    @apply relative group;
+    @apply relative;
   }
 
   .message-content {

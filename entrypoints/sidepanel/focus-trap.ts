@@ -27,4 +27,3 @@ export function trapFocus(modal: HTMLElement): () => void {
 
   return () => modal.removeEventListener('keydown', handleKeyDown);
 }
-

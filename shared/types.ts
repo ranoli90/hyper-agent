@@ -35,6 +35,24 @@ export interface LLMRequest {
    * and the automatic cascade selection.
    */
   modelOverride?: string;
+  /**
+   * Optional per-session metadata injected by the background script.
+   * Used to give the LLM a stable sense of what this session is trying to do.
+   */
+  sessionMeta?: {
+    goal?: string;
+    lastActions?: string[];
+    lastUserReplies?: string[];
+  };
+  /**
+   * Parsed command intents (from intent.ts) for this request.
+   * These help analyzeTaskComplexity classify simple vs complex tasks.
+   */
+  intents?: CommandIntent[];
+  /**
+   * Correlation ID for tracing requests across systems.
+   */
+  correlationId?: string;
 }
 
 // ─── Message Types ─────────────────────────────────────────────────────
@@ -86,6 +104,10 @@ export interface SiteStrategy {
   successfulLocators: { locator: Locator; actionType: string; successCount: number }[];
   failedLocators: { locator: Locator; errorType: string; failCount: number }[];
   lastUsed: number;
+  /** Versioned to support future migration strategies. */
+  memoryVersion?: number;
+  /** Short human-readable summary of top success patterns for this domain. */
+  summary?: string;
 }
 
 export interface ActionLogEntry {
@@ -442,6 +464,8 @@ export interface MsgAgentDone {
   stepsUsed: number;
   /** True when this run was started by the scheduler (scheduled task). */
   scheduled?: boolean;
+  /** Correlation ID for this task, used in logs and debugging. */
+  correlationId?: string;
 }
 
 export interface MsgAgentError {
@@ -610,6 +634,12 @@ export interface ContextSnapshot {
   lastIntent: CommandIntent | null;
   lastAction: Action | null;
   pendingActions: Action[];
+  /** High-level session goal inferred from the first command. */
+  goal?: string;
+  /** Last few freeform user replies within this session. */
+  userReplies?: { reply: string; timestamp: number }[];
+  /** Clarification questions we've already asked to avoid repeating them. */
+  clarificationQuestions?: { question: string; timestamp: number }[];
 }
 
 // ─── Performance Metrics Types ───────────────────────────────────────────
@@ -777,6 +807,10 @@ export interface MsgGetMemoryStatsResponse {
   totalActions: number;
   oldestEntry: number | null;
   strategies: Record<string, any>;
+  strategiesPerDomain?: Record<string, number>;
+  largestDomains?: { domain: string; actions: number }[];
+  totalSessions?: number;
+  workflowRuns?: Record<string, any[]>;
 }
 
 export interface MsgGetScheduledTasks {

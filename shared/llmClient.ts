@@ -27,6 +27,15 @@ import { IntelligenceContext } from './ai-types';
 import { apiCache } from './advanced-caching';
 import { getContextManager, ContextItem } from './contextManager';
 import { inputSanitizer } from './input-sanitization';
+import { sanitizeMessages, redact } from './security';
+import {
+  OPENROUTER_DEFAULT_BASE_URL,
+  OPENROUTER_MODELS,
+  OPENROUTER_TIMEOUTS,
+  buildOpenRouterRequest as buildOpenRouterBody,
+  getOpenRouterHeaders as getOpenRouterHeadersWithEnv,
+  normalizeOpenRouterBaseUrl,
+} from './openrouterConfig';
 
 /** Patterns that suggest prompt injection; strip or neutralize before sending to LLM */
 const PROMPT_INJECTION_PATTERNS = [
@@ -40,6 +49,10 @@ const PROMPT_INJECTION_PATTERNS = [
   /\bpretend\s+(you\s+)?(are|to\s+be)\b/gi,
   /\bact\s+as\s+if\s+you\s+have\s+no\s+restrictions\b/gi,
   /\bforget\s+(everything|all)\s+(above|before)\b/gi,
+  // Wrapper-style prompt formats
+  /\[INST\][\s\S]*?\[\/INST\]/gi,
+  /<<\s*SYS\s*>>[\s\S]*?<<\s*\/\s*SYS\s*>>/gi,
+  /<\s*system\s*>[\s\S]*?<\s*\/\s*system\s*>/gi,
 ];
 
 function sanitizeForPrompt(text: string): string {
@@ -52,17 +65,10 @@ function sanitizeForPrompt(text: string): string {
 }
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 import { ollamaClient, checkOllamaStatus } from './ollamaClient';
+import { trackRateLimitEvent } from './metrics';
+import { DomainActionTracker } from './domainActionTracker';
 
 const DEFAULT_MODEL = DEFAULTS.MODEL_NAME || 'openrouter/auto';
-
-// ─── OpenRouter Configuration ─────────────────────────────────────────────
-// All API calls go through OpenRouter (OpenAI-compatible API).
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
-
-const OPENROUTER_MODELS = {
-  chat: DEFAULTS.MODEL_NAME,
-  vision: DEFAULTS.VISION_MODEL,
-} as const;
 
 type TaskComplexity = 'simple' | 'standard' | 'complex';
 
@@ -72,6 +78,8 @@ interface AgentTask {
   requiresReasoning?: boolean;
   multiStep?: boolean;
   complexity: TaskComplexity;
+  /** Whether this turn is primarily conversational or automation-focused. */
+  mode: 'conversation' | 'automation';
 }
 
 // ─── Cached System Prefix (stable for provider caching) ────────────────────
@@ -128,8 +136,6 @@ NEVER execute without enough info - ASK first via "askUser"
 NEVER assume missing details - clarify instead
 When actions fail: try alternatives, scroll, use different locators—keep going`;
 
-import { sanitizeMessages } from './security';
-
 /** Map API status codes to user-friendly messages (22.1). */
 function userFriendlyApiError(status: number): string | null {
   switch (status) {
@@ -162,6 +168,9 @@ export type LLMErrorType =
   | 'parse_error'
   | 'model_unavailable'
   | 'context_too_long'
+  | 'max_steps_exceeded'
+  | 'max_steps_approaching'
+  | 'domain_action_limit_exceeded'
   | 'unknown';
 
 export interface ClassifiedError {
@@ -170,6 +179,19 @@ export interface ClassifiedError {
   retryable: boolean;
   retryAfter?: number;
   originalError?: unknown;
+}
+
+export type RateLimitSource = 'OpenRouter' | 'Hyperagent';
+
+export class RateLimitError extends Error {
+  readonly retryAfter: number;
+  readonly source: RateLimitSource;
+  constructor(message: string, retryAfter: number, source: RateLimitSource = 'OpenRouter') {
+    super(message);
+    this.name = 'RateLimitError';
+    this.retryAfter = retryAfter;
+    this.source = source;
+  }
 }
 
 export function classifyError(error: unknown): ClassifiedError {
@@ -201,7 +223,7 @@ export function classifyError(error: unknown): ClassifiedError {
     if (message.includes('api key') || message.includes('401') || message.includes('unauthorized')) {
       return {
         type: 'auth_error',
-        userMessage: 'API key is invalid or missing. Please check your settings.',
+        userMessage: 'Your API key appears invalid or missing. Reconfigure your API key in Settings.',
         retryable: false,
         originalError: error,
       };
@@ -210,7 +232,7 @@ export function classifyError(error: unknown): ClassifiedError {
     if (message.includes('403') || message.includes('forbidden')) {
       return {
         type: 'auth_error',
-        userMessage: 'Access denied. Your API key may lack permission for this model.',
+        userMessage: 'Your API key appears invalid or lacks permission. Reconfigure your API key in Settings.',
         retryable: false,
         originalError: error,
       };
@@ -293,29 +315,210 @@ export function formatErrorForUser(error: unknown): string {
   return classified.userMessage;
 }
 
+async function parseOpenRouterError(response: Response): Promise<never> {
+  const status = response.status;
+  let rawText = '';
+  try {
+    rawText = await response.text();
+  } catch {
+    // ignore
+  }
+  const safeText = rawText ? redact(rawText) : '';
+  if (safeText) {
+    console.error('[HyperAgent] OpenRouter error payload:', safeText.slice(0, 500));
+  }
+
+  if (status === 429) {
+      const retryAfterHeader = response.headers.get('Retry-After');
+      let retryAfter = 60; // Default to 60 seconds
+
+      if (retryAfterHeader) {
+        const parsedInt = Number.parseInt(retryAfterHeader, 10);
+        if (!Number.isNaN(parsedInt)) {
+          retryAfter = parsedInt;
+        } else {
+          // Attempt to parse as a date
+          const date = new Date(retryAfterHeader);
+          if (!Number.isNaN(date.getTime())) {
+            retryAfter = Math.max(0, Math.ceil((date.getTime() - Date.now()) / 1000));
+          }
+        }
+      }
+      await trackRateLimitEvent({
+        timestamp: Date.now(),
+        model: 'unknown', // Model is not directly available here
+        source: 'OpenRouter',
+        retryAfter: retryAfter,
+      });
+      throw new RateLimitError(`Rate limit exceeded. Please try again in ${retryAfter} seconds.`, retryAfter, 'OpenRouter');
+    }
+
+  const friendly = userFriendlyApiError(status) || `Request failed with status ${status}`;
+  throw new Error(friendly);
+}
+
 // ─── Utility Classes ──────────────────────────────────────────────────────
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// Helper to save data to chrome.storage.local
+export async function saveToStorage(key: string, data: unknown): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [key]: data }, () => resolve());
+  });
+}
+
+// Helper to load data from chrome.storage.local
+export async function loadFromStorage<T>(key: string): Promise<T | null> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(key, (result) => {
+      resolve((result[key] as T) ?? null);
+    });
+  });
+}
+
+interface RateLimitEntry {
+  count: number;
+  startTime: number;
+}
+
+interface SoftLockEntry {
+  unlockTime: number;
+  reason: string;
+}
+
+interface RateLimiterOptions {
+  maxRequestsPerMinute?: number;
+  maxRequestsPerHour?: number;
+}
+
 class RateLimiter {
-  recordRequest(_model: string): void {
-    // Simple rate limiting - could be enhanced later
-    console.log(`[RateLimiter] Recorded request for ${_model}`);
+  private readonly MAX_REQUESTS_PER_MINUTE: number;
+  private readonly MAX_REQUESTS_PER_HOUR: number;
+  private readonly SOFT_LOCK_KEY = 'hyperagent_llm_soft_lock';
+
+  private modelLimits = new Map<string, { minute: RateLimitEntry; hour: RateLimitEntry }>();
+
+  constructor(options?: RateLimiterOptions) {
+    this.MAX_REQUESTS_PER_MINUTE = options?.maxRequestsPerMinute ?? 60;
+    this.MAX_REQUESTS_PER_HOUR = options?.maxRequestsPerHour ?? 3600;
+  }
+
+  async getSoftLock(): Promise<{ locked: boolean; unlockTime?: number; reason?: string }> {
+    const softLock = await loadFromStorage<SoftLockEntry>(this.SOFT_LOCK_KEY);
+    if (softLock && softLock.unlockTime > Date.now()) {
+      return { locked: true, unlockTime: softLock.unlockTime, reason: softLock.reason };
+    }
+    await this.clearSoftLock(); // Clear if expired
+    return { locked: false };
+  }
+
+  async setSoftLock(unlockTime: number, reason: string): Promise<void> {
+    await saveToStorage(this.SOFT_LOCK_KEY, { unlockTime, reason });
+  }
+
+  async clearSoftLock(): Promise<void> {
+    await chrome.storage.local.remove(this.SOFT_LOCK_KEY);
+  }
+
+  async isAllowed(model: string): Promise<{ allowed: boolean; retryAfter?: number; reason?: string }> {
+    const softLock = await this.getSoftLock();
+    if (softLock.locked) {
+      return { allowed: false, retryAfter: Math.ceil((softLock.unlockTime! - Date.now()) / 1000), reason: softLock.reason };
+    }
+
+    const now = Date.now();
+    let modelLimit = this.modelLimits.get(model);
+
+    if (!modelLimit) {
+      modelLimit = {
+        minute: { count: 0, startTime: now },
+        hour: { count: 0, startTime: now },
+      };
+      this.modelLimits.set(model, modelLimit);
+    }
+
+    // Check minute limit
+    if (now - modelLimit.minute.startTime > 60 * 1000) {
+      modelLimit.minute = { count: 0, startTime: now };
+    }
+    if (modelLimit.minute.count >= this.MAX_REQUESTS_PER_MINUTE) {
+      const retryAfter = (modelLimit.minute.startTime + 60 * 1000 - now) / 1000;
+      return { allowed: false, retryAfter: Math.ceil(retryAfter) };
+    }
+
+    // Check hour limit
+    if (now - modelLimit.hour.startTime > 60 * 60 * 1000) {
+      modelLimit.hour = { count: 0, startTime: now };
+    }
+    if (modelLimit.hour.count >= this.MAX_REQUESTS_PER_HOUR) {
+      const retryAfter = (modelLimit.hour.startTime + 60 * 60 * 1000 - now) / 1000;
+      return { allowed: false, retryAfter: Math.ceil(retryAfter) };
+    }
+
+    return { allowed: true };
+  }
+
+  recordRequest(model: string): void {
+    const now = Date.now();
+    let modelLimit = this.modelLimits.get(model);
+
+    if (!modelLimit) {
+      modelLimit = {
+        minute: { count: 0, startTime: now },
+        hour: { count: 0, startTime: now },
+      };
+      this.modelLimits.set(model, modelLimit);
+    }
+
+    // Update minute limit
+    if (now - modelLimit.minute.startTime > 60 * 1000) {
+      modelLimit.minute = { count: 1, startTime: now };
+    } else {
+      modelLimit.minute.count++;
+    }
+
+    // Update hour limit
+    if (now - modelLimit.hour.startTime > 60 * 60 * 1000) {
+      modelLimit.hour = { count: 1, startTime: now };
+    } else {
+      modelLimit.hour.count++;
+    }
+
+    console.log(`[RateLimiter] Recorded request for ${model}. Minute: ${modelLimit.minute.count}/${this.MAX_REQUESTS_PER_MINUTE}, Hour: ${modelLimit.hour.count}/${this.MAX_REQUESTS_PER_HOUR}`);
   }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { OPENROUTER_MODELS } from './openrouterConfig';
+
 class CostTracker {
   private sessionTokens = 0;
   private sessionCost = 0;
+  private sessionSteps = 0;
   private readonly warningThreshold = DEFAULTS.COST_WARNING_THRESHOLD ?? 1.00;
 
-  trackCost(_model: string, usage: any): void {
+  private getModelCostPer1kTokens(modelName: string): number {
+    for (const key in OPENROUTER_MODELS) {
+      if (OPENROUTER_MODELS[key as keyof typeof OPENROUTER_MODELS].name === modelName) {
+        return OPENROUTER_MODELS[key as keyof typeof OPENROUTER_MODELS].costPer1kTokens;
+      }
+    }
+    console.warn(`[CostTracker] Unknown model ${modelName}, using default cost.`);
+    return 0.001; // Default cost if model not found
+  }
+
+  trackCost(modelName: string, usage: any): void {
     if (usage?.total_tokens) {
       this.sessionTokens += usage.total_tokens;
     }
-    const costPer1kTokens = 0.001;
-    if (usage?.total_tokens) {
-      this.sessionCost += (usage.total_tokens / 1000) * costPer1kTokens;
+
+    if (usage?.total_cost) {
+      // If OpenRouter provides total_cost directly, use it.
+      this.sessionCost += usage.total_cost;
+    } else if (usage?.total_tokens) {
+      // Otherwise, calculate using our model costs.
+      const modelCostPer1kTokens = this.getModelCostPer1kTokens(modelName);
+      this.sessionCost += (usage.total_tokens / 1000) * modelCostPer1kTokens;
     }
+
     if (this.sessionCost >= this.warningThreshold) {
       console.warn(`[CostTracker] Session cost warning: $${this.sessionCost.toFixed(4)} (threshold: $${this.warningThreshold})`);
     }
@@ -328,16 +531,24 @@ class CostTracker {
   resetSession() {
     this.sessionTokens = 0;
     this.sessionCost = 0;
+    this.sessionSteps = 0;
   }
 
   isOverLimit(): boolean {
     return this.sessionTokens >= (DEFAULTS.MAX_TOKENS_PER_SESSION ?? 100000);
   }
+
+  incrementSteps(): void {
+    this.sessionSteps++;
+  }
+
+  isOverStepLimit(): boolean {
+    return this.sessionSteps >= (DEFAULTS.MAX_STEPS ?? 12);
+  }
 }
 
 // ─── Dynamic System Prompt Builder (cached prefix + dynamic suffix) ────────
 const DYNAMIC_ACTIONS_SUFFIX = `
-
 ## Response Format (ALWAYS use valid JSON)
 {
   "thinking": "Your PRIVATE reasoning - NOT shown to user directly",
@@ -434,7 +645,16 @@ Action results: [{"type": "click", "desc": "Click Search", "ok": false, "err": "
 6. When actions fail, adapt and retry—don't give up`;
 
 function buildDynamicSystemPrompt(task: AgentTask): string {
-  const basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}`;
+  let basePrompt = `${CACHED_SYSTEM_PREFIX}${DYNAMIC_ACTIONS_SUFFIX}`;
+
+  // Explicitly surface the current interaction mode so the model can
+  // gracefully stay in conversation when no automation is required.
+  const modeLine = task.mode === 'conversation'
+    ? `
+MODE: conversation (chat-focused; only use actions when the user explicitly asks for browser control)`
+    : '';
+
+  basePrompt += modeLine;
 
   if (task.complexity === 'complex') {
     return `${basePrompt}
@@ -451,8 +671,9 @@ For this complex task, think through step by step:
 }
 
 // ─── Model Selection ──────────────────────────────────────────────────────
-function selectModelForTask(_task: AgentTask): string {
-  return DEFAULT_MODEL;
+function selectModelForTask(_task: AgentTask): { name: string; costPer1kTokens: number } {
+  // For now, always return the chat model. This can be expanded later for dynamic model selection.
+  return OPENROUTER_MODELS.chat;
 }
 
 // All calls go through OpenRouter — this is kept for backward compat but always returns 'openrouter'
@@ -460,47 +681,44 @@ function detectProviderFromKey(_apiKey: string): string {
   return 'openrouter';
 }
 
-// Get API headers for OpenRouter (OpenAI-compatible + required OpenRouter headers)
-function getOpenRouterHeaders(apiKey: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${apiKey}`,
-    'HTTP-Referer': 'https://hyperagent.ai',
-    'X-Title': 'HyperAgent',
-  };
+function getOpenRouterBaseUrl(raw?: string): string {
+  return normalizeOpenRouterBaseUrl(raw || OPENROUTER_DEFAULT_BASE_URL);
+}
+
+function getOpenRouterHeaders(apiKey: string, baseUrl?: string): Record<string, string> {
+  return getOpenRouterHeadersWithEnv(apiKey, baseUrl);
 }
 
 // Build request body (OpenAI-compatible format, used by OpenRouter)
 function buildOpenRouterRequest(model: string, messages: any[], maxTokens: number, temperature: number): Record<string, unknown> {
-  const baseRequest: Record<string, unknown> = {
-    model,
-    messages,
-    max_tokens: maxTokens,
-    temperature,
-  };
-
-  // OpenRouter occasionally auto-routes Google models to Anthropic endpoints if user preferences are cached.
-  // We explicitly override the downstream provider depending on the selected model to prevent 404.
-  if (model.includes('gemini') || model.includes('gemma')) {
-    baseRequest.provider = { order: ["Google"] };
-  } else if (model.includes('claude') || model.includes('anthropic')) {
-    baseRequest.provider = { order: ["Anthropic"] };
-  } else if (model.includes('llama')) {
-    baseRequest.provider = { order: ["Meta", "Together", "Fireworks"] };
-  } else if (model.includes('deepseek')) {
-    baseRequest.provider = { order: ["DeepSeek"] };
-  }
-
-  return baseRequest;
+  // Delegate to centralized helper that never overrides provider.order.
+  return buildOpenRouterBody(model, messages, maxTokens, temperature);
 }
 
-function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentTask {
+function analyzeTaskComplexity(
+  command: string,
+  history: HistoryEntry[],
+  intents: { action: string }[] = []
+): AgentTask {
   const commandLower = command.toLowerCase();
   const stepCount = history.filter(h => h?.role === 'assistant').length;
 
   const isSimple = /^(click|press|type|fill|scroll|select)\s/i.test(commandLower);
-  const isComplex = /\b(analyze|compare|research|find all|extract|summarize|navigate|search|multi|complex)\b/i.test(commandLower);
+  const isComplex = /\b(analyze|compare|research|find all|extract|summarize|navigate|search|multi|complex)\b/i.test(
+    commandLower
+  );
   const multiStep = stepCount > 3 || /\b(and|then|after|next|also)\b/i.test(commandLower);
+
+  // Detect clearly conversational turns (greetings, short Q&A, chit-chat).
+  const looksConversational =
+    !/\b(click|press|type|fill|scroll|select|navigate|open tab|extract|form|button|link)\b/i.test(commandLower) &&
+    (commandLower.length < 120 || /^(hi|hey|hello|how are you|what is|who is)\b/i.test(commandLower));
+
+  // Intents can also hint at automation vs chat; if we see explicit web actions,
+  // prefer automation mode.
+  const hasAutomationIntent = intents.some(i =>
+    /click|fill|select|scroll|navigate|openTab|extract|pressKey|submit|runWorkflow|runMacro/i.test(i.action)
+  );
 
   let complexity: TaskComplexity = 'standard';
   if (isSimple && !multiStep) complexity = 'simple';
@@ -509,12 +727,16 @@ function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentT
   const actionMatch = /^(click|type|fill|scroll|navigate|extract|press|select|hover|focus)/.exec(commandLower);
   const actionType = actionMatch ? actionMatch[1] : 'unknown';
 
+  const mode: 'conversation' | 'automation' =
+    looksConversational && !hasAutomationIntent ? 'conversation' : 'automation';
+
   return {
     type: actionType,
     description: command,
     requiresReasoning: isComplex,
     multiStep,
     complexity,
+    mode,
   };
 }
 
@@ -794,10 +1016,25 @@ function identifyAlternatives(context: StrategicContext): string {
   return 'Current approach viable';
 }
 
+interface BuildMessagesOptions {
+  sessionMeta?: {
+    goal?: string;
+    lastActions?: string[];
+    lastUserReplies?: string[];
+    intents?: { action: string }[];
+  };
+  learningEnabled?: boolean;
+}
+
 // ─── Build messages for the API ─────────────────────────────────────
-function buildMessages(command: string, history: HistoryEntry[], context: PageContext): Message[] {
+function buildMessages(
+  command: string,
+  history: HistoryEntry[],
+  context: PageContext,
+  options: BuildMessagesOptions = {}
+): Message[] {
   const safeCommand = sanitizeForPrompt(command || '');
-  const task = analyzeTaskComplexity(safeCommand, history);
+  const task = analyzeTaskComplexity(safeCommand, history, options.sessionMeta?.intents ?? []);
   const systemPrompt = buildDynamicSystemPrompt(task);
   const messages: Message[] = [{ role: 'system', content: systemPrompt }];
 
@@ -814,12 +1051,14 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           role: 'user',
           content: `User replied: ${safeReply}`,
         });
-        contextManager.addContextItem({
-          type: 'result',
-          content: `User replied: ${entry.userReply}`,
-          timestamp: Date.now(),
-          importance: 8,
-        });
+        if (options.learningEnabled !== false) {
+          contextManager.addContextItem({
+            type: 'result',
+            content: `User replied: ${entry.userReply}`,
+            timestamp: Date.now(),
+            importance: 8,
+          });
+        }
       } else if (entry.context) {
         const isOld = i < compressedHistory.length - 4;
         const ctx = isOld
@@ -835,12 +1074,14 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           role: 'user',
           content,
         });
-        contextManager.addContextItem({
-          type: 'action',
-          content,
-          timestamp: entry.context.timestamp || Date.now(),
-          importance: isOld ? 3 : 7,
-        });
+        if (options.learningEnabled !== false) {
+          contextManager.addContextItem({
+            type: 'action',
+            content,
+            timestamp: entry.context.timestamp || Date.now(),
+            importance: isOld ? 3 : 7,
+          });
+        }
       }
     }
     if (entry.role === 'assistant' && entry.response) {
@@ -851,12 +1092,14 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
         role: 'assistant',
         content: respContent,
       });
-      contextManager.addContextItem({
-        type: 'thought',
-        content: resp.thinking || resp.summary,
-        timestamp: Date.now(),
-        importance: 6,
-      });
+      if (options.learningEnabled !== false) {
+        contextManager.addContextItem({
+          type: 'thought',
+          content: resp.thinking || resp.summary,
+          timestamp: Date.now(),
+          importance: 6,
+        });
+      }
       if (entry.actionsExecuted) {
         const results = entry.actionsExecuted.map(r => ({
           type: r.action.type,
@@ -871,12 +1114,14 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
           content: resultsContent,
         });
         const hasErrors = results.some(r => !r.ok);
-        contextManager.addContextItem({
-          type: hasErrors ? 'error' : 'result',
-          content: resultsContent,
-          timestamp: Date.now(),
-          importance: hasErrors ? 9 : 5,
-        });
+        if (options.learningEnabled !== false) {
+          contextManager.addContextItem({
+            type: hasErrors ? 'error' : 'result',
+            content: resultsContent,
+            timestamp: Date.now(),
+            importance: hasErrors ? 9 : 5,
+          });
+        }
       }
     }
   }
@@ -893,10 +1138,11 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
   }
 
   // Current turn — full context with all semantic elements
+  let noPageContext = false;
   if (!context) {
     // Create minimal fallback context if none provided
     context = {
-      url: 'unknown',
+      url: 'no_page_context',
       title: 'Unknown page',
       bodyText: '',
       metaDescription: '',
@@ -907,11 +1153,59 @@ function buildMessages(command: string, history: HistoryEntry[], context: PageCo
       viewportSize: { width: 1280, height: 720 },
       pageHeight: 0,
     };
+    noPageContext = true;
+  } else if (
+    !context.url &&
+    !context.title &&
+    (!context.bodyText || !context.bodyText.trim()) &&
+    (!context.semanticElements || context.semanticElements.length === 0)
+  ) {
+    noPageContext = true;
   }
 
   const currentContext = { ...context };
   const screenshot = currentContext?.screenshotBase64;
   if (screenshot) delete currentContext.screenshotBase64;
+
+  // Apply a soft limit on semantic elements based on task complexity to keep
+  // prompts efficient while preserving enough structure for the LLM.
+  if (Array.isArray(currentContext.semanticElements)) {
+    let maxElements: number = DEFAULTS.MAX_SEMANTIC_ELEMENTS ?? 250;
+    if (task.complexity === 'simple') {
+      maxElements = Math.min(maxElements, 80);
+    } else if (task.complexity === 'standard') {
+      maxElements = Math.min(maxElements, 160);
+    }
+    if (currentContext.semanticElements.length > maxElements) {
+      currentContext.semanticElements = currentContext.semanticElements.slice(0, maxElements);
+    }
+  }
+
+  // Include a small structured block with session goal and recent session-level
+  // information so the model has a stable sense of purpose across turns.
+  if (options.sessionMeta && (options.sessionMeta.goal || options.sessionMeta.lastActions || options.sessionMeta.lastUserReplies)) {
+    const lines: string[] = ['Session context:'];
+    if (options.sessionMeta.goal) {
+      lines.push(`- Goal: ${sanitizeForPrompt(options.sessionMeta.goal)}`);
+    }
+    if (options.sessionMeta.lastActions?.length) {
+      lines.push(`- Last actions: ${options.sessionMeta.lastActions.slice(-5).join(' | ')}`);
+    }
+    if (options.sessionMeta.lastUserReplies?.length) {
+      lines.push(`- Recent user replies: ${options.sessionMeta.lastUserReplies.slice(-5).join(' | ')}`);
+    }
+    messages.push({
+      role: 'system',
+      content: lines.join('\n'),
+    });
+  }
+
+  if (noPageContext) {
+    messages.push({
+      role: 'system',
+      content: 'Page context status: no_page_context',
+    });
+  }
 
   const safeHistory = history || [];
   const textContent = `Command: ${safeCommand || 'No command'}\n\nCurrent page context (step ${safeHistory.filter(h => h?.role === 'assistant').length + 1}):\n${JSON.stringify(currentContext, null, 2)}`;
@@ -988,7 +1282,8 @@ interface FallbackSettings {
 async function buildIntelligentFallback(
   command: string,
   context: PageContext,
-  settings: FallbackSettings
+  settings: FallbackSettings,
+  correlationId?: string // Added correlationId
 ): Promise<LLMResponse | null> {
   try {
     // Create a simplified reasoning prompt for the LLM
@@ -1019,8 +1314,8 @@ Respond with valid JSON:
 
     // All calls go through OpenRouter
     const model = OPENROUTER_MODELS.chat;
-    const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
-    const headers = getOpenRouterHeaders(settings.apiKey);
+    const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/chat/completions`;
+    const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId); // Pass correlationId
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
@@ -1165,17 +1460,23 @@ function validateResponse(raw: unknown): LLMResponse {
 // ─── Enhanced LLM Client with Autonomous Intelligence ─────────────────
 export class EnhancedLLMClient implements LLMClientInterface {
   private readonly cache = new Map<string, any>();
+  private readonly rateLimiter = new RateLimiter({
+    maxRequestsPerMinute: 60,
+    maxRequestsPerHour: 3600,
+  });
+  private readonly costTracker = new CostTracker();
+  private readonly domainActionTracker = new DomainActionTracker();
 
   constructor() {
     // Inject self into autonomous intelligence engine to break circular dependency
     autonomousIntelligence.setLLMClient(this);
   }
 
-  async callLLM(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
+  async callLLM(request: LLMRequest, signal?: AbortSignal, correlationId?: string): Promise<LLMResponse> {
     // The standard agent loop uses the traditional API call directly.
     // This sends the command + page context to the LLM and gets back
     // structured actions. No extra planning round-trip needed.
-    return await this.makeTraditionalCall(request, signal);
+    return await this.makeTraditionalCall(request, signal, correlationId);
   }
 
   async callLLMAutonomous(request: LLMRequest, signal?: AbortSignal): Promise<LLMResponse> {
@@ -1209,14 +1510,14 @@ export class EnhancedLLMClient implements LLMClientInterface {
         !Array.isArray((autonomousPlan as any).actions) ||
         ((autonomousPlan as any).actions?.length ?? 0) === 0
       ) {
-        return await this.makeTraditionalCall(request, signal);
+        return await this.makeTraditionalCall(request, signal, request.correlationId); // Pass correlationId
       }
 
       return this.convertPlanToResponse(autonomousPlan);
     } catch (error) {
       if ((error as Error).name === 'AbortError') throw error;
       console.error('[HyperAgent] Autonomous planning failed, using direct call:', error);
-      return await this.makeTraditionalCall(request, signal);
+      return await this.makeTraditionalCall(request, signal, request.correlationId); // Pass correlationId
     }
   }
 
@@ -1244,9 +1545,9 @@ export class EnhancedLLMClient implements LLMClientInterface {
       done: actions.length === 0 ? true : (plan.done || false),
       askUser: plan.askUser,
     };
-  }
+}
 
-  async callCompletion(request: CompletionRequest, signal?: AbortSignal): Promise<string> {
+  async callCompletion(request: CompletionRequest, signal?: AbortSignal, correlationId?: string): Promise<string> {
     const settings = await loadSettings();
     if (!settings.apiKey) throw new Error('API Key not set');
 
@@ -1256,27 +1557,24 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
       console.log(`[HyperAgent] Using completion model: ${model} (via OpenRouter)`);
 
-      const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
-      const headers = getOpenRouterHeaders(settings.apiKey);
-      const requestBody = buildOpenRouterRequest(model, safeMessages, request.maxTokens ?? 1000, request.temperature ?? 0.7);
+      const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/chat/completions`;
+      const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId); // Pass correlationId
+      const requestBody = buildOpenRouterRequest(
+        model,
+        safeMessages,
+        request.maxTokens ?? 1000,
+        request.temperature ?? 0.7
+      );
 
       const response = await fetch(baseUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(requestBody),
-        signal: signal || AbortSignal.timeout(60000),
+        signal: signal || AbortSignal.timeout(OPENROUTER_TIMEOUTS.completionMs),
       });
 
       if (!response?.ok) {
-        const errorText = response ? await response.text() : '';
-        console.error(`[HyperAgent] Completion error ${response?.status ?? 'unknown'}:`, errorText);
-        if (response?.status === 429) {
-          const retryAfter = response?.headers?.get('Retry-After');
-          const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
-          throw new Error(`Rate limit exceeded. Try again in ${waitSec} seconds.`);
-        }
-        const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
-        throw new Error(friendly || `Completion request failed: ${response?.status ?? 'unknown'}`);
+        await parseOpenRouterError(response);
       }
 
       const data = await response.json();
@@ -1289,16 +1587,18 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
   private async makeTraditionalCall(
     request: LLMRequest,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    correlationId?: string
   ): Promise<LLMResponse> {
     const settings = await loadSettings();
-    return await this.makeAPICall(request, settings, signal);
+    return await this.makeAPICall(request, settings, signal, correlationId);
   }
 
   private async makeAPICall(
     request: LLMRequest,
     settings: any,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    correlationId?: string
   ): Promise<LLMResponse> {
     // Check if we should use local Ollama
     if (settings.useLocalAI || settings.ollamaEnabled) {
@@ -1333,8 +1633,13 @@ export class EnhancedLLMClient implements LLMClientInterface {
       console.warn('[HyperAgent] Input sanitization warnings:', sanitizedCommand.warnings);
     }
 
-    const task = analyzeTaskComplexity(sanitizedCommand.sanitizedValue, request.history || []);
-    const selectedModel = selectModelForTask(task);
+    const task = analyzeTaskComplexity(
+      sanitizedCommand.sanitizedValue,
+      request.history || [],
+      request.intents || []
+    );
+    const selectedModelInfo = selectModelForTask(task);
+    const selectedModel = selectedModelInfo.name;
 
     // Check semantic cache
     const semanticCached = await semanticCache.get(sanitizedCommand.sanitizedValue, (text) => this.getEmbedding(text));
@@ -1347,7 +1652,11 @@ export class EnhancedLLMClient implements LLMClientInterface {
     const rawMessages = buildMessages(
       sanitizedCommand.sanitizedValue,
       request.history || [],
-      request.context || this.createEmptyContext()
+      request.context || this.createEmptyContext(),
+      {
+        sessionMeta: request.sessionMeta,
+        learningEnabled: settings.learningEnabled,
+      }
     );
     const messages = sanitizeMessages(rawMessages);
 
@@ -1359,11 +1668,73 @@ export class EnhancedLLMClient implements LLMClientInterface {
       return cachedResponse;
     }
 
+    // Check session token limit
+    if (this.costTracker.isOverLimit()) {
+      const retryAfter = 60; // Default to 60 seconds for session limit
+      return {
+        thinking: 'Session token limit exceeded.',
+        summary: 'You have exceeded the maximum token limit for this session. Please reset the session to continue.',
+        actions: [],
+        done: true,
+        error: 'rate_limit',
+        retryAfter: retryAfter,
+      };
+    }
+
+    // Check session step limit
+    const maxSteps = DEFAULTS.MAX_STEPS ?? 12;
+    const currentSteps = this.costTracker.sessionSteps;
+    const approachingThreshold = Math.floor(maxSteps * 0.8);
+
+    if (currentSteps >= maxSteps) {
+      return {
+        thinking: 'Session step limit exceeded.',
+        summary: `You have exceeded the maximum of ${maxSteps} steps for this session. Please reset the session to continue.`,
+        actions: [],
+        done: true,
+        error: 'max_steps_exceeded',
+      };
+    } else if (currentSteps >= approachingThreshold) {
+      return {
+        thinking: 'Session step limit approaching.',
+        summary: `You are approaching the maximum of ${maxSteps} steps for this session (${currentSteps} taken). Do you want to allow an extended run?`,
+        actions: [],
+        done: false,
+        error: 'max_steps_approaching',
+        askUser: `You are approaching the maximum of ${maxSteps} steps for this session (${currentSteps} taken). Do you want to allow an extended run?`,
+      };
+    }
+
+    // Check per-domain action limit
+    const currentDomain = request.context?.url ? new URL(request.context.url).hostname : 'unknown';
+    if (await this.domainActionTracker.isOverLimit(currentDomain)) {
+      const domainLimit = DEFAULTS.MAX_ACTIONS_PER_DOMAIN ?? 50;
+      return {
+        thinking: `Domain action limit exceeded for ${currentDomain}.`,
+        summary: `You have exceeded the maximum of ${domainLimit} actions for ${currentDomain} in this session. Please reset the session to continue.`,
+        actions: [],
+        done: true,
+        error: 'domain_action_limit_exceeded',
+      };
+    }
+
     // All calls go through OpenRouter
+    const rateLimitCheck = await this.rateLimiter.isAllowed(selectedModel);
+    if (!rateLimitCheck.allowed) {
+      const errorMessage = `Rate limit exceeded for model ${selectedModel}. Please try again in ${rateLimitCheck.retryAfter} seconds.`;
+      await trackRateLimitEvent({
+        timestamp: Date.now(),
+        model: selectedModel,
+        source: 'OpenRouter',
+        retryAfter: rateLimitCheck.retryAfter!,
+      });
+      throw new RateLimitError(errorMessage, rateLimitCheck.retryAfter!, 'Hyperagent');
+    }
+    this.rateLimiter.recordRequest(selectedModel);
     console.log(`[HyperAgent] Using model: ${selectedModel} (via OpenRouter)`);
 
-    const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
-    const headers = getOpenRouterHeaders(settings.apiKey);
+    const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/chat/completions`;
+    const headers = getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId);
     const maxTokens = task.complexity === 'complex' ? 4096 : 2048;
     const temperature = task.complexity === 'complex' ? 0.5 : 0.7;
     const requestBody = buildOpenRouterRequest(selectedModel, messages, maxTokens, temperature);
@@ -1375,25 +1746,17 @@ export class EnhancedLLMClient implements LLMClientInterface {
           method: 'POST',
           headers,
           body: JSON.stringify(requestBody),
-          signal: signal || AbortSignal.timeout(DEFAULTS.LLM_TIMEOUT_MS ?? 45000),
+          signal: signal || AbortSignal.timeout(OPENROUTER_TIMEOUTS.chatMs),
         });
 
         if (!response?.ok) {
-          const errorText = response ? await response.text() : '';
-          console.error(`[HyperAgent] API error ${response?.status ?? 'unknown'}:`, errorText);
-
-          if (response?.status === 429) {
-            const retryAfter = response?.headers?.get('Retry-After');
-            const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
-            throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
-          }
-
-          const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
-          throw new Error(friendly || `API request failed: ${response?.status ?? 'unknown'}`);
+          await parseOpenRouterError(response);
         }
 
         // Parse response (OpenRouter uses OpenAI-compatible format)
         const data = await response.json();
+        // Track cost for the successful API call
+        this.costTracker.trackCost(selectedModelInfo.name, data.usage);
         const content = data?.choices?.[0]?.message?.content || '';
 
         if (!content) {
@@ -1428,6 +1791,10 @@ export class EnhancedLLMClient implements LLMClientInterface {
     if (retryResult.success && retryResult.result) {
       await apiCache.set(cacheKey, retryResult.result, { ttl: 15 * 60 * 1000 });
       await semanticCache.set(sanitizedCommand.sanitizedValue, retryResult.result, (text) => this.getEmbedding(text));
+      if (retryResult.result.actions && retryResult.result.actions.length > 0) {
+        this.costTracker.incrementSteps();
+        await this.domainActionTracker.incrementActionCount(currentDomain);
+      }
       return retryResult.result;
     }
 
@@ -1435,6 +1802,21 @@ export class EnhancedLLMClient implements LLMClientInterface {
       retryResult.error instanceof Error
         ? retryResult.error.message
         : String(retryResult.error ?? 'Request failed');
+
+    if (retryResult.error instanceof RateLimitError) {
+      const unlockTime = Date.now() + retryResult.error.retryAfter * 1000;
+      await this.rateLimiter.setSoftLock(unlockTime, errorMessage);
+      const sourceMessage = retryResult.error.source === 'Hyperagent' ? 'your local agent' : 'OpenRouter';
+      return {
+        thinking: `Failed to get response due to rate limit after retries. Soft locked until ${new Date(unlockTime).toLocaleTimeString()}`,
+        summary: `I've encountered a rate limit from ${sourceMessage} and will be temporarily paused. ${errorMessage}`,
+        actions: [],
+        done: true,
+        error: 'rate_limit',
+        retryAfter: retryResult.error.retryAfter,
+      };
+    }
+
     return {
       thinking: 'Failed to get response after retries.',
       summary: errorMessage || 'I encountered an error after multiple attempts.',
@@ -1505,27 +1887,37 @@ USER COMMAND: ${request.command || 'No command'}
 `;
   }
 
-  async getEmbedding(text: string): Promise<number[]> {
+  async getEmbedding(text: string, correlationId?: string): Promise<number[]> { // Added correlationId
     const settings = await loadSettings();
     if (!settings.apiKey) throw new Error('API Key not set');
 
     try {
       // Use OpenRouter's text-embedding adapter (works with the API key)
-      const response = await fetch(`${settings.baseUrl}/embeddings`, {
+      const baseUrl = `${getOpenRouterBaseUrl(settings.baseUrl)}/embeddings`;
+      const response = await fetch(baseUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`,
-          'HTTP-Referer': 'https://hyperagent.ai', // Required by OpenRouter for some models
-        },
+        headers: getOpenRouterHeaders(settings.apiKey, settings.baseUrl, undefined, correlationId), // Pass correlationId
         body: JSON.stringify({
-          model: 'text-embedding-3-small',
+          model: OPENROUTER_MODELS.embedding.name,
           input: text,
         }),
+        signal: AbortSignal.timeout(OPENROUTER_TIMEOUTS.embeddingsMs),
       });
 
       if (!response?.ok) {
-        console.warn('[HyperAgent] Embedding request failed, returning empty');
+        if (response?.status === 429) {
+          const retryAfter = response?.headers?.get('Retry-After');
+          const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
+          console.warn(`[HyperAgent] Embedding rate limited. Retry after ~${waitSec}s`);
+          await trackRateLimitEvent({
+            timestamp: Date.now(),
+            model: OPENROUTER_MODELS.embedding.name,
+            source: 'OpenRouter',
+            retryAfter: waitSec,
+          });
+        } else {
+          await parseOpenRouterError(response);
+        }
         return [];
       }
 

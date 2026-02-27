@@ -65,7 +65,24 @@ export const STORAGE_KEYS = {
   OLLAMA_HOST: 'hyperagent_ollama_host',
   OLLAMA_MODEL: 'hyperagent_ollama_model',
   USE_LOCAL_AI: 'hyperagent_use_local_ai',
+  // Workflows & Macros metadata
+  LAST_SUCCESSFUL_WORKFLOW: 'hyperagent_last_successful_workflow',
+  LAST_SUCCESSFUL_MACRO: 'hyperagent_last_successful_macro',
+  WORKFLOW_RUNS: 'hyperagent_workflow_runs',
+  // Debugging
+  DEBUG_MODE: 'hyperagent_debug_mode',
+  LOG_LEVEL: 'hyperagent_log_level',
 } as const;
+
+export enum LogLevel {
+  NONE = 0,
+  ERROR = 1,
+  WARN = 2,
+  INFO = 3,
+  DEBUG = 4,
+  VERBOSE = 5,
+}
+
 
 // ─── Validation constants ─────────────────────────────────────────────
 export const VALIDATION = {
@@ -112,12 +129,17 @@ export const DEFAULTS = {
   // Token and cost management
   COST_WARNING_THRESHOLD: 5.00,  // Warn when session cost exceeds $5
   MAX_TOKENS_PER_SESSION: 100000, // Max tokens per session (approx $0.10-$0.50)
+  MAX_ACTIONS_PER_DOMAIN: 50, // Max actions per domain to prevent runaway automation
   // Local AI (Ollama)
   OLLAMA_ENABLED: false,  // Auto-detected, user can override
   OLLAMA_HOST: 'http://localhost:11434',
   OLLAMA_MODEL: 'llama3.2:3b',
   USE_LOCAL_AI: false,  // Default to cloud AI unless Ollama is available
+  // Debugging
+  DEBUG_MODE: false,
+  LOG_LEVEL: LogLevel.INFO,
 } as const;
+
 
 // ─── Centralized Model List ──────────────────────────────────────────
 // Single source of truth for all available models.
@@ -186,6 +208,9 @@ export interface Settings {
   ollamaHost: string;
   ollamaModel: string;
   useLocalAI: boolean;
+  // Debugging
+  debugMode: boolean;
+  logLevel: LogLevel;
 }
 
 // ─── Settings validation ─────────────────────────────────────────────
@@ -257,6 +282,8 @@ export async function loadSettings(): Promise<Settings> {
       STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE,
       STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE,
       STORAGE_KEYS.LEARNING_ENABLED,
+      STORAGE_KEYS.DEBUG_MODE,
+      STORAGE_KEYS.LOG_LEVEL,
     ]);
 
     const rawBaseUrl = data[STORAGE_KEYS.BASE_URL];
@@ -285,6 +312,8 @@ export async function loadSettings(): Promise<Settings> {
       ollamaHost: data[STORAGE_KEYS.OLLAMA_HOST] ?? DEFAULTS.OLLAMA_HOST,
       ollamaModel: data[STORAGE_KEYS.OLLAMA_MODEL] ?? DEFAULTS.OLLAMA_MODEL,
       useLocalAI: data[STORAGE_KEYS.USE_LOCAL_AI] ?? DEFAULTS.USE_LOCAL_AI,
+      debugMode: data[STORAGE_KEYS.DEBUG_MODE] ?? DEFAULTS.DEBUG_MODE,
+      logLevel: data[STORAGE_KEYS.LOG_LEVEL] ?? DEFAULTS.LOG_LEVEL,
     };
 
     // Validate loaded settings
@@ -318,6 +347,8 @@ export async function loadSettings(): Promise<Settings> {
       ollamaHost: DEFAULTS.OLLAMA_HOST,
       ollamaModel: DEFAULTS.OLLAMA_MODEL,
       useLocalAI: DEFAULTS.USE_LOCAL_AI,
+      debugMode: DEFAULTS.DEBUG_MODE,
+      logLevel: DEFAULTS.LOG_LEVEL,
     };
   }
 }
@@ -354,6 +385,8 @@ export async function saveSettings(settings: Settings): Promise<{ success: boole
       [STORAGE_KEYS.OLLAMA_HOST]: settings.ollamaHost,
       [STORAGE_KEYS.OLLAMA_MODEL]: settings.ollamaModel,
       [STORAGE_KEYS.USE_LOCAL_AI]: settings.useLocalAI,
+      [STORAGE_KEYS.DEBUG_MODE]: settings.debugMode,
+      [STORAGE_KEYS.LOG_LEVEL]: settings.logLevel,
     });
 
     return { success: true };
@@ -564,13 +597,19 @@ export function isSiteBlacklisted(url: string, blacklist: string): boolean {
     const hostname = new URL(url).hostname.toLowerCase();
     if (!hostname) return false;
 
-    const normalizePattern = (pattern: string): string =>
-      pattern.replace(/^\*\./, '').toLowerCase();
-
     return patterns.some((raw) => {
-      const pattern = normalizePattern(raw);
+      const isWildcard = raw.startsWith('*.');
+      const pattern = isWildcard ? raw.substring(2).toLowerCase() : raw.toLowerCase();
+
       if (!pattern) return false;
-      return hostname === pattern || hostname.endsWith(`.${pattern}`);
+
+      if (isWildcard) {
+        // For *.domain.com, match sub.domain.com but not domain.com
+        return hostname.endsWith(`.${pattern}`);
+      } else {
+        // For domain.com, match domain.com and sub.domain.com
+        return hostname === pattern || hostname.endsWith(`.${pattern}`);
+      }
     });
   } catch {
     return false;
@@ -691,6 +730,29 @@ export async function validateStorageIntegrity(): Promise<{
           repaired = true;
         }
       }
+    }
+
+    // Additional integrity checks for memory-related keys. If these are
+    // structurally invalid, drop them so the next run can rebuild cleanly.
+    const siteStrategies = allData[STORAGE_KEYS.SITE_STRATEGIES];
+    if (siteStrategies !== undefined && (typeof siteStrategies !== 'object' || siteStrategies === null || Array.isArray(siteStrategies))) {
+      issues.push(`Key ${STORAGE_KEYS.SITE_STRATEGIES} is corrupted (expected object)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.SITE_STRATEGIES);
+      repaired = true;
+    }
+
+    const actionHistory = allData[STORAGE_KEYS.ACTION_HISTORY];
+    if (actionHistory !== undefined && !Array.isArray(actionHistory)) {
+      issues.push(`Key ${STORAGE_KEYS.ACTION_HISTORY} is corrupted (expected array)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.ACTION_HISTORY);
+      repaired = true;
+    }
+
+    const sessions = allData[STORAGE_KEYS.SESSIONS];
+    if (sessions !== undefined && (typeof sessions !== 'object' || sessions === null || Array.isArray(sessions))) {
+      issues.push(`Key ${STORAGE_KEYS.SESSIONS} is corrupted (expected object)`);
+      await chrome.storage.local.remove(STORAGE_KEYS.SESSIONS);
+      repaired = true;
     }
 
     const version = await getStoredVersion();

@@ -16,14 +16,23 @@
  * decisions about task execution while maintaining safety and reliability.
  */
 
-import { loadSettings, isSiteBlacklisted, DEFAULTS } from '../shared/config';
+import { loadSettings, isSiteBlacklisted, DEFAULTS, STORAGE_KEYS, LogLevel } from '../shared/config';
+import { debugService, generateCorrelationId } from '../shared/debug';
 import { checkStorageQuota } from '../shared/storage-monitor';
 import { initErrorReporter } from '../shared/error-reporter';
 import { type HistoryEntry, llmClient, classifyError } from '../shared/llmClient';
 import { runMacro as executeMacro } from '../shared/macros';
 import { runWorkflow as executeWorkflow } from '../shared/workflows';
 import { trackActionStart, trackActionEnd } from '../shared/metrics';
-import { createSession, getActiveSession } from '../shared/session';
+import {
+  createSession,
+  getActiveSession,
+  addUserReply,
+  addClarificationQuestion,
+  getSessionGoal,
+  updateLastIntent,
+  deleteSession,
+} from '../shared/session';
 import {
   checkDomainAllowed,
   checkActionAllowed,
@@ -31,6 +40,7 @@ import {
   initializeSecuritySettings,
   redact,
 } from '../shared/security';
+import { getOpenRouterHeaders as getOpenRouterHeadersWithEnv, normalizeOpenRouterBaseUrl } from '../shared/openrouterConfig';
 import {
   ExtensionMessage,
   Action,
@@ -50,8 +60,7 @@ import { schedulerEngine } from '../shared/scheduler-engine';
 
 // ─── Type Aliases ────────────────────────────────────────────────
 
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-type SubscriptionTier = 'free' | 'premium' | 'unlimited';
+
 
 import { getMemoryStats as getMemoryStatsUtil } from '../shared/memory';
 import { SnapshotManager } from '../shared/snapshot-manager';
@@ -61,6 +70,8 @@ import { apiCache, generalCache } from '../shared/advanced-caching';
 import { memoryManager } from '../shared/memory-management';
 import { inputSanitizer } from '../shared/input-sanitization';
 import { validateExtensionMessage } from '../shared/messages';
+import { validateStorageIntegrity } from '../shared/config';
+import { clearDomainMemory, extractDomain } from '../shared/memory';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -229,86 +240,7 @@ function clearOriginalTabTitle(tabId: number): void {
 
 // ─── Enhanced Background Script with Production Features ─────────────────
 
-/**
- * Structured logging system for the background service worker.
- *
- * Provides consistent, searchable logging with different severity levels,
- * automatic log rotation, and integration with the extension's monitoring system.
- */
-class StructuredLogger {
-  /** Current logging level threshold */
-  private readonly logLevel: LogLevel = 'info';
-  /** Maximum number of log entries to retain */
-  private readonly maxEntries = 1000;
-  /** Circular buffer of log entries */
-  private logEntries: LogEntry[] = [];
-
-  /**
-   * Log a message with specified level and optional data.
-   * @param level - Severity level of the log entry
-   * @param message - Human-readable log message
-   * @param data - Optional structured data for debugging
-   */
-  log(level: LogLevel, message: string, data?: any): void {
-    const entry: LogEntry = {
-      timestamp: Date.now(),
-      level,
-      message,
-      data,
-      source: 'background',
-    };
-
-    this.logEntries.push(entry);
-    if (this.logEntries.length > this.maxEntries) {
-      this.logEntries.shift();
-    }
-
-    // Console output based on log level
-    let consoleMethod: keyof Console;
-    if (level === 'debug') {
-      consoleMethod = 'debug';
-    } else if (level === 'warn') {
-      consoleMethod = 'warn';
-    } else if (level === 'error') {
-      consoleMethod = 'error';
-    } else {
-      consoleMethod = 'log';
-    }
-
-    console[consoleMethod](`[HyperAgent:${level.toUpperCase()}] ${message}`, data || '');
-  }
-
-  /**
-   * Retrieve log entries, optionally filtered by level.
-   * @param level - Optional level filter
-   * @returns Array of matching log entries
-   */
-  getEntries(level?: LogLevel): LogEntry[] {
-    if (!level) return this.logEntries;
-    return this.logEntries.filter(entry => entry.level === level);
-  }
-
-  /** Clear all log entries */
-  clear(): void {
-    this.logEntries = [];
-  }
-}
-
-/**
- * Log entry structure for structured logging.
- */
-interface LogEntry {
-  /** Timestamp when the log entry was created */
-  timestamp: number;
-  /** Severity level of the log entry */
-  level: LogLevel;
-  /** Human-readable log message */
-  message: string;
-  /** Optional structured data for debugging */
-  data?: any;
-  /** Source component that generated the log entry */
-  source: string;
-}
+type SubscriptionTier = 'free' | 'premium' | 'unlimited';
 
 // ─── Security helpers ─────────────────────────
 
@@ -408,6 +340,7 @@ class AgentStateManager {
     wasScheduledRun: false,
     pendingConfirmResolve: null as ((confirmed: boolean) => void) | null,
     pendingUserReplyResolve: null as ((reply: string) => void) | null,
+    currentCorrelationId: null as string | null,
   };
 
   private listeners: ((state: AgentState) => void)[] = [];
@@ -458,8 +391,18 @@ class AgentStateManager {
     return this.state.currentAgentTabId;
   }
 
+  /** @returns Correlation ID for the current task, if any */
+  get currentCorrelationId(): string | null {
+    return this.state.currentCorrelationId;
+  }
+
   setCurrentAgentTabId(tabId: number | null): void {
     this.state.currentAgentTabId = tabId;
+  }
+
+  setCorrelationId(id: string | null): void {
+    if (id !== null && typeof id !== 'string') throw new Error('correlationId must be string or null');
+    this.state.currentCorrelationId = id;
   }
 
   get wasScheduledRun(): boolean {
@@ -482,6 +425,7 @@ class AgentStateManager {
   setRunning(running: boolean): void {
     if (typeof running !== 'boolean') throw new Error('isRunning must be boolean');
     this.state.isRunning = running;
+    debugService.info('agentState', `Agent state changed: isRunning = ${running}`);
 
     if (running) {
       this.state.isAborted = false;
@@ -489,6 +433,7 @@ class AgentStateManager {
     } else {
       this.state.currentAgentTabId = null;
       this.state.wasScheduledRun = false;
+      this.state.currentCorrelationId = null;
       this.abortController = null;
     }
     this.notifyListeners();
@@ -503,6 +448,7 @@ class AgentStateManager {
     if (typeof aborted !== 'boolean') throw new Error('isAborted must be boolean');
     this.state.isAborted = aborted;
     this.notifyListeners();
+    debugService.info('agentState', `Agent state changed: isAborted = ${aborted}`);
   }
 
   abort() {
@@ -536,6 +482,7 @@ class AgentStateManager {
     if (sessionId !== null && typeof sessionId !== 'string')
       throw new Error('sessionId must be string or null');
     this.state.currentSessionId = sessionId;
+    debugService.info('agentState', `Agent state changed: currentSessionId = ${sessionId}`);
   }
 
   subscribe(listener: (state: AgentState) => void) {
@@ -577,6 +524,7 @@ class AgentStateManager {
     if (this.state.pendingConfirmResolve) {
       this.state.pendingConfirmResolve(confirmed);
       this.state.pendingConfirmResolve = null;
+      debugService.info('agentState', `User confirmation resolved: ${confirmed}`);
       return true;
     }
     return false;
@@ -602,6 +550,7 @@ class AgentStateManager {
     if (this.state.pendingUserReplyResolve) {
       this.state.pendingUserReplyResolve(reply);
       this.state.pendingUserReplyResolve = null;
+      debugService.info('agentState', `User reply resolved: ${reply}`);
       return true;
     }
     return false;
@@ -676,7 +625,7 @@ class AgentStateManager {
       this.recoveryLog.shift();
     }
 
-    console.log(`[HyperAgent] Recovery ${outcome}: ${action.type} - ${error} - ${strategy}`);
+    debugService.info('recovery', `Recovery ${outcome}: ${action.type} - ${error} - ${strategy}`);
   }
 
   // Cleanup methods
@@ -715,6 +664,7 @@ class AgentStateManager {
       wasScheduledRun: false,
       pendingConfirmResolve: null,
       pendingUserReplyResolve: null,
+      currentCorrelationId: null,
     };
     this.recoveryAttempts.clear();
     this.recoveryLog = [];
@@ -722,8 +672,7 @@ class AgentStateManager {
 }
 
 // ─── Global instances ───────────────────────────────────────────────────
-/** Global structured logger for consistent logging across the background script */
-const logger = new StructuredLogger();
+
 /** Global message rate limiter to prevent abuse and ensure stability */
 const rateLimiter = new MessageRateLimiter();
 /** Global agent state manager for coordinating agent execution and recovery */
@@ -738,7 +687,7 @@ usageTracker.loadMetrics();
   try {
     await billingManager.initialize();
   } catch (e) {
-    console.warn('[Billing] init failed', e);
+    debugService.warn('billing', 'init failed', { error: e });
   }
 })();
 
@@ -819,15 +768,29 @@ export default defineBackground(() => {
 
       if (keysToRemove.length > 0) {
         await chrome.storage.local.remove(keysToRemove);
-        console.log('[HyperAgent] Cleared stale caches:', keysToRemove.length, 'items');
+        debugService.info('cache', 'Cleared stale caches', { itemCount: keysToRemove.length });
       }
     } catch (err) {
-      console.warn('[HyperAgent] Failed to clear old settings:', err);
+      debugService.warn('cache', 'Failed to clear old settings', { error: err });
     }
   }
 
   // Run cleanup on every startup
   clearOldSettings();
+
+  // Validate storage integrity on startup so corruption is detected early.
+  withErrorBoundary('storage_integrity_startup', async () => {
+    const result = await validateStorageIntegrity();
+    debugService.info('storage', 'Storage integrity check on startup', result);
+    if (!result.healthy && result.repaired) {
+      await chrome.storage.local.set({
+        hyperagent_storage_recovered: {
+          issues: result.issues,
+          checkedAt: Date.now(),
+        },
+      });
+    }
+  });
 
   chrome.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
@@ -836,18 +799,18 @@ export default defineBackground(() => {
       await chrome.storage.local.set({ hyperagent_show_changelog: true });
     }
     await withErrorBoundary('extension_installation', async () => {
-      logger.log('info', 'HyperAgent background initialized');
+      debugService.log(LogLevel.INFO, 'background', 'HyperAgent background initialized');
       // Check storage quota on startup
       const quotaCheck = await checkStorageQuota();
       if (!quotaCheck.ok || quotaCheck.message) {
-        logger.log(quotaCheck.ok ? 'warn' : 'error', quotaCheck.message || 'Storage issue');
+        debugService.log(quotaCheck.ok ? LogLevel.WARN : LogLevel.ERROR, 'background', quotaCheck.message || 'Storage issue');
       }
 
       if (chrome.sidePanel?.setPanelBehavior) {
         try {
           await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
         } catch (e) {
-          logger.log('warn', 'Could not set side panel behavior', { error: (e as Error)?.message });
+          debugService.log(LogLevel.WARN, 'background', 'Could not set side panel behavior', { error: (e as Error)?.message });
         }
       }
 
@@ -871,11 +834,11 @@ export default defineBackground(() => {
               contexts: ['selection'],
             });
           } catch (error_) {
-            logger.log('warn', 'Context menu creation failed', { error: (error_ as Error)?.message });
+            debugService.log(LogLevel.WARN, 'background', 'Context menu creation failed', { error: (error_ as Error)?.message });
           }
         });
       } catch (error_) {
-        logger.log('warn', 'Context menu removeAll failed', { error: (error_ as Error)?.message });
+        debugService.log(LogLevel.WARN, 'background', 'Context menu removeAll failed', { error: (error_ as Error)?.message });
       }
 
       const settings = await loadSettings();
@@ -884,7 +847,7 @@ export default defineBackground(() => {
         try {
           await chrome.runtime.openOptionsPage();
         } catch (e) {
-          logger.log('warn', 'Could not open options page (install flow)', { error: (e as Error)?.message });
+          debugService.log(LogLevel.WARN, 'background', 'Could not open options page (install flow)', { error: (e as Error)?.message });
         }
       }
 
@@ -895,7 +858,7 @@ export default defineBackground(() => {
 
       if (existingSession) {
         agentState.setCurrentSession(existingSession.id);
-        logger.log('info', 'Restored session', { sessionId: existingSession.id });
+        debugService.log(LogLevel.INFO, 'session', 'Restored session', { sessionId: existingSession.id });
       }
 
       // Initialize security settings
@@ -909,13 +872,13 @@ export default defineBackground(() => {
   chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await withErrorBoundary('context_menu_handling', async () => {
       if (!tab?.id) {
-        logger.log('warn', 'Context menu clicked without valid tab');
+        debugService.log(LogLevel.WARN, 'contextMenu', 'Context menu clicked without valid tab');
         return;
       }
 
       // Rate limiting check
       if (!rateLimiter.canAcceptMessage(`tab_${tab.id}`)) {
-        logger.log('warn', 'Rate limit exceeded for context menu');
+        debugService.log(LogLevel.WARN, 'rateLimiter', 'Rate limit exceeded for context menu');
         return;
       }
 
@@ -951,6 +914,7 @@ export default defineBackground(() => {
    * This uses Tree of Thoughts reasoning, advanced planning, and adaptive learning.
    */
   async function runAutonomousLoop(command: string, modelOverride?: string) {
+    const correlationId = generateCorrelationId();
     // Prevent concurrent execution (Issue #14)
     if (agentState.isRunning) {
       sendToSidePanel({
@@ -982,6 +946,7 @@ export default defineBackground(() => {
 
     agentState.setRunning(true);
     agentState.setAborted(false);
+    agentState.setCorrelationId(correlationId);
 
     const sessionStart = Date.now();
 
@@ -1054,7 +1019,7 @@ export default defineBackground(() => {
         },
       });
 
-      logger.log('info', 'Starting autonomous reasoning for task', { command: redact(command) });
+      debugService.log(LogLevel.INFO, 'autonomous', 'Starting autonomous reasoning for task', { command: redact(command) });
       sendToSidePanel({ type: 'agentProgress', status: 'Deep reasoning...', step: 'plan' });
 
       const pageCtx = await getPageContext(tabId);
@@ -1079,7 +1044,7 @@ export default defineBackground(() => {
       // Generate autonomous plan
       const plan = await autonomousIntelligence.understandAndPlan(command, intelligenceContext);
 
-      logger.log('info', 'Autonomous plan generated', { planSteps: plan.steps.length });
+      debugService.log(LogLevel.INFO, 'autonomous', 'Autonomous plan generated', { planSteps: plan.steps.length });
 
       // 3. Execute with Adaptation
       const result = await autonomousIntelligence.executeWithAdaptation(plan);
@@ -1095,7 +1060,7 @@ export default defineBackground(() => {
         stepsUsed: result.results.length,
       });
     } catch (err: any) {
-      logger.log('error', 'Autonomous loop failed', { error: err.message });
+      debugService.log(LogLevel.ERROR, 'autonomous', 'Autonomous loop failed', { error: err.message });
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: `Autonomous Error: ${err.message}`,
@@ -1129,7 +1094,7 @@ export default defineBackground(() => {
       try {
         sendResponse(response);
       } catch (e) {
-        logger.log('error', 'sendResponse failed (port closed or non-serializable)', { error: (e as Error)?.message });
+        debugService.log(LogLevel.ERROR, 'messageHandler', 'sendResponse failed (port closed or non-serializable)', { error: (e as Error)?.message });
       }
     };
 
@@ -1150,7 +1115,7 @@ export default defineBackground(() => {
           }
           
           if (!rateLimiter.canAcceptMessage(senderId)) {
-            logger.log('warn', 'Message rate limited', { senderId });
+            debugService.log(LogLevel.WARN, 'rateLimiter', 'Message rate limited', { senderId });
             const waitSec = Math.ceil(rateLimiter.getTimeUntilReset(senderId) / 1000);
             safeSend({ ok: false, error: `Rate limit exceeded. Try again in ${waitSec} seconds.` });
             return;
@@ -1158,12 +1123,12 @@ export default defineBackground(() => {
 
           // Input validation
           if (!validateExtensionMessage(message)) {
-            logger.log('warn', 'Invalid message received', { message: redact(message), senderId });
+            debugService.log(LogLevel.WARN, 'messageHandler', 'Invalid message received', { message: redact(message), senderId });
             safeSend({ ok: false, error: 'Invalid message format' });
             return;
           }
 
-          logger.log('debug', 'Processing message', { type: message.type, senderId });
+          debugService.log(LogLevel.DEBUG, 'messageHandler', 'Processing message', { type: message.type, senderId });
 
           // Try extended handlers first
           const extendedResult = await handleExtendedMessage(message);
@@ -1177,7 +1142,7 @@ export default defineBackground(() => {
           safeSend(result);
         });
       } catch (err: unknown) {
-        logger.log('error', 'Message handler error', { error: err instanceof Error ? err.message : String(err) });
+        debugService.log(LogLevel.ERROR, 'messageHandler', 'Message handler error', { error: err instanceof Error ? err.message : String(err) });
         safeSend({ ok: false, error: err instanceof Error ? err.message : 'Unknown error' });
       }
     })();
@@ -1218,7 +1183,7 @@ export default defineBackground(() => {
 
         // Start agent asynchronously
         loopToRun(message.command).catch(err => {
-          logger.log('error', 'Agent loop error', err);
+          debugService.log(LogLevel.ERROR, 'agentLoop', 'Agent loop error', { error: err });
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: `Agent error: ${err.message || String(err)}`,
@@ -1250,7 +1215,7 @@ export default defineBackground(() => {
             });
             clearOriginalTabTitle(stopTabId);
           } catch (err) {
-            logger.log('warn', 'Failed to restore tab title on stop', { error: err });
+            debugService.log(LogLevel.WARN, 'tabManager', 'Failed to restore tab title on stop', { error: err });
           }
         }
         return { ok: true };
@@ -1285,7 +1250,7 @@ export default defineBackground(() => {
       case 'clearHistory': {
         // Clear agent state and recovery logs
         agentState.reset();
-        logger.clear();
+        
         return { ok: true };
       }
 
@@ -1293,7 +1258,7 @@ export default defineBackground(() => {
         return {
           ok: true,
           metrics: {
-            logs: logger.getEntries(),
+            logs: debugService.getLogEntries(),
             recovery: agentState.getRecoveryStats(),
             rateLimitStatus: {
               canAccept: rateLimiter.canAcceptMessage('query'),
@@ -1326,12 +1291,20 @@ export default defineBackground(() => {
 
       case 'getMemoryStats': {
         const stats = await getMemoryStatsUtil();
-        const strategiesData = await chrome.storage.local.get('hyperagent_site_strategies');
+        const [strategiesData, workflowRunsData] = await Promise.all([
+          chrome.storage.local.get('hyperagent_site_strategies'),
+          chrome.storage.local.get(STORAGE_KEYS.WORKFLOW_RUNS),
+        ]);
         return {
           ok: true,
           strategies: strategiesData.hyperagent_site_strategies || {},
           totalActions: stats.totalActions || 0,
           totalSessions: stats.totalSessions || 0,
+          domainsCount: stats.domainsCount ?? Object.keys(strategiesData.hyperagent_site_strategies || {}).length,
+          oldestEntry: stats.oldestEntry ?? null,
+          strategiesPerDomain: stats.strategiesPerDomain,
+          largestDomains: stats.largestDomains,
+          workflowRuns: (workflowRunsData[STORAGE_KEYS.WORKFLOW_RUNS] as Record<string, any[]>) || {},
         };
       }
 
@@ -1343,12 +1316,9 @@ export default defineBackground(() => {
           }
 
           // Test with a simple API call to OpenRouter
-          const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-              'Authorization': `Bearer ${settings.apiKey}`,
-              'HTTP-Referer': 'https://hyperagent.ai',
-              'X-Title': 'HyperAgent',
-            },
+          const baseUrl = `${normalizeOpenRouterBaseUrl(settings.baseUrl)}/models`;
+          const response = await fetch(baseUrl, {
+            headers: getOpenRouterHeadersWithEnv(settings.apiKey, settings.baseUrl),
           });
 
           if (response.ok) {
@@ -1359,6 +1329,15 @@ export default defineBackground(() => {
         } catch (error) {
           return { ok: false, error: error instanceof Error ? error.message : 'Connection failed' };
         }
+      }
+
+      // Health check ping/pong - measures latency between sidepanel and background
+      case 'ping': {
+        return { 
+          ok: true, 
+          timestamp: Date.now(),
+          version: '4.0',
+        };
       }
 
       case 'getScheduledTasks': {
@@ -1502,7 +1481,7 @@ export default defineBackground(() => {
           return { ok: false, error: 'Snapshot not found or invalid' };
         }
         runAgentLoop(snapshot.command).catch(err => {
-          logger.log('error', 'Resume agent loop error', err);
+          debugService.log(LogLevel.ERROR, 'agentLoop', 'Resume agent loop error', { error: err });
           sendToSidePanel({
             type: 'agentDone',
             finalSummary: `Resume failed: ${err.message || String(err)}`,
@@ -1574,6 +1553,39 @@ export default defineBackground(() => {
         return { ok: true };
       }
 
+      case 'runMemoryHealthCheck': {
+        const result = await validateStorageIntegrity();
+        return { ok: true, result };
+      }
+
+      case 'clearDomainMemory': {
+        if (!message.domain) {
+          return { ok: false, error: 'Domain is required' };
+        }
+        await clearDomainMemory(`https://${message.domain}`);
+        return { ok: true };
+      }
+
+      case 'resetPageSession': {
+        // Clear active session and domain-specific memory for the current page only.
+        try {
+          const activeTabId = await getActiveTabId();
+          const tab = await chrome.tabs.get(activeTabId);
+          const pageUrl = tab.url || '';
+          if (pageUrl) {
+            await clearDomainMemory(pageUrl);
+          }
+          const activeSession = await getActiveSession();
+          if (activeSession && activeSession.pageUrl === pageUrl) {
+            await deleteSession(activeSession.id);
+          }
+        } catch (err) {
+          debugService.warn('session', 'Failed to reset page session', { error: err });
+          return { ok: false, error: 'Failed to reset page session' };
+        }
+        return { ok: true };
+      }
+
       case 'sanitizeInput': {
         if (message.input !== undefined) {
           const result = inputSanitizer.sanitize(message.input, message.options);
@@ -1616,6 +1628,7 @@ export default defineBackground(() => {
       type: 'agentDone',
       ...payload,
       ...(agentState.wasScheduledRun && { scheduled: true }),
+      ...(agentState.currentCorrelationId && { correlationId: agentState.currentCorrelationId }),
     });
     // Persist for when panel was closed during task (Scenario 7)
     chrome.storage.local.set({
@@ -1637,7 +1650,7 @@ export default defineBackground(() => {
         return activeTab.id;
       }
     } catch (err) {
-      console.warn('[HyperAgent] Failed to get active tab:', err);
+      debugService.warn('tabManager', 'Failed to get active tab', { error: err });
     }
 
     // If no active tab, try to find any available tab
@@ -1645,22 +1658,22 @@ export default defineBackground(() => {
       const allTabs = await chrome.tabs.query({});
       const availableTab = allTabs.find(tab => tab.id && !tab.url?.startsWith('chrome://') && !tab.url?.startsWith('edge://'));
       if (availableTab?.id) {
-        console.log('[HyperAgent] Using available tab:', availableTab.id, availableTab.url);
+        debugService.info('tabManager', 'Using available tab', { tabId: availableTab.id, url: availableTab.url });
         return availableTab.id;
       }
     } catch (err) {
-      console.warn('[HyperAgent] Failed to find available tab:', err);
+      debugService.warn('tabManager', 'Failed to find available tab', { error: err });
     }
 
     // As a last resort, create a new tab
     try {
       const newTab = await chrome.tabs.create({ url: 'https://www.google.com', active: true });
       if (newTab?.id) {
-        console.log('[HyperAgent] Created new tab:', newTab.id);
+        debugService.info('tabManager', 'Created new tab', { tabId: newTab.id });
         return newTab.id;
       }
     } catch (err) {
-      console.error('[HyperAgent] Failed to create new tab:', err);
+      debugService.error('tabManager', 'Failed to create new tab', { error: err });
     }
 
     throw new Error('No browser tab available');
@@ -1674,9 +1687,9 @@ export default defineBackground(() => {
     } catch (err: any) {
       // Check if this is a chrome:// URL error (expected behavior)
       if (err?.message?.includes('Cannot access a chrome:// URL')) {
-        logger.log('info', 'Skipping chrome:// URL context extraction (expected behavior)');
+        debugService.info('pageContext', 'Skipping chrome:// URL context extraction (expected behavior)');
       } else {
-        console.warn('[HyperAgent] Failed to get direct context:', err);
+        debugService.warn('pageContext', 'Failed to get direct context', { error: err });
       }
     }
 
@@ -1707,7 +1720,7 @@ export default defineBackground(() => {
       const response = await chrome.tabs.sendMessage(tabId, { type: 'getContext' });
       if (response?.context) return response.context;
     } catch (err: any) {
-      console.error('[HyperAgent] Failed to inject/query content script:', err);
+      debugService.error('pageContext', 'Failed to inject/query content script', { error: err });
     }
 
     // Minimal fallback
@@ -1736,7 +1749,7 @@ export default defineBackground(() => {
     try {
       targetTabId = tabId ?? agentState.currentAgentTabId ?? await getActiveTabId();
       const targetTab = await chrome.tabs.get(targetTabId).catch((err) => {
-        console.error('[Screenshot] Failed to get target tab:', err);
+        debugService.error('screenshot', 'Failed to get target tab', { error: err });
         throw new Error(`Tab not found: ${targetTabId}`);
       });
       
@@ -1754,17 +1767,17 @@ export default defineBackground(() => {
         try {
           await chrome.tabs.update(targetTabId, { active: true });
         } catch (err) {
-          console.warn('[Screenshot] Failed to activate tab:', err);
+          debugService.warn('screenshot', 'Failed to activate tab', { error: err });
         }
         
         try {
           await chrome.windows.update(windowId, { focused: true });
         } catch (err) {
-          console.warn('[Screenshot] Failed to focus window:', err);
+          debugService.warn('screenshot', 'Failed to focus window', { error: err });
         }
         
         await waitForTabLoad(targetTabId).catch((err) => {
-          console.warn('[Screenshot] Tab load wait failed:', err);
+          debugService.warn('screenshot', 'Tab load wait failed', { error: err });
         });
         
         // Give Chrome a moment to paint the activated tab
@@ -1781,14 +1794,14 @@ export default defineBackground(() => {
         try {
           await chrome.tabs.update(previousActiveId, { active: true });
         } catch (err) {
-          console.warn('[Screenshot] Failed to restore previous tab:', err);
+          debugService.warn('screenshot', 'Failed to restore previous tab', { error: err });
         }
       }
 
       if (outputFormat === 'dataUrl') return dataUrl;
       return dataUrl.replace(/^data:image\/\w+;base64,/, '');
     } catch (err) {
-      console.error('[HyperAgent] Screenshot capture failed:', err);
+      debugService.error('screenshot', 'Screenshot capture failed', { error: err });
       
       // Attempt to restore previous tab state on error
       if (needsFocus && previousActiveId && windowId) {
@@ -1908,7 +1921,7 @@ export default defineBackground(() => {
     if (action.type === 'wait') {
       return { success: true };
     }
-    console.log('[HyperAgent][DRY-RUN] Would execute:', JSON.stringify(action));
+    debugService.info('dryRun', 'Would execute', { action: JSON.stringify(action) });
     trackActionEnd(actionId, true, Date.now() - startTime, pageUrl);
     return { success: true };
   }
@@ -2080,6 +2093,41 @@ export default defineBackground(() => {
           return await executeAction(tabId, subAction, dryRun, autoRetry);
         });
         if (macroResult.success) {
+          // Persist last successful macro for reuse across sessions.
+          try {
+            await chrome.storage.local.set({
+              [STORAGE_KEYS.LAST_SUCCESSFUL_MACRO]: {
+                id: macroAction.macroId,
+                timestamp: Date.now(),
+                resultsCount: macroResult.results.length,
+              },
+            });
+          } catch {
+            // Non-fatal.
+          }
+          // Track this macro run per domain for the Memory tab.
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            const domain = tab?.url ? extractDomain(tab.url || '') : null;
+            if (domain) {
+              const data = await chrome.storage.local.get(STORAGE_KEYS.WORKFLOW_RUNS);
+              const all = (data[STORAGE_KEYS.WORKFLOW_RUNS] as Record<string, any[]>) || {};
+              const runs = all[domain] || [];
+              runs.push({
+                type: 'macro',
+                id: macroAction.macroId,
+                timestamp: Date.now(),
+                success: true,
+              });
+              all[domain] = runs.slice(-5);
+              await chrome.storage.local.set({ [STORAGE_KEYS.WORKFLOW_RUNS]: all });
+            }
+          } catch {
+            // Non-fatal.
+          }
+          // #region agent log
+        debugService.info('agentLog', 'Recorded successful macro run', { macroId: macroAction.macroId });
+          // #endregion
           return {
             success: true,
             extractedData: `Macro executed successfully with ${macroResult.results.length} actions`,
@@ -2119,6 +2167,41 @@ export default defineBackground(() => {
           getContextFn
         );
         if (workflowResult.success) {
+          // Persist last successful workflow for reuse across sessions.
+          try {
+            await chrome.storage.local.set({
+              [STORAGE_KEYS.LAST_SUCCESSFUL_WORKFLOW]: {
+                id: workflowAction.workflowId,
+                timestamp: Date.now(),
+                steps: workflowResult.results?.length || 0,
+              },
+            });
+          } catch {
+            // Non-fatal.
+          }
+          // Track this workflow run per domain for the Memory tab.
+          try {
+            const tab = await chrome.tabs.get(tabId);
+            const domain = tab?.url ? extractDomain(tab.url || '') : null;
+            if (domain) {
+              const data = await chrome.storage.local.get(STORAGE_KEYS.WORKFLOW_RUNS);
+              const all = (data[STORAGE_KEYS.WORKFLOW_RUNS] as Record<string, any[]>) || {};
+              const runs = all[domain] || [];
+              runs.push({
+                type: 'workflow',
+                id: workflowAction.workflowId,
+                timestamp: Date.now(),
+                success: true,
+              });
+              all[domain] = runs.slice(-5);
+              await chrome.storage.local.set({ [STORAGE_KEYS.WORKFLOW_RUNS]: all });
+            }
+          } catch {
+            // Non-fatal.
+          }
+          // #region agent log
+        debugService.info('agentLog', 'Recorded successful workflow run', { workflowId: workflowAction.workflowId });
+          // #endregion
           return {
             success: true,
             extractedData: `Workflow executed successfully with ${workflowResult.results?.length || 0} steps`,
@@ -2278,9 +2361,7 @@ export default defineBackground(() => {
       currentAttempt + 1
     );
 
-    console.log(
-      `[HyperAgent] Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`
-    );
+    debugService.warn('recovery', `Action failed with error type: ${errorType}. Recovery attempt ${currentAttempt + 1}/${agentState.maxRecoveryAttempts} using ${recoveryStrategy.strategy}...`);
 
     // Check if recovery is possible
     if (!recoveryStrategy.success || !recoveryStrategy.strategy) {
@@ -2369,6 +2450,7 @@ export default defineBackground(() => {
 
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string, modelOverride?: string) {
+    const correlationId = generateCorrelationId();
     // Prevent concurrent execution (Issue #14)
     if (agentState.isRunning) {
       sendToSidePanel({
@@ -2383,6 +2465,7 @@ export default defineBackground(() => {
     // Initialize agent state
     agentState.setRunning(true);
     agentState.setAborted(false);
+    agentState.setCorrelationId(correlationId);
 
     // Get current tab info before starting
     const currentTabId = await getActiveTabId();
@@ -2403,7 +2486,7 @@ export default defineBackground(() => {
         });
         clearOriginalTabTitle(currentTabId);
       } catch (error) {
-        logger.log('warn', 'Failed to restore tab title', { error });
+        debugService.warn('tabManager', 'Failed to restore tab title', { error });
       }
     };
 
@@ -2445,10 +2528,10 @@ export default defineBackground(() => {
         func: () => { document.title = '⚡ HyperAgent'; }
       });
     } catch (error) {
-      logger.log('warn', 'Failed to change tab title', { error });
+      debugService.log(LogLevel.WARN, 'tabManager', 'Failed to change tab title', { error });
     }
 
-    logger.log('info', 'Starting agent loop', { command: redact(command) });
+    debugService.log(LogLevel.INFO, 'agentLoop', 'Starting agent loop', { command: redact(command) });
 
     const maxSteps = settings.maxSteps;
     agentState.setCurrentAgentTabId(currentTabId);
@@ -2484,6 +2567,45 @@ export default defineBackground(() => {
       session = await createSession(tab.url || '', tab.title || '');
     }
     agentState.setCurrentSession(session.id);
+
+    // Derive a stable per-session goal from the first command if one
+    // has not already been set.
+    if (!session.context.goal) {
+      try {
+        const existingGoal = await getSessionGoal(session.id);
+        if (!existingGoal) {
+          const goal = command.slice(0, 280);
+          await setSessionGoal(session.id, goal);
+          session.context.goal = goal;
+        } else {
+          session.context.goal = existingGoal;
+        }
+      } catch {
+        // Non-fatal: session goal is an optimization only.
+      }
+    }
+
+    // Parse intents for this command and persist the top one into the
+    // session context for downstream consumers.
+    const parsedIntents = parseIntent(command);
+    if (parsedIntents.length > 0) {
+      try {
+        await updateLastIntent(session.id, parsedIntents[0]);
+        session.context.lastIntent = parsedIntents[0];
+      } catch {
+        // Non-fatal.
+      }
+    }
+
+    const sessionMeta = {
+      goal: session.context.goal,
+      lastActions: session.actionHistory.slice(-5).map(a => {
+        const desc = (a as any).description || '';
+        return desc ? `${a.type}: ${desc}` : a.type;
+      }),
+      lastUserReplies: (session.context.userReplies || []).slice(-5).map(r => r.reply),
+      intents: parsedIntents.map(i => ({ action: i.action })),
+    };
 
     const history: HistoryEntry[] = [];
     let requestScreenshot = false;
@@ -2525,11 +2647,16 @@ export default defineBackground(() => {
           isInitialQuery: true
         },
         modelOverride,
+        sessionMeta,
+        intents: parsedIntents,
       });
 
       // Handle clarification: allow multi-turn Q&A (up to 5 rounds)
       const MAX_CLARIFICATION_ROUNDS = 5;
       let clarificationRound = 0;
+      const askedClarifications = new Set(
+        (session.context.clarificationQuestions || []).map(q => q.question)
+      );
       while (
         clarificationRound < MAX_CLARIFICATION_ROUNDS &&
         (llmResponse.needsClarification && llmResponse.clarificationQuestion ||
@@ -2537,6 +2664,18 @@ export default defineBackground(() => {
       ) {
         clarificationRound++;
         const question = llmResponse.askUser || llmResponse.clarificationQuestion || '';
+
+        // If we've already asked this exact clarification in this session,
+        // skip to avoid repeating the same question.
+        if (askedClarifications.has(question)) {
+          break;
+        }
+        askedClarifications.add(question);
+        try {
+          await addClarificationQuestion(session.id, question);
+        } catch {
+          // Non-fatal.
+        }
 
         // Show thinking if present
         if (llmResponse.thinking) {
@@ -2569,6 +2708,16 @@ export default defineBackground(() => {
           return;
         }
 
+        // Persist user reply into the session timeline and memory.
+        try {
+          await addUserReply(session.id, reply);
+        } catch {
+          // Non-fatal.
+        }
+        // #region agent log
+        debugService.info('agent', 'Saved user reply after clarification loop', { sessionId: session.id, replyLength: reply.length });
+        // #endregion
+
         // Add the LLM's response and user's reply to history
         history.push({ role: 'assistant', response: llmResponse });
         history.push({ role: 'user', userReply: reply, context });
@@ -2579,6 +2728,8 @@ export default defineBackground(() => {
           history,
           context: { ...context, isInitialQuery: true },
           modelOverride,
+          sessionMeta,
+          intents: parsedIntents,
         });
       }
 
@@ -2661,12 +2812,12 @@ export default defineBackground(() => {
 
         // ── Step 2: Plan ──
         sendToSidePanel({ type: 'agentProgress', status: 'Planning...', step: 'plan' });
-        logger.log('info', 'Calling LLM with command', {
-          command: redact(command),
-          historyCount: history.length,
-        });
+        debugService.log(LogLevel.INFO, 'llm', 'Calling LLM with command', { command: redact(command), historyCount: history.length, });
         const signal = agentState.getSignal();
-        const llmCallPromise = llmClient.callLLM({ command, history, context, modelOverride }, signal);
+        const llmCallPromise = llmClient.callLLM(
+          { command, history, context, modelOverride, sessionMeta, intents: parsedIntents, correlationId },
+          signal
+        );
         const llmTimeoutMs = DEFAULTS.LLM_TIMEOUT_MS ?? 45000;
         const timeoutPromise = new Promise((_, reject) =>
           globalThis.setTimeout(() => reject(new Error(`LLM call timed out after ${llmTimeoutMs / 1000} seconds`)), llmTimeoutMs)
@@ -2682,7 +2833,7 @@ export default defineBackground(() => {
             });
             return;
           }
-          logger.log('info', 'LLM response received', {
+          debugService.log(LogLevel.INFO, 'llm', 'LLM response received', {
             summary: llmResponse?.summary,
             actionsCount: llmResponse?.actions?.length,
             done: llmResponse?.done,
@@ -2698,7 +2849,7 @@ export default defineBackground(() => {
             });
             return;
           }
-          logger.log('error', 'LLM call failed or timed out', {
+          debugService.log(LogLevel.ERROR, 'llm', 'LLM call failed or timed out', {
             error: err?.message || String(err),
           });
           const classified = classifyError(err);
@@ -2729,8 +2880,29 @@ export default defineBackground(() => {
               step: 'plan',
             });
           }
-          sendToSidePanel({ type: 'askUser', question: llmResponse.askUser });
-          const reply = await askUserForInfo(llmResponse.askUser);
+
+          // Avoid asking the exact same clarification question repeatedly
+          // within this session.
+          const question = llmResponse.askUser;
+          if (question && session.context.clarificationQuestions?.some(q => q.question === question)) {
+            // We've already asked this question before; continue the loop
+            // without re-asking to prevent user annoyance.
+            continue;
+          }
+          if (question) {
+            try {
+              await addClarificationQuestion(session.id, question);
+              if (!session.context.clarificationQuestions) {
+                session.context.clarificationQuestions = [];
+              }
+              session.context.clarificationQuestions.push({ question, timestamp: Date.now() });
+            } catch {
+              // Non-fatal.
+            }
+          }
+
+          sendToSidePanel({ type: 'askUser', question });
+          const reply = await askUserForInfo(question);
           if (!reply || agentState.isAborted) {
             sendAgentDone({
               finalSummary: reply === '' ? 'Cancelled. Please provide more information when ready.' : 'Stopped.',
@@ -2739,6 +2911,16 @@ export default defineBackground(() => {
             });
             return;
           }
+          // Persist user reply into session context so it can be surfaced
+          // back to the LLM as part of the session summary.
+          try {
+            await addUserReply(session.id, reply);
+          } catch {
+            // Non-fatal.
+          }
+          // #region agent log
+          debugService.info('agent', 'Saved user reply after askUser branch', { sessionId: session.id, replyLength: reply.length });
+          // #endregion
           history.push({ role: 'user', userReply: reply });
           continue;
         }
@@ -2820,7 +3002,7 @@ export default defineBackground(() => {
           if (agentState.isAborted) break;
 
           if (!action || typeof action !== 'object' || !action.type) {
-            logger.log('warn', 'Invalid action structure', { action });
+            debugService.log(LogLevel.WARN, 'agentLoop', 'Invalid action structure', { action });
             continue;
           }
 
@@ -2851,11 +3033,11 @@ export default defineBackground(() => {
                     result.error = `Visual Failure: ${isVerified.reason || 'Verification failed'}`;
                   }
                 } catch (error_: any) {
-                  logger.log('warn', 'Vision verification error', { error: error_.message });
+                  debugService.log(LogLevel.WARN, 'vision', 'Vision verification error', { error: error_.message });
                 }
               }
             } catch (error_: any) {
-              logger.log('warn', 'Screenshot capture failed', { error: error_.message });
+              debugService.log(LogLevel.WARN, 'vision', 'Screenshot capture failed', { error: error_.message });
             }
           }
 
@@ -2924,7 +3106,7 @@ export default defineBackground(() => {
           status: 'running',
           url: tab.url || '',
         }).catch((err) => {
-          logger.log('warn', 'Snapshot save failed', { error: err?.message });
+          debugService.log(LogLevel.WARN, 'snapshot', 'Snapshot save failed', { error: err?.message });
           sendToSidePanel({
             type: 'agentProgress',
             status: 'Warning: Could not save progress (storage may be full)',
@@ -3145,7 +3327,7 @@ Return JSON:
         reason: parsed.reason,
       };
     } catch (err) {
-      console.warn('[Reflex] Verification failed:', err);
+      debugService.warn('reflex', 'Verification failed', { error: err });
       return { success: false, reason: 'Verification parse error' };
     }
   }
@@ -3164,6 +3346,6 @@ Return JSON:
   // Note: schedulerEngine.initialize() sets up its own alarm listener internally,
   // so we do NOT add a duplicate chrome.alarms.onAlarm listener here.
   schedulerEngine.initialize().catch((err: any) => {
-    console.error('[Background] Scheduler initialization failed:', err);
+    debugService.error('scheduler', 'Scheduler initialization failed', { error: err });
   });
 });

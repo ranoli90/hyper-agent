@@ -3,7 +3,7 @@
  * Tracks active sessions, action history, and results. Uses mutex for concurrent safety.
  */
 
-import { STORAGE_KEYS } from './config';
+import { STORAGE_KEYS, loadSettings } from './config';
 import type { Session, ContextSnapshot, Action, ActionResult, CommandIntent } from './types';
 
 // Constants for session management
@@ -21,6 +21,17 @@ function withMutex<T>(fn: () => Promise<T>): Promise<T> {
 // ─── Helper: Generate unique session ID ────────────────────────────────
 function generateSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+// ─── Helper: Check if learning is enabled ──────────────────────────────
+async function isLearningEnabled(): Promise<boolean> {
+  try {
+    const settings = await loadSettings();
+    return settings.learningEnabled;
+  } catch {
+    // Fail closed: when settings cannot be loaded, avoid persisting learning state.
+    return false;
+  }
 }
 
 // ─── Load all sessions ───────────────────────────────────────────────
@@ -100,35 +111,7 @@ export async function loadSession(id: string): Promise<Session | null> {
   return sessions[id] || null;
 }
 
-// ─── Get active session ────────────────────────────────────────────
-export async function getActiveSession(): Promise<Session | null> {
-  const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_SESSION);
-  if (!data[STORAGE_KEYS.ACTIVE_SESSION]) return null;
-  
-  const sessions = await loadSessions();
-  return sessions[data[STORAGE_KEYS.ACTIVE_SESSION]] || null;
-}
-
-// ─── Set active session ────────────────────────────────────────────
-export async function setActiveSession(sessionId: string): Promise<void> {
-  await chrome.storage.local.set({
-    [STORAGE_KEYS.ACTIVE_SESSION]: sessionId,
-  });
-}
-
-// ─── Update session context ─────────────────────────────────────────
-export async function updateSessionContext(
-  sessionId: string,
-  updates: Partial<Session['context']>
-): Promise<void> {
-  const sessions = await loadSessions();
-  const session = sessions[sessionId];
-  if (!session) return;
-  
-  Object.assign(session.context, updates);
-  session.lastActive = Date.now();
-  await saveSessions(sessions);
-}
+// (legacy get/set active session helpers removed to avoid duplication)
 
 // ─── Add action to session ───────────────────────────────────────────
 export async function addSessionAction(
@@ -136,6 +119,7 @@ export async function addSessionAction(
   action: Action,
   result?: ActionResult
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   const sessions = await loadSessions();
   const session = sessions[sessionId];
   if (!session) return;
@@ -156,6 +140,7 @@ export async function addSessionResult(
   sessionId: string,
   result: ActionResult
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   const sessions = await loadSessions();
   const session = sessions[sessionId];
   if (!session) return;
@@ -176,6 +161,7 @@ export async function setSessionGoal(
   sessionId: string,
   goal: string
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   await updateSessionContext(sessionId, { goal });
 }
 
@@ -184,6 +170,7 @@ export async function addUserReply(
   sessionId: string,
   reply: string
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   const sessions = await loadSessions();
   const session = sessions[sessionId];
   if (!session) return;
@@ -201,29 +188,39 @@ export async function addUserReply(
   await saveSessions(sessions);
 }
 
-// ─── Get session stats ───────────────────────────────────────────────
-export async function getSessionStats(): Promise<{
-  totalSessions: number;
-  activeSessions: number;
-  averageActionsPerSession: number;
-}> {
+// ─── Add clarification question to session ─────────────────────────────
+export async function addClarificationQuestion(
+  sessionId: string,
+  question: string
+): Promise<void> {
+  if (!(await isLearningEnabled())) return;
+
   const sessions = await loadSessions();
-  const sessionValues = Object.values(sessions);
-  
-  const totalSessions = sessionValues.length;
-  const activeSessions = sessionValues.filter(s => 
-    Date.now() - s.lastActive < SESSION_TIMEOUT_MS
-  ).length;
-  
-  const averageActionsPerSession = totalSessions > 0 
-    ? sessionValues.reduce((sum, s) => sum + s.actionHistory.length, 0) / totalSessions
-    : 0;
-  
-  return {
-    totalSessions,
-    activeSessions,
-    averageActionsPerSession,
-  };
+  const session = sessions[sessionId];
+  if (!session) return;
+
+  if (!session.context.clarificationQuestions) {
+    session.context.clarificationQuestions = [];
+  }
+
+  const existing = session.context.clarificationQuestions.find(
+    q => q.question === question
+  );
+  if (!existing) {
+    session.context.clarificationQuestions.push({
+      question,
+      timestamp: Date.now(),
+    });
+  }
+
+  // Keep only the last 20 clarification questions to bound storage.
+  if (session.context.clarificationQuestions.length > 20) {
+    session.context.clarificationQuestions =
+      session.context.clarificationQuestions.slice(-20);
+  }
+
+  session.lastActive = Date.now();
+  await saveSessions(sessions);
 }
 
 // ─── Get active session ────────────────────────────────────────────────
@@ -272,6 +269,7 @@ export async function addActionToSession(
   action: Action
 ): Promise<void> {
   await withMutex(async () => {
+    if (!(await isLearningEnabled())) return;
     const session = await loadSession(sessionId);
     if (!session) return;
 
@@ -293,6 +291,7 @@ export async function addResultToSession(
   result: ActionResult
 ): Promise<void> {
   await withMutex(async () => {
+    if (!(await isLearningEnabled())) return;
     const session = await loadSession(sessionId);
     if (!session) return;
 
@@ -326,6 +325,7 @@ export async function updateExtractedData(
   sessionId: string,
   data: Record<string, unknown>
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   const session = await loadSession(sessionId);
   if (!session) return;
   
@@ -338,6 +338,7 @@ export async function updateLastIntent(
   sessionId: string,
   intent: CommandIntent
 ): Promise<void> {
+  if (!(await isLearningEnabled())) return;
   const session = await loadSession(sessionId);
   if (!session) return;
   

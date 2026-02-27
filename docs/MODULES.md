@@ -27,7 +27,12 @@ Handles all LLM interactions and manages rate limits and cost via OpenRouter API
 - **`sanitizeForPrompt(text)`**: Strips prompt injections (`ignore all previous instructions`, `pretend you are`, etc.) before passing parameters to the model.
 - **`classifyError(error)`**: Deeply categorizes API responses (Rate Limits vs Service Outages vs Model failures), enabling retry mechanisms via `retry-circuit-breaker.ts`.
 - **`CostTracker`**: Live-calculates token utility costs enforcing warnings against `DEFAULTS.COST_WARNING_THRESHOLD`.
-- Dynamically generates the **System Prompt** on the fly, tailoring boundaries and instructions based on context constraints.
+- Dynamically generates the **System Prompt** on the fly, tailoring boundaries and instructions based on context constraints. All outbound calls are funneled through OpenRouter (typically `openrouter/auto`) so provider configuration stays centralized and consistent.
+
+### `debug.ts`
+Centralized debug logging and metrics.
+- **`debugService`**: Structured logger with redaction, log levels, and per-run correlation IDs.
+- **Metrics helpers**: Functions for building `DebugMetrics` snapshots used by the `/debug` command and background `/debug` endpoint, including rate-limit status and recent recovery attempts.
 
 ### `autonomous-intelligence.ts`
 Algorithmic logic solver used to sequence operations.

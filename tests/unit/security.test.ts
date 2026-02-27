@@ -150,4 +150,4 @@ describe('Domain and action security policies', () => {
     expect(third.allowed).toBe(false);
     expect(third.waitTimeMs).toBeGreaterThan(0);
   });
-}
+});

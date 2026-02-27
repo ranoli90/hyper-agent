@@ -1,4 +1,5 @@
-import { loadSettings, saveSettings, DEFAULTS, AVAILABLE_MODELS, STORAGE_KEYS, buildGdprExportSnapshot } from '../../shared/config';
+import { loadSettings, saveSettings, DEFAULTS, AVAILABLE_MODELS, STORAGE_KEYS, buildGdprExportSnapshot, LogLevel } from '../../shared/config';
+import { OPENROUTER_TIMEOUTS, normalizeOpenRouterBaseUrl, getOpenRouterHeaders as getOpenRouterHeadersWithEnv, OPENROUTER_MODELS } from '../../shared/openrouterConfig';
 import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
@@ -52,6 +53,11 @@ const saveStatus = document.getElementById('save-status')!;
 const resetSettings = document.getElementById('reset-settings') as HTMLButtonElement;
 const clearCache = document.getElementById('clear-cache') as HTMLButtonElement;
 const toastContainer = document.getElementById('toast-container') as HTMLDivElement | null;
+const btnTestApiConnection = document.getElementById('btn-test-api-connection') as HTMLButtonElement | null;
+const btnToggleApiKeyVisibility = document.getElementById('btn-toggle-api-key-visibility') as HTMLButtonElement | null;
+const debugModeInput = document.getElementById('settings-debug-mode') as HTMLInputElement | null;
+const logLevelSelect = document.getElementById('settings-log-level') as HTMLSelectElement | null;
+const btnDownloadDebugLog = document.getElementById('btn-download-debug-log') as HTMLButtonElement | null;
 
 // Confirm modal references
 const confirmModal = document.getElementById('confirm-modal') as HTMLDivElement;
@@ -235,6 +241,27 @@ async function loadCurrentSettings() {
   enableSwarmInput.checked = settings.enableSwarmIntelligence;
   enableAutonomousInput.checked = settings.enableAutonomousMode;
   enableLearningInput.checked = settings.learningEnabled;
+
+  if (debugModeInput) {
+    debugModeInput.checked = settings.debugMode ?? false;
+  }
+  if (logLevelSelect) {
+    const level = settings.logLevel ?? LogLevel.INFO;
+    logLevelSelect.value = String(level);
+  }
+  if (btnDownloadDebugLog) {
+    btnDownloadDebugLog.disabled = !(settings.debugMode ?? false);
+  }
+
+  // Environment diagnostics
+  const envStatusDot = document.getElementById('env-status-dot');
+  const envStatusText = document.getElementById('env-status-text');
+  const normalizedBase = normalizeOpenRouterBaseUrl(settings.baseUrl || PROVIDER_URLS.openrouter);
+  if (envStatusDot && envStatusText) {
+    envStatusDot.classList.add('status-dot');
+    envStatusDot.classList.add('connected');
+    envStatusText.textContent = `Environment: Production (${normalizedBase})`;
+  }
 }
 
 // All calls route through OpenRouter
@@ -315,6 +342,8 @@ btnSave.addEventListener('click', async () => {
       ollamaHost: DEFAULTS.OLLAMA_HOST,
       ollamaModel: DEFAULTS.OLLAMA_MODEL,
       useLocalAI: false,
+      debugMode: debugModeInput?.checked ?? false,
+      logLevel: (logLevelSelect ? Number.parseInt(logLevelSelect.value, 10) : LogLevel.INFO) as LogLevel,
     });
 
     saveStatus.classList.remove('hidden');
@@ -334,17 +363,21 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
     return { valid: false, error: 'No API key provided' };
   }
 
+  const trimmed = key.trim();
+  // Heuristic check for OpenRouter API keys
+  if (!trimmed.startsWith('sk-or-') || trimmed.length < 24 || trimmed.length > 256) {
+    return { valid: false, error: 'Key does not look like an OpenRouter API key (expected sk-or-...)' };
+  }
+
   try {
+    const normalizedBase = normalizeOpenRouterBaseUrl(baseUrl || PROVIDER_URLS.openrouter);
+
     // All validation goes through OpenRouter's models endpoint
-    const validationUrl = baseUrl || PROVIDER_URLS.openrouter;
-    const response = await fetch(`${validationUrl}/models`, {
+    const modelsUrl = `${normalizedBase}/models`;
+    const response = await fetch(modelsUrl, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${key}`,
-        'HTTP-Referer': 'https://hyperagent.ai',
-        'X-Title': 'HyperAgent',
-      },
-      signal: AbortSignal.timeout(10000),
+      headers: getOpenRouterHeadersWithEnv(trimmed, normalizedBase),
+      signal: AbortSignal.timeout(OPENROUTER_TIMEOUTS.validateApiKeyMs),
     });
 
     if (response.ok) {
@@ -353,20 +386,16 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
 
     // If models endpoint fails, try a minimal chat completion
     if (response.status === 404) {
-      const chatResponse = await fetch(`${validationUrl}/chat/completions`, {
+      const chatUrl = `${normalizedBase}/chat/completions`;
+      const chatResponse = await fetch(chatUrl, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${key}`,
-          'HTTP-Referer': 'https://hyperagent.ai',
-          'X-Title': 'HyperAgent',
-        },
+        headers: getOpenRouterHeadersWithEnv(trimmed, normalizedBase),
         body: JSON.stringify({
-          model: 'google/gemini-2.5-flash',
+          model: OPENROUTER_MODELS.chat,
           messages: [{ role: 'user', content: 'Hi' }],
           max_tokens: 1,
         }),
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(OPENROUTER_TIMEOUTS.validateApiKeyMs),
       });
 
       if (chatResponse.ok) {
@@ -523,6 +552,37 @@ apiKeyInput.addEventListener('input', debounce(async () => {
   updateApiStatus(result.valid, result.error);
 }, 1000));
 
+// Explicit "Test connection" button
+if (btnTestApiConnection) {
+  btnTestApiConnection.addEventListener('click', async () => {
+    const key = apiKeyInput.value.trim();
+    if (!key) {
+      showNotification('Enter an API key first', 'error');
+      return;
+    }
+
+    const baseUrl = PROVIDER_URLS[apiProviderInput.value as keyof typeof PROVIDER_URLS] || DEFAULTS.BASE_URL;
+    updateApiUiState({ status: 'connecting' });
+
+    const result = await validateApiKey(key, baseUrl);
+    updateApiStatus(result.valid, result.error);
+    if (result.valid) {
+      showNotification('Successfully connected to OpenRouter', 'success');
+    } else if (result.error) {
+      showNotification(result.error, 'error');
+    }
+  });
+}
+
+// Eye-icon toggle for API key visibility
+if (btnToggleApiKeyVisibility) {
+  btnToggleApiKeyVisibility.addEventListener('click', () => {
+    if (!apiKeyInput) return;
+    const isPassword = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPassword ? 'text' : 'password';
+  });
+}
+
 // Validate on provider change
 apiProviderInput.addEventListener('change', async () => {
   const key = apiKeyInput.value.trim();
@@ -539,6 +599,36 @@ apiProviderInput.addEventListener('change', async () => {
 
   const result = await validateApiKey(key, baseUrl);
   updateApiStatus(result.valid, result.error);
+});
+
+// Download debug log (when debug mode is enabled)
+btnDownloadDebugLog?.addEventListener('click', async () => {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'getMetrics' });
+    if (!resp?.ok || !resp.metrics) {
+      showNotification('Failed to load debug metrics', 'error');
+      return;
+    }
+
+    const blob = new Blob([JSON.stringify(resp.metrics, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hyperagent-debug-log-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    showNotification('Debug log downloaded.', 'success');
+  } catch (err) {
+    console.error('[HyperAgent] Debug log download error:', err);
+    showNotification('Failed to download debug log', 'error');
+  }
+});
+
+debugModeInput?.addEventListener('change', () => {
+  if (btnDownloadDebugLog) {
+    btnDownloadDebugLog.disabled = !debugModeInput.checked;
+  }
 });
 
 // ─── Initialize ─────────────────────────────────────────────────

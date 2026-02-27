@@ -168,21 +168,111 @@ function switchTab(tabId: string) {
   if (tabId === 'subscription') {
     updateUsageDisplay();
   } else if (tabId === 'memory') {
-    // Load memory stats inline (function was removed during cleanup)
+    // Load memory stats and per-domain strategies
     (async () => {
       try {
         const resp = await chrome.runtime.sendMessage({ type: 'getMemoryStats' });
-        if (resp?.ok) {
-          const statsEl = document.getElementById('memory-stats');
-          if (statsEl) {
-            const strategies = resp.strategies ? Object.keys(resp.strategies).length : 0;
-            statsEl.innerHTML = `
-              <div class="flex flex-col gap-2 p-4 text-sm text-zinc-500 dark:text-zinc-400">
-                <p><strong class="text-zinc-700 dark:text-zinc-200">Site Strategies:</strong> ${strategies}</p>
-                <p><strong class="text-zinc-700 dark:text-zinc-200">Action History:</strong> ${resp.totalActions || 0} actions logged</p>
-                <p><strong class="text-zinc-700 dark:text-zinc-200">Sessions:</strong> ${resp.totalSessions || 0}</p>
-              </div>`;
+        if (!resp?.ok) return;
+
+        const statsEl = document.getElementById('memory-stats');
+        const listEl = document.getElementById('memory-list');
+
+        const strategies = resp.strategies || {};
+        const domainKeys = Object.keys(strategies);
+
+        if (statsEl) {
+          statsEl.innerHTML = `
+            <div class="flex flex-col gap-2 p-4 text-sm text-zinc-500 dark:text-zinc-400">
+              <p><strong class="text-zinc-700 dark:text-zinc-200">Domains:</strong> ${domainKeys.length}</p>
+              <p><strong class="text-zinc-700 dark:text-zinc-200">Action History:</strong> ${resp.totalActions || 0} actions logged</p>
+              <p><strong class="text-zinc-700 dark:text-zinc-200">Sessions:</strong> ${resp.totalSessions || 0}</p>
+            </div>`;
+        }
+
+        if (listEl) {
+          if (domainKeys.length === 0) {
+            listEl.innerHTML = '<p class="text-xs text-zinc-500">No site strategies learned yet.</p>';
+            return;
           }
+
+          const fragments: string[] = [];
+          for (const domain of domainKeys) {
+            const strategy = strategies[domain] || {};
+            const successes = Array.isArray(strategy.successfulLocators) ? strategy.successfulLocators.length : 0;
+            const failures = Array.isArray(strategy.failedLocators) ? strategy.failedLocators.length : 0;
+            const lastUsed = strategy.lastUsed ? new Date(strategy.lastUsed).toLocaleString() : 'N/A';
+            const summary = strategy.summary || 'No summary available yet.';
+
+            const runs = (resp.workflowRuns && resp.workflowRuns[domain]) || [];
+            const runsHtml = Array.isArray(runs) && runs.length
+              ? `<ul class="mt-1 space-y-0.5">
+                  ${runs
+                    .slice()
+                    .reverse()
+                    .map((run: any) => {
+                      const when = run.timestamp ? new Date(run.timestamp).toLocaleTimeString() : '';
+                      const kind = run.type === 'macro' ? 'Macro' : 'Workflow';
+                      const label = run.id || 'Unknown';
+                      return `<li class="flex items-center justify-between text-[11px]">
+                                <span class="text-zinc-500 dark:text-zinc-400">${kind}: <code class="font-mono text-[10px]">${label}</code></span>
+                                <span class="text-zinc-400">${when}</span>
+                              </li>`;
+                    })
+                    .join('')}
+                 </ul>`
+              : '<p class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">No recent workflows or macros for this site.</p>';
+
+            fragments.push(`
+              <div class="p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex flex-col">
+                    <span class="text-sm font-medium text-zinc-900 dark:text-zinc-100">${domain}</span>
+                    <span class="text-[11px] text-zinc-500 dark:text-zinc-400">Last used: ${lastUsed}</span>
+                  </div>
+                  <button
+                    class="text-[11px] px-2 py-1 rounded border border-red-200 dark:border-red-700 text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10"
+                    data-domain="${domain}"
+                    type="button"
+                  >
+                    Forget this site
+                  </button>
+                </div>
+                <div class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1">
+                  <span>Successful locators: ${successes}</span>
+                  <span class="mx-2">•</span>
+                  <span>Failed locators: ${failures}</span>
+                </div>
+                <p class="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+                  ${summary}
+                </p>
+                <div class="mt-1 border-t border-dashed border-zinc-200 dark:border-zinc-800 pt-1.5">
+                  <p class="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-0.5">Recent workflows & macros</p>
+                  ${runsHtml}
+                </div>
+              </div>
+            `);
+          }
+
+          listEl.innerHTML = fragments.join('');
+
+          // Wire up "Forget this site" buttons
+          listEl.querySelectorAll('button[data-domain]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const domain = (btn as HTMLButtonElement).dataset.domain;
+              if (!domain) return;
+              try {
+                const result = await chrome.runtime.sendMessage({ type: 'clearDomainMemory', domain });
+                if (result?.ok) {
+                  showToast(`Forgot site memory for ${domain}`, 'success');
+                  switchTab('memory'); // reload memory view
+                } else {
+                  showToast(`Failed to clear memory for ${domain}`, 'error');
+                }
+              } catch {
+                showToast(`Failed to clear memory for ${domain}`, 'error');
+              }
+            });
+          });
         }
       } catch (err) {
         console.warn('[HyperAgent] Failed to load memory stats:', err);
@@ -321,7 +411,9 @@ const SLASH_COMMANDS = {
   '/reset': () => {
     chrome.runtime.sendMessage({ type: 'stopAgent' });
     chrome.storage.local.remove(['activeSession', 'hyperagent_last_agent_result']);
-    addMessage('Session reset. All active memory and context cleared.', 'status');
+    // Ask background to reset sessions and per-domain memory for the current page.
+    chrome.runtime.sendMessage({ type: 'resetPageSession' });
+    addMessage('Session reset. Active memory and context for this page have been cleared.', 'status');
   },
   '/memory': () => {
     switchTab('memory');
@@ -407,12 +499,42 @@ const SLASH_COMMANDS = {
   '/import': () => {
     importSettings();
   },
+  '/debug': () => {
+    chrome.runtime
+      .sendMessage({ type: 'getMetrics' })
+      .then((resp) => {
+        if (!resp?.ok || !resp.metrics) {
+          addMessage('No debug data available.', 'status');
+          return;
+        }
+        try {
+          const logs = Array.isArray(resp.metrics.logs) ? resp.metrics.logs.slice(-5) : [];
+          const payload = {
+            lastLogs: logs,
+            recovery: resp.metrics.recovery,
+            rateLimitStatus: resp.metrics.rateLimitStatus,
+          };
+          addMessage(
+            'Debug info for last task (redacted):\n\n```json\n' +
+              JSON.stringify(payload, null, 2).slice(0, 1500) +
+              '\n```',
+            'agent',
+          );
+        } catch {
+          addMessage('Failed to render debug info.', 'error');
+        }
+      })
+      .catch(() => {
+        addMessage('Failed to fetch debug info from background.', 'error');
+      });
+  },
 };
 
 const SUGGESTIONS = [
   { command: '/memory', description: 'Search stored knowledge' },
   { command: '/tools', description: 'List available agent tools' },
   { command: '/clear', description: 'Clear chat history' },
+  { command: '/debug', description: 'Show debug info for last task' },
   { command: '/export', description: 'Export data (options menu)' },
   { command: '/export-all', description: 'Full GDPR data export' },
   { command: '/delete-data', description: 'Delete all data (GDPR erasure)' },
@@ -627,7 +749,7 @@ function addMessageActions(container: HTMLElement, content: string, type: string
   // Copy message
   const copyBtn = document.createElement('button');
   copyBtn.className = 'action-btn';
-  copyBtn.innerHTML = '📋';
+  copyBtn.innerHTML = '';
   copyBtn.title = 'Copy message';
   copyBtn.addEventListener('click', () => {
     navigator.clipboard.writeText(content);
@@ -639,7 +761,7 @@ function addMessageActions(container: HTMLElement, content: string, type: string
   if (type === 'agent') {
     const summaryBtn = document.createElement('button');
     summaryBtn.className = 'action-btn';
-    summaryBtn.innerHTML = '📝';
+    summaryBtn.innerHTML = '';
     summaryBtn.title = 'Copy summary';
     summaryBtn.addEventListener('click', () => {
       // Try to extract summary from JSON response
@@ -1092,15 +1214,26 @@ async function saveHistoryImmediate() {
     let currentBytes = totalBytes;
     let removeIndex = 0;
     const minKeep = Math.min(5, messageSizes.length);
+    let removedCount = 0;
     
     while (currentBytes > MAX_CHAT_HISTORY_BYTES && removeIndex < messageSizes.length - minKeep) {
       currentBytes -= messageSizes[removeIndex].byteSize;
       messageSizes[removeIndex].element.remove();
+      removedCount++;
       removeIndex++;
     }
 
     // Save remaining HTML
     await chrome.storage.local.set({ chat_history_backup: container.innerHTML });
+
+    if (removedCount > 0) {
+      // Inform the user that older messages were trimmed, without adding new
+      // chat bubbles that would immediately re-trigger truncation.
+      showToast(
+        `Older messages were trimmed to keep history under the safe size limit. (${removedCount} message${removedCount > 1 ? 's' : ''} removed)`,
+        'info',
+      );
+    }
   } catch (err) {
     // Removed console.warn
   }
@@ -1223,7 +1356,7 @@ function showOnboardingCard() {
   onboardingCard.innerHTML = `
     <div class="onboarding-content">
       <div class="onboarding-header">
-        <h3>🚀 Welcome to HyperAgent!</h3>
+        <h3> Welcome to HyperAgent!</h3>
         <p>Your AI-powered browser automation assistant is ready to help.</p>
       </div>
       <div class="onboarding-steps">
@@ -1253,13 +1386,13 @@ function showOnboardingCard() {
         <p class="examples-title">Try these examples:</p>
         <div class="example-buttons">
           <button class="example-btn" data-cmd="Go to amazon.com and search for wireless headphones">
-            🛒 Shop on Amazon
+             Shop on Amazon
           </button>
           <button class="example-btn" data-cmd="Extract all email addresses from this page">
-            📧 Extract emails
+             Extract emails
           </button>
           <button class="example-btn" data-cmd="Fill out this form with test data">
-            📝 Fill forms
+             Fill forms
           </button>
         </div>
       </div>
@@ -1639,7 +1772,21 @@ function highlightSuggestion(items: NodeListOf<Element>, index: number) {
   });
 }
 
-// Load history on start, then check for missed result (panel closed during task - Scenario 7)
+async function checkAgentStillRunning() {
+  try {
+    const resp = await chrome.runtime.sendMessage({ type: 'getAgentStatus' });
+    if (!resp?.ok || !resp.status?.isRunning) return;
+
+    // Re-sync local running state with background so the UI matches reality.
+    setRunning(true);
+    updateStatus('A previous task is still running...', 'active');
+    addMessage('Your previous task is still running in the background.', 'status');
+  } catch {
+    // Best-effort only; if this fails we simply skip the reminder.
+  }
+}
+
+// Load history on start, then check for missed/ongoing results.
 async function initChat() {
   // Clear completion badge when panel opens (user can now see results)
   try {
@@ -1653,6 +1800,7 @@ async function initChat() {
     'hyperagent_last_agent_result',
     'hyperagent_show_changelog',
     'hyperagent_agent_interrupted_by_update',
+    'hyperagent_storage_recovered',
   ]);
   if (data.hyperagent_agent_interrupted_by_update) {
     await chrome.storage.local.remove('hyperagent_agent_interrupted_by_update');
@@ -1671,6 +1819,23 @@ async function initChat() {
     await chrome.storage.local.remove('hyperagent_show_changelog');
     showToast('HyperAgent updated! Check the repository for release notes.', 'info');
   }
+
+  if (data.hyperagent_storage_recovered) {
+    addMessage(
+      'Some stored HyperAgent data looked corrupted and was automatically repaired. Affected memory entries may have been reset.',
+      'status',
+    );
+    await chrome.storage.local.remove('hyperagent_storage_recovered');
+  }
+
+  // If the background agent is still running from a previous command, show a
+  // subtle reminder when the panel is opened again.
+  await checkAgentStillRunning();
+
+  // Initialize memory tab controls after basic chat state is ready.
+  initMemoryControls().catch(() => {
+    // Non-fatal; memory controls will simply remain in default state.
+  });
 }
 if (typeof requestIdleCallback === 'function') {
   requestIdleCallback(() => initChat(), { timeout: 100 });
@@ -1692,6 +1857,93 @@ chrome.storage.local.get('hyperagent_show_onboarding').then((data) => {
     }
   }
 });
+
+// ─── Memory Tab Controls (learning toggle, health check, snapshot) ────
+const memoryLearningToggle = document.getElementById('memory-learning-toggle') as HTMLButtonElement | null;
+const memoryHealthCheckBtn = document.getElementById('btn-memory-health-check') as HTMLButtonElement | null;
+const memoryDownloadBtn = document.getElementById('btn-memory-download') as HTMLButtonElement | null;
+
+async function initMemoryControls() {
+  try {
+    const data = await chrome.storage.local.get('hyperagent_learning_enabled');
+    const enabled = data['hyperagent_learning_enabled'] !== false;
+    updateMemoryToggleUI(enabled);
+  } catch {
+    updateMemoryToggleUI(true);
+  }
+
+  memoryLearningToggle?.addEventListener('click', async () => {
+    try {
+      const current = await chrome.storage.local.get('hyperagent_learning_enabled');
+      const enabled = current['hyperagent_learning_enabled'] !== false;
+      const next = !enabled;
+      await chrome.storage.local.set({ hyperagent_learning_enabled: next });
+      updateMemoryToggleUI(next);
+      showToast(`Learning ${next ? 'enabled' : 'disabled'}`, 'info');
+    } catch {
+      showToast('Failed to update learning setting', 'error');
+    }
+  });
+
+  memoryHealthCheckBtn?.addEventListener('click', async () => {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'runMemoryHealthCheck' });
+      if (resp?.ok) {
+        const issues = resp.result?.issues || [];
+        if (issues.length === 0) {
+          showToast('Memory storage looks healthy.', 'success');
+        } else {
+          showToast(`Memory health: ${issues.length} issue(s) found and ${resp.result?.repaired ? 'repaired' : 'reported'}.`, 'warning');
+        }
+      } else {
+        showToast('Memory health check failed', 'error');
+      }
+    } catch {
+      showToast('Memory health check failed', 'error');
+    }
+  });
+
+  memoryDownloadBtn?.addEventListener('click', async () => {
+    try {
+      const allData = await chrome.storage.local.get([
+        'hyperagent_site_strategies',
+        'hyperagent_action_history',
+        'hyperagent_sessions',
+      ]);
+      const snapshot = {
+        createdAt: new Date().toISOString(),
+        siteStrategies: allData['hyperagent_site_strategies'] || {},
+        actionHistory: allData['hyperagent_action_history'] || [],
+        sessions: allData['hyperagent_sessions'] || {},
+      };
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hyperagent-memory-snapshot-${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast('Memory snapshot downloaded.', 'success');
+    } catch {
+      showToast('Failed to download memory snapshot', 'error');
+    }
+  });
+}
+
+function updateMemoryToggleUI(enabled: boolean) {
+  if (!memoryLearningToggle) return;
+  memoryLearningToggle.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  const knob = memoryLearningToggle.firstElementChild as HTMLElement | null;
+  if (enabled) {
+    memoryLearningToggle.classList.remove('bg-zinc-300', 'dark:bg-zinc-700');
+    memoryLearningToggle.classList.add('bg-emerald-500');
+    if (knob) knob.style.transform = 'translateX(16px)';
+  } else {
+    memoryLearningToggle.classList.add('bg-zinc-300', 'dark:bg-zinc-700');
+    memoryLearningToggle.classList.remove('bg-emerald-500');
+    if (knob) knob.style.transform = 'translateX(0px)';
+  }
+}
 
 // Onboarding modal handlers
 document.getElementById('btn-onboarding-close')?.addEventListener('click', () => {
@@ -1893,7 +2145,16 @@ chrome.runtime.onMessage.addListener((message: any) => {
       const summary =
         typeof message.finalSummary === 'string' ? message.finalSummary : 'Task completed';
       const success = Boolean(message.success);
-      addMessage(summary, success ? 'agent' : 'error');
+      const msgEl = addMessage(summary, success ? 'agent' : 'error');
+      // Attach correlation ID when available so users can reference this task
+      // in debug logs or support tickets.
+      const correlationId = (message as any).correlationId;
+      if (msgEl && typeof correlationId === 'string' && correlationId.trim()) {
+        const meta = document.createElement('div');
+        meta.className = 'message-timestamp';
+        meta.textContent = `Debug ID: ${correlationId}`;
+        msgEl.appendChild(meta);
+      }
       setRunning(false);
       updateProgress(success ? 100 : 0);
       // For scheduled tasks, also show a toast so user notices even if panel is collapsed
@@ -2786,6 +3047,56 @@ function showExportOptions(): void {
   scrollToBottom();
 }
 
+// ─── Health Check Ping/Pong ─────────────────────────────────────────
+// Monitors connection latency between sidepanel and background
+let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+
+function startHealthCheck() {
+  // Run health check every 60 seconds
+  healthCheckInterval = setInterval(async () => {
+    try {
+      const start = Date.now();
+      const response = await chrome.runtime.sendMessage({ type: 'ping' });
+      const latency = Date.now() - start;
+      
+      if (response?.ok) {
+        // Log health check success with latency (debug mode)
+        console.debug(`[HyperAgent] Background pingpong latency: ${latency}ms`);
+        
+        // If latency is too high, warn user
+        if (latency > 1000) {
+          console.warn(`[HyperAgent] High background latency: ${latency}ms`);
+        }
+      }
+    } catch (err) {
+      console.error('[HyperAgent] Health check failed:', err);
+    }
+  }, 60000);
+  
+  // Run immediately on startup
+  (async () => {
+    try {
+      const start = Date.now();
+      const response = await chrome.runtime.sendMessage({ type: 'ping' });
+      const latency = Date.now() - start;
+      if (response?.ok) {
+        console.log(`[HyperAgent] Initial health check: ${latency}ms latency`);
+      }
+    } catch {
+      console.warn('[HyperAgent] Initial health check failed');
+    }
+  })();
+}
+
+// Stop health check when panel closes
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval);
+    }
+  });
+}
+
 // ─── Initialization ─────────────────────────────────────────────
 async function initializeApp() {
   try {
@@ -2808,6 +3119,9 @@ async function initializeApp() {
     // Set up periodic updates
     setInterval(updateConnectionStatus, 30000); // Update connection status every 30s
     setInterval(updatePageContext, 5000); // Update page context every 5s
+    
+    // Health check ping/pong - monitor background latency
+    startHealthCheck();
     
     // Listen for tab changes
     if (chrome.tabs?.onUpdated) {
