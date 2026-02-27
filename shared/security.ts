@@ -56,11 +56,13 @@ function extractHostname(url: string): string {
   }
 }
 
-// ─── Helper: Check if domain matches pattern ───────────────────────────
+// ─── Helper: Check if domain matches pattern (exact or subdomain) ─────
 function domainMatches(hostname: string, pattern: string): boolean {
   if (!hostname || !pattern) return false;
-  const normalized = pattern.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '');
-  return hostname.includes(normalized) || normalized.includes(hostname);
+  const host = hostname.toLowerCase();
+  const normalized = pattern.toLowerCase().replace(/^(https?:\/\/)?(www\.)?/, '').replace(/^\*\./, '');
+  if (!normalized) return false;
+  return host === normalized || host.endsWith(`.${normalized}`);
 }
 
 // ─── Get Privacy Settings ───────────────────────────────────────────────

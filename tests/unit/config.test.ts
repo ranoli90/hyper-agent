@@ -93,9 +93,19 @@ describe('isSiteBlacklisted', () => {
     expect(isSiteBlacklisted('https://blocked.com/page', 'blocked.com')).toBe(true);
   });
 
-  it('matches substring in hostname (by design)', () => {
-    // isSiteBlacklisted uses hostname.includes(), so substrings match
-    expect(isSiteBlacklisted('https://notblocked.com', 'blocked.com')).toBe(true);
+  it('matches exact hostname only', () => {
+    expect(isSiteBlacklisted('https://blocked.com', 'blocked.com')).toBe(true);
+    expect(isSiteBlacklisted('https://notblocked.com', 'blocked.com')).toBe(false);
+  });
+
+  it('matches subdomains of blacklisted domain', () => {
+    expect(isSiteBlacklisted('https://shop.blocked.com', 'blocked.com')).toBe(true);
+    expect(isSiteBlacklisted('https://deep.shop.blocked.com', 'blocked.com')).toBe(true);
+  });
+
+  it('supports wildcard patterns', () => {
+    expect(isSiteBlacklisted('https://store.shopify.com', '*.shopify.com')).toBe(true);
+    expect(isSiteBlacklisted('https://shopify.com', '*.shopify.com')).toBe(false);
   });
 
   it('handles multiple blacklisted domains (newline separated)', () => {

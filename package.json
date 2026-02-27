@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wxt && node scripts/ensure-utf8.js",
+    "dev": "wxt",
     "dev:firefox": "wxt --browser firefox",
     "build": "wxt build",
     "postbuild": "node scripts/ensure-utf8.js",

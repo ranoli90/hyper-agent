@@ -4,10 +4,12 @@
  */
 
 import type { ExtensionMessage } from '../../shared/types';
-import { validateAndFilterImportData, STORAGE_KEYS } from '../../shared/config';
+import { validateAndFilterImportData, STORAGE_KEYS, AVAILABLE_MODELS, DEFAULTS, buildGdprExportSnapshot } from '../../shared/config';
 import { inputSanitizer } from '../../shared/input-sanitization';
 import { debounce } from '../../shared/utils';
 import { billingManager } from '../../shared/billing';
+import { createConfirmModalController } from './confirm-modal';
+import { trapFocus } from './focus-trap';
 
 // ─── DOM Elements ───────────────────────────────────────────────
 const safeGetElement = <T extends HTMLElement>(id: string, optional = false): T | null => {
@@ -63,6 +65,9 @@ const components = {
 
   // Stepper
   steps: document.querySelectorAll('.step'),
+
+  // Toast container
+  toastContainer: document.getElementById('toast-container') as HTMLDivElement | null,
 };
 
 // Validate critical components
@@ -104,6 +109,8 @@ const state = {
   cleanupFocusTrap: null as (() => void) | null,
 };
 
+const { showConfirm } = createConfirmModalController();
+
 const MAX_COMMAND_LENGTH = 2000;
 const COMMAND_RATE_LIMIT_MS = 1000; // 1 second between commands
 let selectedSuggestionIndex = -1;
@@ -111,19 +118,32 @@ let selectedSuggestionIndex = -1;
 function updateCharCounter(value: string) {
   if (!components.charCounter) return;
   const length = value.length;
+  const percentage = (length / MAX_COMMAND_LENGTH) * 100;
+  
   components.charCounter.textContent = `${length} / ${MAX_COMMAND_LENGTH}`;
-  components.charCounter.classList.toggle('warn', length > MAX_COMMAND_LENGTH * 0.9);
+  components.charCounter.classList.toggle('warn', percentage >= 90);
+  components.charCounter.classList.toggle('danger', percentage >= 100);
+  
+  // Show inline warning when approaching limit
+  if (percentage >= 90 && percentage < 100) {
+    components.charCounter.title = `Approaching limit: ${Math.round(percentage)}% used`;
+  } else if (percentage >= 100) {
+    components.charCounter.title = `Limit exceeded: ${length - MAX_COMMAND_LENGTH} characters over limit`;
+  } else {
+    components.charCounter.title = '';
+  }
 }
 
 // ─── Tab Logic ──────────────────────────────────────────────────
 function switchTab(tabId: string) {
   state.activeTab = tabId;
 
-  // Update tab buttons
+  // Update tab buttons (aria-selected + roving tabindex)
   components.tabs.forEach(btn => {
     const isSelected = (btn as HTMLElement).dataset.tab === tabId;
     btn.classList.toggle('active', isSelected);
     btn.setAttribute('aria-selected', String(isSelected));
+    btn.setAttribute('tabindex', isSelected ? '0' : '-1');
   });
 
   // Update tab panes
@@ -157,10 +177,10 @@ function switchTab(tabId: string) {
           if (statsEl) {
             const strategies = resp.strategies ? Object.keys(resp.strategies).length : 0;
             statsEl.innerHTML = `
-              <div style="padding:16px;color:var(--text-secondary);font-size:0.875rem;">
-                <p><strong>Site Strategies:</strong> ${strategies}</p>
-                <p><strong>Action History:</strong> ${resp.totalActions || 0} actions logged</p>
-                <p><strong>Sessions:</strong> ${resp.totalSessions || 0}</p>
+              <div class="flex flex-col gap-2 p-4 text-sm text-zinc-500 dark:text-zinc-400">
+                <p><strong class="text-zinc-700 dark:text-zinc-200">Site Strategies:</strong> ${strategies}</p>
+                <p><strong class="text-zinc-700 dark:text-zinc-200">Action History:</strong> ${resp.totalActions || 0} actions logged</p>
+                <p><strong class="text-zinc-700 dark:text-zinc-200">Sessions:</strong> ${resp.totalSessions || 0}</p>
               </div>`;
           }
         }
@@ -210,10 +230,13 @@ if (tabsNav) {
   });
 }
 
-// Confirm / cancel modal actions
+// Confirm / cancel modal actions for legacy agent confirmations
 components.btnConfirm.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
-  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) {
+    state.cleanupFocusTrap();
+    state.cleanupFocusTrap = null;
+  }
   if (state.confirmResolve) {
     if (state.confirmTimeoutId) {
       clearTimeout(state.confirmTimeoutId);
@@ -226,7 +249,10 @@ components.btnConfirm.addEventListener('click', () => {
 
 components.btnCancel.addEventListener('click', () => {
   components.confirmModal.classList.add('hidden');
-  if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+  if (state.cleanupFocusTrap) {
+    state.cleanupFocusTrap();
+    state.cleanupFocusTrap = null;
+  }
   if (state.confirmResolve) {
     if (state.confirmTimeoutId) {
       clearTimeout(state.confirmTimeoutId);
@@ -237,11 +263,13 @@ components.btnCancel.addEventListener('click', () => {
   }
 });
 
-// Modal backdrop close
 components.confirmModal.addEventListener('click', e => {
   if (e.target === components.confirmModal) {
     components.confirmModal.classList.add('hidden');
-    if (state.cleanupFocusTrap) { state.cleanupFocusTrap(); state.cleanupFocusTrap = null; }
+    if (state.cleanupFocusTrap) {
+      state.cleanupFocusTrap();
+      state.cleanupFocusTrap = null;
+    }
     if (state.confirmResolve) {
       if (state.confirmTimeoutId) {
         clearTimeout(state.confirmTimeoutId);
@@ -292,7 +320,8 @@ const SLASH_COMMANDS = {
   },
   '/reset': () => {
     chrome.runtime.sendMessage({ type: 'stopAgent' });
-    location.reload();
+    chrome.storage.local.remove(['activeSession', 'hyperagent_last_agent_result']);
+    addMessage('Session reset. All active memory and context cleared.', 'status');
   },
   '/memory': () => {
     switchTab('memory');
@@ -301,12 +330,15 @@ const SLASH_COMMANDS = {
   '/tools': () => {
     addMessage(
       `
-**Active Tools:**
-- **Email**: Draft or send emails
-- **Calendar**: Manage meetings
-- **File**: Process downloads
-- **Calculator**: Math operations
-- **Time**: Current world time
+**Agent Capabilities:**
+- **Navigate**: Go to URLs, click links, navigate between pages
+- **Click**: Click buttons, links, and interactive elements
+- **Type**: Fill forms, search boxes, and text inputs
+- **Extract**: Pull data, text, and information from pages
+- **Scroll**: Scroll pages to find content and elements
+- **Wait**: Wait for page loads and dynamic content
+- **Screenshot**: Capture page screenshots for vision analysis
+- **Select**: Choose options from dropdowns and lists
     `,
       'agent'
     );
@@ -451,7 +483,12 @@ function showSuggestions(query: string) {
 }
 
 // ─── Chat Interface ─────────────────────────────────────────────
-function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status' | 'thinking') {
+function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status' | 'thinking', options: {
+  timestamp?: number;
+  canRetry?: boolean;
+  canEdit?: boolean;
+  actions?: string[];
+} = {}) {
   if (!components.chatHistory) {
     console.error('[HyperAgent] Chat history component not found');
     return null;
@@ -468,6 +505,7 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
 
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
+  const timestamp = options.timestamp || Date.now();
 
   try {
     if (type === 'thinking') {
@@ -506,10 +544,65 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
       div.appendChild(header);
       div.appendChild(contentDiv);
     } else if (type === 'agent') {
-      div.innerHTML = renderMarkdown(content);
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      contentDiv.innerHTML = renderMarkdown(content);
+      div.appendChild(contentDiv);
+      
+      // Add message actions
+      addMessageActions(div, content, type, options);
+    } else if (type === 'error') {
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content error-content';
+      contentDiv.textContent = content;
+      div.appendChild(contentDiv);
+      
+      // Add retry button for errors
+      if (options.canRetry) {
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'retry-btn text-xs px-2 py-1 mt-2 bg-red-500 hover:bg-red-600 text-white rounded transition-colors';
+        retryBtn.textContent = 'Retry';
+        retryBtn.addEventListener('click', () => {
+          // Remove the error message and retry last command
+          div.remove();
+          const lastCmd = state.commandHistory[state.commandHistory.length - 1];
+          if (lastCmd) {
+            handleCommand(lastCmd);
+          }
+        });
+        div.appendChild(retryBtn);
+      }
+      
+      addMessageActions(div, content, type, options);
     } else {
-      div.textContent = content;
+      const contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      contentDiv.textContent = content;
+      div.appendChild(contentDiv);
+      
+      // Add edit capability for user messages
+      if (type === 'user' && options.canEdit) {
+        const editBtn = document.createElement('button');
+        editBtn.className = 'edit-btn text-xs px-2 py-1 mt-1 bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 rounded transition-colors';
+        editBtn.textContent = 'Edit';
+        editBtn.addEventListener('click', () => {
+          components.commandInput.value = content;
+          components.commandInput.focus();
+          div.remove();
+        });
+        div.appendChild(editBtn);
+      }
+      
+      addMessageActions(div, content, type, options);
     }
+    
+    // Add timestamp
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-timestamp';
+    timeDiv.textContent = new Date(timestamp).toLocaleTimeString();
+    timeDiv.title = new Date(timestamp).toLocaleString();
+    div.appendChild(timeDiv);
+    
   } catch (err) {
     console.error('[HyperAgent] Error rendering message:', err);
     div.textContent = 'Error rendering message';
@@ -527,11 +620,222 @@ function addMessage(content: string, type: 'user' | 'agent' | 'error' | 'status'
   return div;
 }
 
+function addMessageActions(container: HTMLElement, content: string, type: string, options: any) {
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'message-actions';
+  
+  // Copy message
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'action-btn';
+  copyBtn.innerHTML = '📋';
+  copyBtn.title = 'Copy message';
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(content);
+    showToast('Message copied', 'success');
+  });
+  actionsDiv.appendChild(copyBtn);
+  
+  // Copy summary (for agent messages)
+  if (type === 'agent') {
+    const summaryBtn = document.createElement('button');
+    summaryBtn.className = 'action-btn';
+    summaryBtn.innerHTML = '📝';
+    summaryBtn.title = 'Copy summary';
+    summaryBtn.addEventListener('click', () => {
+      // Try to extract summary from JSON response
+      try {
+        const parsed = JSON.parse(content);
+        const summary = parsed.summary || content;
+        navigator.clipboard.writeText(summary);
+        showToast('Summary copied', 'success');
+      } catch {
+        navigator.clipboard.writeText(content);
+        showToast('Message copied', 'success');
+      }
+    });
+    actionsDiv.appendChild(summaryBtn);
+  }
+  
+  container.appendChild(actionsDiv);
+}
+
 function updateChatSearchVisibility() {
   const bar = document.getElementById('chat-search-bar');
   const msgs = components.chatHistory?.querySelectorAll('.chat-msg');
   const hasMessages = msgs && msgs.length > 0;
   if (bar) bar.style.display = hasMessages ? 'block' : 'none';
+}
+
+// ─── Connection Status & Page Context ──────────────────────────────
+async function updateConnectionStatus() {
+  const statusEl = document.getElementById('connection-status');
+  const indicatorEl = document.getElementById('connection-indicator');
+  const textEl = document.getElementById('connection-text');
+  const providerNameEl = document.getElementById('provider-name');
+  const providerIndicatorEl = document.getElementById('provider-indicator');
+  const modelDisplayEl = document.getElementById('model-display');
+
+  if (!statusEl || !indicatorEl || !textEl) return;
+
+  try {
+    const { [STORAGE_KEYS.API_KEY]: apiKey } = await chrome.storage.local.get(STORAGE_KEYS.API_KEY);
+    
+    if (apiKey && apiKey.trim()) {
+      // Test connection with a simple request
+      const response = await chrome.runtime.sendMessage({ type: 'testConnection' });
+      
+      if (response?.ok) {
+        statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400';
+        indicatorEl.className = 'w-2 h-2 rounded-full bg-emerald-500';
+        textEl.textContent = 'Connected to OpenRouter';
+        
+        if (providerNameEl) providerNameEl.textContent = 'OpenRouter';
+        if (providerIndicatorEl) providerIndicatorEl.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+        if (modelDisplayEl) {
+          modelDisplayEl.textContent = 'Auto';
+          modelDisplayEl.classList.remove('hidden');
+        }
+      } else {
+        statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium bg-amber-50 dark:bg-amber-500/10 border-amber-200 dark:border-amber-500/30 text-amber-700 dark:text-amber-400';
+        indicatorEl.className = 'w-2 h-2 rounded-full bg-amber-500';
+        textEl.textContent = 'Connection issue';
+      }
+    } else {
+      statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium bg-zinc-50 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400';
+      indicatorEl.className = 'w-2 h-2 rounded-full bg-zinc-400';
+      textEl.textContent = 'Not configured';
+      
+      if (providerNameEl) providerNameEl.textContent = 'Not configured';
+      if (providerIndicatorEl) providerIndicatorEl.className = 'w-1.5 h-1.5 rounded-full bg-zinc-400';
+      if (modelDisplayEl) modelDisplayEl.classList.add('hidden');
+    }
+  } catch (err) {
+    statusEl.className = 'flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-700 dark:text-red-400';
+    indicatorEl.className = 'w-2 h-2 rounded-full bg-red-500';
+    textEl.textContent = 'Connection failed';
+  }
+}
+
+async function updatePageContext() {
+  const contextEl = document.getElementById('page-context');
+  const titleEl = document.getElementById('page-title');
+  const urlEl = document.getElementById('page-url');
+
+  if (!contextEl || !titleEl || !urlEl) return;
+
+  try {
+    // Get current tab info
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab?.url && tab?.title) {
+      // Only show for http/https pages
+      if (tab.url.startsWith('http://') || tab.url.startsWith('https://')) {
+        contextEl.classList.remove('hidden');
+        titleEl.textContent = tab.title;
+        titleEl.title = tab.title;
+        urlEl.textContent = new URL(tab.url).hostname;
+        urlEl.title = tab.url;
+      } else {
+        contextEl.classList.add('hidden');
+      }
+    } else {
+      contextEl.classList.add('hidden');
+    }
+  } catch (err) {
+    contextEl.classList.add('hidden');
+  }
+}
+
+// ─── Enhanced Chat Filtering ───────────────────────────────────────
+let currentFilter: 'all' | 'errors' | 'clarifications' | 'actions' = 'all';
+
+function setupChatFilters() {
+  const errorsBtn = document.getElementById('filter-errors');
+  const clarificationsBtn = document.getElementById('filter-clarifications');
+  const actionsBtn = document.getElementById('filter-actions');
+  const searchInput = document.getElementById('chat-search-input') as HTMLInputElement;
+
+  if (errorsBtn) {
+    errorsBtn.addEventListener('click', () => setChatFilter('errors'));
+  }
+  if (clarificationsBtn) {
+    clarificationsBtn.addEventListener('click', () => setChatFilter('clarifications'));
+  }
+  if (actionsBtn) {
+    actionsBtn.addEventListener('click', () => setChatFilter('actions'));
+  }
+  
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const query = (e.target as HTMLInputElement).value;
+      if (query.trim()) {
+        currentFilter = 'all'; // Reset to all when searching
+        updateFilterButtons();
+      }
+      filterChatBySearch(query);
+    });
+  }
+}
+
+function setChatFilter(filter: 'all' | 'errors' | 'clarifications' | 'actions') {
+  currentFilter = filter;
+  updateFilterButtons();
+  applyChatFilter();
+}
+
+function updateFilterButtons() {
+  const buttons = {
+    errors: document.getElementById('filter-errors'),
+    clarifications: document.getElementById('filter-clarifications'),
+    actions: document.getElementById('filter-actions')
+  };
+
+  Object.entries(buttons).forEach(([type, btn]) => {
+    if (btn) {
+      const isActive = currentFilter === type;
+      btn.className = `px-2 py-1 text-xs rounded border transition-colors ${
+        isActive 
+          ? 'bg-indigo-500 text-white border-indigo-500' 
+          : 'border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+      }`;
+    }
+  });
+}
+
+function applyChatFilter() {
+  const msgs = components.chatHistory?.querySelectorAll('.chat-msg');
+  if (!msgs) return;
+
+  if (currentFilter === 'all') {
+    msgs.forEach(el => (el as HTMLElement).style.display = '');
+    return;
+  }
+
+  msgs.forEach(el => {
+    const msgEl = el as HTMLElement;
+    const shouldShow = shouldShowMessage(msgEl, currentFilter);
+    msgEl.style.display = shouldShow ? '' : 'none';
+  });
+}
+
+function shouldShowMessage(msgEl: HTMLElement, filter: string): boolean {
+  const text = msgEl.textContent || '';
+  const hasError = msgEl.classList.contains('error') || text.toLowerCase().includes('error');
+  const hasClarification = text.toLowerCase().includes('?') || 
+                          msgEl.querySelector('.thinking-msg') ||
+                          text.toLowerCase().includes('askuser') ||
+                          text.toLowerCase().includes('question');
+  const hasActions = text.toLowerCase().includes('click') || 
+                    text.toLowerCase().includes('navigate') ||
+                    text.toLowerCase().includes('fill') ||
+                    text.toLowerCase().includes('extract') ||
+                    text.includes('"actions"');
+
+  switch (filter) {
+    case 'errors': return hasError;
+    case 'clarifications': return hasClarification;
+    case 'actions': return hasActions;
+    default: return true;
+  }
 }
 
 function filterChatBySearch(query: string) {
@@ -546,6 +850,8 @@ function filterChatBySearch(query: string) {
       (el as HTMLElement).classList.remove('search-highlight');
     });
     if (hint) { hint.style.display = 'none'; hint.textContent = ''; }
+    // Re-apply current filter when search is cleared
+    applyChatFilter();
     return;
   }
 
@@ -613,35 +919,6 @@ function escapeHtml(text: string): string {
 }
 
 // Focus trap for modals (accessibility)
-function trapFocus(modal: HTMLElement): () => void {
-  const focusableSelectors = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-  const focusableElements = modal.querySelectorAll<HTMLElement>(focusableSelectors);
-  const firstFocusable = focusableElements[0];
-  const lastFocusable = focusableElements[focusableElements.length - 1];
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Tab') return;
-    if (focusableElements.length === 0) return;
-
-    if (e.shiftKey) {
-      if (document.activeElement === firstFocusable) {
-        e.preventDefault();
-        lastFocusable.focus();
-      }
-    } else {
-      if (document.activeElement === lastFocusable) {
-        e.preventDefault();
-        firstFocusable.focus();
-      }
-    }
-  };
-
-  modal.addEventListener('keydown', handleKeyDown);
-  firstFocusable?.focus();
-
-  return () => modal.removeEventListener('keydown', handleKeyDown);
-}
-
 function scrollToBottom() {
   components.chatHistory.scrollTop = components.chatHistory.scrollHeight;
 }
@@ -650,28 +927,47 @@ function updateStatus(text: string, stateClass: string = 'active') {
   if (!components.statusBar || !components.statusText) return;
   components.statusBar.classList.remove('hidden');
   components.statusText.textContent = text;
+  
+  // Update stepper based on status
+  if (text.includes('Orchestrating') || text.includes('Processing')) {
+    updateStepper('observe');
+  } else if (text.includes('Planning') || text.includes('Analyzing')) {
+    updateStepper('plan');
+  } else if (text.includes('Executing') || text.includes('Acting')) {
+    updateStepper('act');
+  } else if (text.includes('Verifying') || text.includes('Complete')) {
+    updateStepper('verify');
+  }
+  
   if (stateClass === 'hidden') components.statusBar.classList.add('hidden');
 }
 
 function updateStepper(stepId: string) {
-  components.steps.forEach(s => {
-    s.classList.toggle('active', (s as HTMLElement).dataset.step === stepId);
+  if (!components.steps) return;
+  
+  const stepOrder = ['observe', 'plan', 'act', 'verify'];
+  const currentIndex = stepOrder.indexOf(stepId);
+  
+  components.steps.forEach((s, index) => {
+    const stepEl = s as HTMLElement;
+    const isCurrent = stepEl.dataset.step === stepId;
+    const isPast = index < currentIndex;
+    
+    stepEl.classList.toggle('active', isCurrent);
+    stepEl.classList.toggle('completed', isPast && !isCurrent);
+    
+    // Update connecting lines
+    const lineEl = stepEl.nextElementSibling;
+    if (lineEl && lineEl.classList.contains('step-line')) {
+      lineEl.classList.toggle('active', isPast || isCurrent);
+    }
   });
 }
 
 async function handleCommand(text: string) {
   const cmd = sanitizeInput(text).trim();
 
-  // API key required for AI commands (skip for slash commands)
-  const { [STORAGE_KEYS.API_KEY]: apiKey } = await chrome.storage.local.get(STORAGE_KEYS.API_KEY);
-  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-    addMessage('Please add your API key in Settings to run commands.', 'status');
-    showToast('Open Settings to add your API key', 'warning');
-    components.btnSettings?.focus();
-    return;
-  }
-
-  // Match slash commands — exact match first, then prefix match for commands with args
+  // Match slash commands FIRST — they don't require an API key
   const slashKey = Object.keys(SLASH_COMMANDS).find(
     k => cmd === k || cmd.startsWith(k + ' ')
   ) as keyof typeof SLASH_COMMANDS | undefined;
@@ -682,11 +978,29 @@ async function handleCommand(text: string) {
     return;
   }
 
+  // API key required for AI commands
+  const { [STORAGE_KEYS.API_KEY]: apiKey } = await chrome.storage.local.get(STORAGE_KEYS.API_KEY);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    addMessage('Please add your API key in Settings to run commands.', 'status');
+    showToast('Open Settings to add your API key', 'warning');
+    components.btnSettings?.focus();
+    return;
+  }
+
   // Rate limiting check
   const now = Date.now();
   if (now - state.lastCommandTime < COMMAND_RATE_LIMIT_MS) {
     const waitMs = COMMAND_RATE_LIMIT_MS - (now - state.lastCommandTime);
-    addMessage(`Please wait ${Math.ceil(waitMs / 1000)} seconds before sending another command.`, 'status');
+    let waitMessage: string;
+    if (waitMs >= 1000) {
+      const waitSec = Math.ceil(waitMs / 1000);
+      waitMessage = `${waitSec} second${waitSec > 1 ? 's' : ''}`;
+    } else if (waitMs >= 100) {
+      waitMessage = `${Math.round(waitMs / 100) / 10} seconds`;
+    } else {
+      waitMessage = 'less than a second';
+    }
+    addMessage(`Please wait ${waitMessage} before sending another command.`, 'status');
     return;
   }
 
@@ -695,17 +1009,15 @@ async function handleCommand(text: string) {
   state.lastCommandTime = now;
   saveCommandToHistory(cmd);
   state.historyIndex = -1;
-  addMessage(cmd, 'user');
+  addMessage(cmd, 'user', { canEdit: true, timestamp: Date.now() });
   components.commandInput.value = '';
   components.commandInput.style.height = '';
   setRunning(true);
   switchTab('chat');
   updateStatus('Orchestrating AI...', 'active');
-
-  // Pass the currently selected model from the UI dropdown
-  const modelSelector = document.getElementById('model-selector') as HTMLSelectElement | null;
-  const selectedModel = modelSelector?.value || undefined;
-  chrome.runtime.sendMessage({ type: 'executeCommand', command: cmd, model: selectedModel } as ExtensionMessage);
+  // Model selection is handled centrally via OpenRouter smart router; no
+  // per-command model override is used.
+  chrome.runtime.sendMessage({ type: 'executeCommand', command: cmd } as ExtensionMessage);
 }
 
 function executeAutonomousCommand(cmd: string) {
@@ -732,7 +1044,8 @@ function setRunning(running: boolean) {
   components.commandInput.disabled = running || !navigator.onLine;
 
   if (running) {
-    showLoading('Processing your command...');
+    // Show status bar with progress — do NOT use blocking loading overlay
+    updateStatus('Processing your command...', 'active');
   } else {
     hideLoading();
     updateStatus('Ready', 'success');
@@ -744,21 +1057,50 @@ function setRunning(running: boolean) {
 // Max chat history size to avoid storage limit (~5MB for chrome.storage.local)
 const MAX_CHAT_HISTORY_BYTES = 1024 * 1024; // 1MB
 
+// Track message sizes to avoid O(n^2) re-encoding on each trim
+interface MessageSize {
+  element: Element;
+  byteSize: number;
+}
+
 // ─── Persistence ────────────────────────────────────────────────
 async function saveHistoryImmediate() {
   try {
-    let historyHTML = components.chatHistory.innerHTML;
-    let bytes = new TextEncoder().encode(historyHTML).length;
-    if (bytes > MAX_CHAT_HISTORY_BYTES) {
-      const container = components.chatHistory;
-      const messages = Array.from(container.querySelectorAll('.chat-msg'));
-      for (let i = 0; i < messages.length - 5 && bytes > MAX_CHAT_HISTORY_BYTES; i++) {
-        messages[i]?.remove();
-        historyHTML = container.innerHTML;
-        bytes = new TextEncoder().encode(historyHTML).length;
-      }
+    const container = components.chatHistory;
+    const messages = Array.from(container.querySelectorAll('.chat-msg'));
+    
+    if (messages.length === 0) {
+      await chrome.storage.local.set({ chat_history_backup: '' });
+      return;
     }
-    await chrome.storage.local.set({ chat_history_backup: historyHTML });
+
+    // First pass: calculate sizes for all messages
+    const messageSizes: MessageSize[] = messages.map(msg => ({
+      element: msg,
+      byteSize: new TextEncoder().encode(msg.outerHTML).length
+    }));
+
+    const totalBytes = messageSizes.reduce((sum, m) => sum + m.byteSize, 0);
+
+    if (totalBytes <= MAX_CHAT_HISTORY_BYTES) {
+      await chrome.storage.local.set({ chat_history_backup: container.innerHTML });
+      return;
+    }
+
+    // Remove oldest messages in batches until under limit
+    // Keep at least 5 recent messages
+    let currentBytes = totalBytes;
+    let removeIndex = 0;
+    const minKeep = Math.min(5, messageSizes.length);
+    
+    while (currentBytes > MAX_CHAT_HISTORY_BYTES && removeIndex < messageSizes.length - minKeep) {
+      currentBytes -= messageSizes[removeIndex].byteSize;
+      messageSizes[removeIndex].element.remove();
+      removeIndex++;
+    }
+
+    // Save remaining HTML
+    await chrome.storage.local.set({ chat_history_backup: container.innerHTML });
   } catch (err) {
     // Removed console.warn
   }
@@ -772,54 +1114,86 @@ const flushHistoryOnHide = () => {
 document.addEventListener('visibilitychange', flushHistoryOnHide);
 globalThis.addEventListener('beforeunload', () => saveHistoryImmediate());
 
+// ─── DOM-Based HTML Sanitizer ──────────────────────────────────────
+// Uses DOMParser for secure sanitization — immune to regex bypass issues.
+// Used for loading saved chat history from storage where the HTML was
+// originally safe but storage could be tampered with.
+const SAFE_TAGS = new Set([
+  'p', 'br', 'strong', 'em', 'b', 'i', 'u', 'code', 'pre', 'ul', 'ol', 'li',
+  'a', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'hr',
+  'sub', 'sup', 'mark', 'small', 'del', 'ins', 'table', 'thead', 'tbody', 'tr',
+  'td', 'th', 'caption', 'img', 'details', 'summary',
+]);
+const SAFE_ATTRS = new Set([
+  'href', 'class', 'target', 'rel', 'title', 'alt', 'src', 'width', 'height',
+  'colspan', 'rowspan', 'data-cmd',
+]);
+const DANGEROUS_URL_RE = /^\s*(javascript|data|vbscript)\s*:/i;
+
+function sanitizeHtmlViaDom(html: string): string {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  sanitizeNode(doc.body);
+  return doc.body.innerHTML;
+}
+
+function sanitizeNode(node: Node): void {
+  const children = Array.from(node.childNodes);
+  for (const child of children) {
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as Element;
+      const tagName = el.tagName.toLowerCase();
+
+      if (!SAFE_TAGS.has(tagName)) {
+        // Unwrap: keep text children, remove the disallowed element
+        while (el.firstChild) {
+          node.insertBefore(el.firstChild, el);
+        }
+        node.removeChild(el);
+        continue;
+      }
+
+      // Strip disallowed attributes
+      const attrs = Array.from(el.attributes);
+      for (const attr of attrs) {
+        if (!SAFE_ATTRS.has(attr.name)) {
+          el.removeAttribute(attr.name);
+        }
+      }
+
+      // Sanitize URLs in href/src
+      for (const urlAttr of ['href', 'src']) {
+        const val = el.getAttribute(urlAttr);
+        if (val && DANGEROUS_URL_RE.test(val)) {
+          el.removeAttribute(urlAttr);
+        }
+      }
+
+      // Recurse into children
+      sanitizeNode(el);
+    }
+  }
+}
+
 async function loadHistory() {
   try {
     const data = await chrome.storage.local.get('chat_history_backup');
     if (data.chat_history_backup && typeof data.chat_history_backup === 'string') {
       const savedHtml = data.chat_history_backup;
 
-      // Check if the saved HTML is corrupted (missing angle brackets)
-      // Corrupted HTML looks like: div class="chat-msg" instead of <div class="chat-msg">
-      const hasCorruptedHtml =
-        // Pattern 1: div or span tags without opening angle bracket
-        /(^|[^<])div class=/.test(savedHtml) ||
-        /(^|[^<])span class=/.test(savedHtml) ||
-        // Pattern 2: closing tags without angle bracket
-        /div\s*$/.test(savedHtml) ||
-        /\/div/.test(savedHtml) && !/<\/div>/.test(savedHtml) ||
-        // Pattern 3: any HTML tag pattern missing angle brackets
-        /[a-z]+\s+(class|id|style)=["'][^"']*["']/.test(savedHtml) &&
-        !/<[a-z]+\s+(class|id|style)=["']/.test(savedHtml);
-
-      if (hasCorruptedHtml) {
-        // Clear corrupted history and start fresh
-        await chrome.storage.local.remove('chat_history_backup');
-        console.log('[HyperAgent] Cleared corrupted chat history - missing angle brackets detected');
-        showExampleCommandsIfNeeded();
-        return;
-      }
-
-      // The saved HTML was already processed by renderMarkdown and addMessage.
-      // We use alreadySafeHtml to skip XSS protection which incorrectly 
-      // strips angle brackets from valid HTML tags.
-      // We only do basic tag filtering to ensure only safe HTML tags remain.
-      const result = inputSanitizer.sanitize(savedHtml, {
-        allowHtml: true,
-        alreadySafeHtml: true, // Skip XSS protection - this HTML is already safe
-        allowedTags: ['p', 'br', 'strong', 'em', 'code', 'pre', 'ul', 'ol', 'li', 'a', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote'],
-        allowedAttributes: ['href', 'class', 'target', 'rel', 'title', 'alt'],
-      });
-      components.chatHistory.innerHTML = result.sanitizedValue;
+      // DOM-based sanitization: secure against tampered storage.
+      // DOMParser handles all HTML edge cases that regex cannot.
+      const sanitizedHtml = sanitizeHtmlViaDom(savedHtml);
+      components.chatHistory.innerHTML = sanitizedHtml;
       scrollToBottom();
     }
     updateChatSearchVisibility();
     showExampleCommandsIfNeeded();
   } catch (err) {
-    // Removed console.warn
     showExampleCommandsIfNeeded();
   }
-  updateChatSearchVisibility();
 }
+
 
 function showExampleCommandsIfNeeded() {
   const chatHistory = components.chatHistory;
@@ -827,6 +1201,107 @@ function showExampleCommandsIfNeeded() {
 
   const hasRealContent = chatHistory.querySelector('.chat-msg');
   if (hasRealContent) return;
+
+  // Check if this is first time use
+  chrome.storage.local.get(['show_onboarding', 'onboarding_completed']).then(result => {
+    const shouldShowOnboarding = result.show_onboarding !== false && !result.onboarding_completed;
+    
+    if (shouldShowOnboarding) {
+      showOnboardingCard();
+    } else {
+      showDefaultExamples();
+    }
+  });
+}
+
+function showOnboardingCard() {
+  const chatHistory = components.chatHistory;
+  if (!chatHistory) return;
+
+  const onboardingCard = document.createElement('div');
+  onboardingCard.className = 'chat-msg agent onboarding-card';
+  onboardingCard.innerHTML = `
+    <div class="onboarding-content">
+      <div class="onboarding-header">
+        <h3>🚀 Welcome to HyperAgent!</h3>
+        <p>Your AI-powered browser automation assistant is ready to help.</p>
+      </div>
+      <div class="onboarding-steps">
+        <div class="step-item">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <strong>Add your API Key</strong>
+            <p>Get a free key from <a href="https://openrouter.ai/keys" target="_blank">OpenRouter</a></p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <strong>Try a command</strong>
+            <p>Click an example below or type your own</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <strong>Watch it work</strong>
+            <p>HyperAgent will navigate, click, and extract data for you</p>
+          </div>
+        </div>
+      </div>
+      <div class="onboarding-examples">
+        <p class="examples-title">Try these examples:</p>
+        <div class="example-buttons">
+          <button class="example-btn" data-cmd="Go to amazon.com and search for wireless headphones">
+            🛒 Shop on Amazon
+          </button>
+          <button class="example-btn" data-cmd="Extract all email addresses from this page">
+            📧 Extract emails
+          </button>
+          <button class="example-btn" data-cmd="Fill out this form with test data">
+            📝 Fill forms
+          </button>
+        </div>
+      </div>
+      <div class="onboarding-actions">
+        <button id="dismiss-onboarding" class="dismiss-btn">Dismiss</button>
+        <button id="open-settings-onboarding" class="primary-btn">⚙️ Open Settings</button>
+      </div>
+    </div>
+  `;
+
+  chatHistory.appendChild(onboardingCard);
+
+  // Add event listeners
+  const dismissBtn = onboardingCard.querySelector('#dismiss-onboarding');
+  const settingsBtn = onboardingCard.querySelector('#open-settings-onboarding');
+  const exampleBtns = onboardingCard.querySelectorAll('.example-btn');
+
+  dismissBtn?.addEventListener('click', () => {
+    chrome.storage.local.set({ onboarding_completed: true });
+    onboardingCard.remove();
+    showDefaultExamples();
+  });
+
+  settingsBtn?.addEventListener('click', () => {
+    components.btnSettings.click();
+  });
+
+  exampleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cmd = (btn as HTMLElement).dataset.cmd;
+      if (cmd) {
+        components.commandInput.value = cmd;
+        components.commandInput.focus();
+        components.commandInput.dispatchEvent(new Event('input'));
+      }
+    });
+  });
+}
+
+function showDefaultExamples() {
+  const chatHistory = components.chatHistory;
+  if (!chatHistory) return;
 
   const examples = [
     "Go to amazon.com and search for wireless headphones",
@@ -836,44 +1311,26 @@ function showExampleCommandsIfNeeded() {
   ];
 
   const examplesContainer = document.createElement('div');
-  examplesContainer.className = 'example-commands';
-  examplesContainer.style.cssText = 'padding: 24px; text-align: center;';
+  examplesContainer.className = 'example-commands p-6 text-center';
 
   const title = document.createElement('p');
-  title.style.cssText = 'color: var(--text-tertiary); margin-bottom: 16px; font-size: 0.875rem; font-weight: 500;';
+  title.className = 'text-zinc-400 dark:text-zinc-500 mb-4 text-sm font-medium';
   title.textContent = 'Try one of these commands:';
   examplesContainer.appendChild(title);
 
   const buttonContainer = document.createElement('div');
-  buttonContainer.style.cssText = 'display: flex; flex-direction: column; gap: 8px; max-width: 320px; margin: 0 auto;';
+  buttonContainer.className = 'flex flex-col gap-2 max-w-xs mx-auto';
 
   examples.forEach(cmd => {
     const btn = document.createElement('button');
-    btn.className = 'example-cmd';
+    btn.className = 'example-cmd bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl px-4 py-3.5 cursor-pointer text-left text-sm text-zinc-900 dark:text-zinc-100 transition-all shadow-sm hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:-translate-y-0.5 hover:shadow-md';
     btn.dataset.cmd = cmd;
     btn.textContent = cmd;
-    btn.style.cssText = `background: var(--surface-secondary); border: 1px solid var(--surface-glass-border); 
-                         border-radius: 12px; padding: 14px 16px; cursor: pointer; text-align: left;
-                         font-size: 0.875rem; color: var(--text-primary); transition: all 0.2s; font-family: inherit;
-                         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);`;
 
     btn.addEventListener('click', () => {
       components.commandInput.value = cmd;
       components.commandInput.focus();
       components.commandInput.dispatchEvent(new Event('input'));
-    });
-
-    btn.addEventListener('mouseenter', () => {
-      btn.style.borderColor = 'var(--accent)';
-      btn.style.background = 'var(--surface-accent)';
-      btn.style.transform = 'translateY(-1px)';
-      btn.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.borderColor = 'var(--surface-glass-border)';
-      btn.style.background = 'var(--surface-secondary)';
-      btn.style.transform = 'translateY(0)';
-      btn.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
     });
 
     buttonContainer.appendChild(btn);
@@ -882,7 +1339,7 @@ function showExampleCommandsIfNeeded() {
   examplesContainer.appendChild(buttonContainer);
 
   const hint = document.createElement('p');
-  hint.style.cssText = 'color: var(--text-quaternary); margin-top: 16px; font-size: 0.75rem;';
+  hint.className = 'text-zinc-300 dark:text-zinc-600 mt-4 text-xs';
   hint.textContent = 'Or type your own command below';
   examplesContainer.appendChild(hint);
 
@@ -945,7 +1402,9 @@ async function updateUsageDisplay() {
     // Update text
     const actionsLabel = limitActions === -1 ? `${actions} / ∞` : `${actions} / ${limitActions}`;
     components.usageActions.textContent = actionsLabel;
-    components.usageTier.textContent = tier.charAt(0).toUpperCase() + tier.slice(1);
+    // Use consistent user-facing names
+    const tierNames: Record<string, string> = { community: 'Free', free: 'Free', beta: 'Premium', premium: 'Premium', unlimited: 'Unlimited' };
+    components.usageTier.textContent = tierNames[tier] || tier.charAt(0).toUpperCase() + tier.slice(1);
 
     // Update progress bars
     const actionsProgress = document.getElementById('actions-progress');
@@ -966,11 +1425,12 @@ async function updateUsageDisplay() {
     const banner = document.getElementById('current-plan-banner');
     const bannerTier = document.getElementById('banner-tier');
     const bannerBadge = document.getElementById('banner-badge');
+    const bannerFree = tier === 'free' || tier === 'community';
     if (banner) {
-      banner.className = `plan-banner ${tier}`;
+      banner.className = `plan-banner ${bannerFree ? 'free' : 'premium'}`;
     }
     if (bannerTier) {
-      bannerTier.textContent = `${tier.charAt(0).toUpperCase() + tier.slice(1)} Plan`;
+      bannerTier.textContent = `${tierNames[tier] || tier} Plan`;
     }
     if (bannerBadge) {
       bannerBadge.textContent = 'Active';
@@ -979,11 +1439,14 @@ async function updateUsageDisplay() {
     // Update plan card buttons based on current tier
     const freePlanBtn = document.getElementById('btn-plan-free') as HTMLButtonElement;
     const premiumBtn = document.getElementById('btn-upgrade-premium') as HTMLButtonElement;
-    const unlimitedBtn = document.getElementById('btn-upgrade-unlimited') as HTMLButtonElement;
     const cancelBtn = document.getElementById('btn-cancel-subscription');
 
+    // Normalize tier name: billing uses 'community'/'beta', usage tracker uses 'free'/'premium'
+    const isFree = tier === 'free' || tier === 'community';
+    const isPaid = tier === 'premium' || tier === 'beta' || tier === 'unlimited';
+
     if (freePlanBtn) {
-      if (tier === 'free') {
+      if (isFree) {
         freePlanBtn.textContent = 'Current Plan';
         freePlanBtn.className = 'plan-btn current';
         freePlanBtn.disabled = true;
@@ -994,33 +1457,18 @@ async function updateUsageDisplay() {
       }
     }
     if (premiumBtn) {
-      if (tier === 'premium') {
+      if (isPaid) {
         premiumBtn.textContent = 'Current Plan';
         premiumBtn.className = 'plan-btn current';
         premiumBtn.disabled = true;
-      } else if (tier === 'unlimited') {
-        premiumBtn.textContent = 'Downgrade';
-        premiumBtn.className = 'plan-btn manage';
-        premiumBtn.disabled = false;
       } else {
-        premiumBtn.textContent = 'Upgrade to Premium';
+        premiumBtn.textContent = 'Upgrade';
         premiumBtn.className = 'plan-btn upgrade';
         premiumBtn.disabled = false;
       }
     }
-    if (unlimitedBtn) {
-      if (tier === 'unlimited') {
-        unlimitedBtn.textContent = 'Current Plan';
-        unlimitedBtn.className = 'plan-btn current';
-        unlimitedBtn.disabled = true;
-      } else {
-        unlimitedBtn.textContent = 'Upgrade to Unlimited';
-        unlimitedBtn.className = 'plan-btn upgrade';
-        unlimitedBtn.disabled = false;
-      }
-    }
     if (cancelBtn) {
-      cancelBtn.classList.toggle('hidden', tier === 'free');
+      cancelBtn.classList.toggle('hidden', isFree);
     }
   } catch (err) {
     // Removed console.warn
@@ -1061,6 +1509,13 @@ components.btnStop.addEventListener('click', async () => {
 
 components.commandInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
+    // Don't handle Enter if suggestions are visible and one is selected — 
+    // the suggestion keydown handler will handle it instead
+    const suggestionsVisible = !components.suggestions.classList.contains('hidden');
+    const suggestionItems = components.suggestions.querySelectorAll('.suggestion-item');
+    if (suggestionsVisible && suggestionItems.length > 0 && selectedSuggestionIndex >= 0) {
+      return; // Let the suggestion handler below deal with this
+    }
     e.preventDefault();
     if (!navigator.onLine) {
       showToast('You are offline. Check your connection.', 'error');
@@ -1096,12 +1551,6 @@ const handleInput = debounce((e: Event) => {
   if (target.value.length > MAX_COMMAND_LENGTH) {
     target.value = target.value.slice(0, MAX_COMMAND_LENGTH);
   }
-
-  // Auto-resize with max-height
-  target.style.height = 'auto';
-  const newHeight = Math.min(target.scrollHeight, 200); // Cap at 200px
-  target.style.height = newHeight + 'px';
-  target.style.overflowY = target.scrollHeight > 200 ? 'auto' : 'hidden';
 
   updateCharCounter(target.value);
 
@@ -1264,12 +1713,7 @@ const btnDarkMode = document.getElementById('btn-dark-mode');
 if (btnDarkMode) {
   btnDarkMode.addEventListener('click', () => {
     toggleDarkMode();
-    btnDarkMode.textContent = document.body.classList.contains('dark-mode') ? '️' : '';
   });
-  // Set initial icon
-  if (document.body.classList.contains('dark-mode')) {
-    btnDarkMode.textContent = '️';
-  }
 }
 
 // Global keyboard shortcuts
@@ -1362,11 +1806,13 @@ chrome.runtime.onMessage.addListener((message: any) => {
       break;
     }
     case 'visionUpdate': {
-      if (typeof message.screenshot === 'string' && message.screenshot.length > 0 && components.visionSnapshot) {
+      const visionSnapshot = document.getElementById('vision-snapshot') as HTMLImageElement | null;
+      const visionPlaceholder = document.getElementById('vision-placeholder');
+      if (typeof message.screenshot === 'string' && message.screenshot.length > 0 && visionSnapshot) {
         const s = message.screenshot;
-        components.visionSnapshot.src = s.startsWith('data:') ? s : `data:image/jpeg;base64,${s}`;
-        components.visionSnapshot.classList.remove('hidden');
-        components.visionPlaceholder.classList.add('hidden');
+        visionSnapshot.src = s.startsWith('data:') ? s : `data:image/jpeg;base64,${s}`;
+        visionSnapshot.classList.remove('hidden');
+        visionPlaceholder?.classList.add('hidden');
       }
       break;
     }
@@ -1473,7 +1919,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
     }
     case 'agentError': {
       const error = typeof message.error === 'string' ? message.error : 'Unknown error';
-      addMessage(error, 'error');
+      addMessage(error, 'error', { canRetry: true, timestamp: Date.now() });
       setRunning(false);
       break;
     }
@@ -1485,7 +1931,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
 // Voice interface disabled for MVP
 // Mic button toggle - show disabled message for now
 components.btnMic.addEventListener('click', () => {
-  showToast('Voice input coming in v4.2', 'info');
+  showToast('Voice input coming soon', 'info');
 });
 
 components.btnUpgradePremium.addEventListener('click', async () => {
@@ -1513,6 +1959,10 @@ if (components.btnPayCard) {
 if (components.btnPayCrypto) {
   components.btnPayCrypto.addEventListener('click', () => {
     if (components.cryptoPaymentInfo) {
+      // Clean up any existing verify form when toggling
+      const existingForm = document.getElementById('crypto-verify-form');
+      if (existingForm) existingForm.remove();
+      
       components.cryptoPaymentInfo.classList.toggle('hidden');
 
       // Update crypto address if visible
@@ -1529,32 +1979,102 @@ if (components.btnPayCrypto) {
 }
 
 if (components.btnConfirmCrypto) {
-  components.btnConfirmCrypto.addEventListener('click', async () => {
-    const txHash = prompt('Enter your transaction hash (0x...):');
-    if (!txHash?.trim()) return;
+  components.btnConfirmCrypto.addEventListener('click', () => {
+    // Helper to remove any existing form
+    const removeExistingForm = () => {
+      const existing = document.getElementById('crypto-verify-form');
+      if (existing) existing.remove();
+    };
+    removeExistingForm();
 
-    const walletAddr = prompt('Enter your wallet address (optional, for records):');
-    const fromAddress = (walletAddr?.trim() && /^0x[a-fA-F0-9]{40}$/.test(walletAddr.trim()))
-      ? walletAddr.trim()
-      : 'unknown';
+    // Replace prompt() with inline form
+    const formEl = document.createElement('div');
+    formEl.id = 'crypto-verify-form';
+    formEl.className = 'mt-3 flex flex-col gap-2 p-3 bg-zinc-50 dark:bg-zinc-800/60 rounded-xl border border-zinc-200 dark:border-zinc-700';
+    formEl.innerHTML = `
+      <label class="text-xs font-medium text-zinc-600 dark:text-zinc-300">Transaction Hash <span class="text-red-400">*</span></label>
+      <input type="text" id="crypto-tx-hash" placeholder="0x..." class="w-full px-3 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" autocomplete="off" />
+      <p id="crypto-tx-hint" class="text-[11px] text-zinc-400 hidden">Must be 0x followed by 64 hex characters</p>
+      <label class="text-xs font-medium text-zinc-600 dark:text-zinc-300">Wallet Address <span class="text-zinc-400">(optional)</span></label>
+      <input type="text" id="crypto-wallet-addr" placeholder="0x... (optional)" class="w-full px-3 py-2 text-sm bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" autocomplete="off" />
+      <div class="flex gap-2 mt-1">
+        <button id="crypto-submit-btn" disabled class="flex-1 px-3 py-2 text-sm font-medium text-white bg-indigo-500 rounded-lg opacity-50 cursor-not-allowed transition-all">Verify Payment</button>
+        <button id="crypto-cancel-btn" class="px-3 py-2 text-sm font-medium text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 transition-all cursor-pointer">Cancel</button>
+      </div>`;
 
-    const chainId = components.cryptoChainSelect ? Number.parseInt(components.cryptoChainSelect.value) : 1;
-    const result = await billingManager.confirmCryptoPayment(txHash.trim(), fromAddress, chainId);
+    // Insert after the confirm button
+    components.btnConfirmCrypto.parentElement?.appendChild(formEl);
 
-    if (result.success) {
-      showToast('Payment confirmed! Upgrading to Beta...', 'success');
-      updateSubscriptionBadge();
-    } else {
-      showToast(result.error || 'Payment verification failed', 'error');
-    }
+    const txInput = formEl.querySelector('#crypto-tx-hash') as HTMLInputElement;
+    const txHint = formEl.querySelector('#crypto-tx-hint') as HTMLElement;
+    const submitBtn = formEl.querySelector('#crypto-submit-btn') as HTMLButtonElement;
+    const cancelBtn = formEl.querySelector('#crypto-cancel-btn') as HTMLButtonElement;
+    const walletInput = formEl.querySelector('#crypto-wallet-addr') as HTMLInputElement;
+
+    const TX_HASH_RE = /^0x[a-fA-F0-9]{64}$/;
+
+    // Helper to update submit button state
+    const updateSubmitState = () => {
+      const val = txInput.value.trim();
+      const valid = TX_HASH_RE.test(val);
+      const partiallyInvalid = val.length > 2 && !valid;
+      txHint.classList.toggle('hidden', !partiallyInvalid);
+      submitBtn.disabled = !valid;
+      submitBtn.classList.toggle('opacity-50', !valid);
+      submitBtn.classList.toggle('cursor-not-allowed', !valid);
+      submitBtn.classList.toggle('cursor-pointer', valid);
+      submitBtn.classList.toggle('hover:bg-indigo-600', valid);
+    };
+
+    txInput.addEventListener('input', updateSubmitState);
+
+    // Handle Enter key to submit
+    const handleEnter = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' && !submitBtn.disabled) {
+        e.preventDefault();
+        submitBtn.click();
+      } else if (e.key === 'Escape') {
+        formEl.remove();
+      }
+    };
+    txInput.addEventListener('keydown', handleEnter);
+    walletInput.addEventListener('keydown', handleEnter);
+
+    submitBtn.addEventListener('click', async () => {
+      const txHash = txInput.value.trim();
+      if (!TX_HASH_RE.test(txHash)) return;
+
+      const walletVal = walletInput.value.trim();
+      const fromAddress = (walletVal && /^0x[a-fA-F0-9]{40}$/.test(walletVal))
+        ? walletVal : 'unknown';
+
+      const chainId = components.cryptoChainSelect ? Number.parseInt(components.cryptoChainSelect.value) : 1;
+      formEl.remove();
+
+      const result = await billingManager.confirmCryptoPayment(txHash, fromAddress, chainId);
+      if (result.success) {
+        showToast('Payment confirmed! Upgrading to Beta...', 'success');
+        updateSubscriptionBadge();
+      } else {
+        showToast(result.error || 'Payment verification failed', 'error');
+      }
+    });
+
+    cancelBtn.addEventListener('click', () => formEl.remove());
+    txInput.focus();
   });
 }
 
 if (components.btnCancelSubscription) {
   components.btnCancelSubscription.addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to cancel? You\'ll keep Beta until the end of your billing period.')) {
-      return;
-    }
+    const confirmed = await showConfirm(
+      'You\'ll keep your Beta subscription until the end of your billing period.',
+      {
+        title: 'Cancel Subscription?',
+      },
+    );
+    if (!confirmed) return;
+    
     await billingManager.cancelSubscription();
     showToast('Subscription will cancel at end of period', 'info');
     updateSubscriptionBadge();
@@ -1566,48 +2086,89 @@ const licenseInput = document.getElementById('license-key-input') as HTMLInputEl
 const licenseBtn = document.getElementById('btn-activate-license');
 const licenseStatus = document.getElementById('license-status');
 
-if (licenseBtn && licenseInput) {
-  licenseBtn.addEventListener('click', async () => {
-    const key = licenseInput.value.trim();
-    if (!key) {
-      if (licenseStatus) {
-        licenseStatus.textContent = 'Please enter a license key';
-        licenseStatus.className = 'license-status error';
-        licenseStatus.classList.remove('hidden');
-      }
-      return;
-    }
+function setLicenseButtonEnabled(enabled: boolean) {
+  if (licenseBtn) {
+    (licenseBtn as HTMLButtonElement).disabled = !enabled;
+    licenseBtn.classList.toggle('opacity-50', !enabled);
+    licenseBtn.classList.toggle('cursor-not-allowed', !enabled);
+  }
+}
 
+async function handleLicenseActivation() {
+  if (!licenseBtn || !licenseInput) return;
+  
+  const key = licenseInput.value.trim();
+  if (!key) {
+    if (licenseStatus) {
+      licenseStatus.textContent = 'Please enter a license key';
+      licenseStatus.className = 'license-status error';
+      licenseStatus.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // Disable button during activation to prevent double-clicks
+  setLicenseButtonEnabled(false);
+
+  try {
     const result = await billingManager.activateWithLicenseKey(key);
     if (licenseStatus) {
       if (result.success) {
-        licenseStatus.textContent = 'License activated successfully! Refreshing...';
+        licenseStatus.textContent = 'License activated successfully!';
         licenseStatus.className = 'license-status success';
         showToast('License activated!', 'success');
+        
+        // Clear the input after success
+        licenseInput.value = '';
+        
+        // Keep button disabled for a moment, then refresh display
         setTimeout(() => {
           updateUsageDisplay();
           updateSubscriptionBadge();
+          // Re-enable button after state update
+          setLicenseButtonEnabled(true);
         }, 500);
       } else {
         licenseStatus.textContent = result.error || 'Activation failed';
         licenseStatus.className = 'license-status error';
+        setLicenseButtonEnabled(true);
       }
       licenseStatus.classList.remove('hidden');
+    }
+  } catch (err) {
+    setLicenseButtonEnabled(true);
+    if (licenseStatus) {
+      licenseStatus.textContent = 'An unexpected error occurred';
+      licenseStatus.className = 'license-status error';
+      licenseStatus.classList.remove('hidden');
+    }
+  }
+}
+
+if (licenseBtn && licenseInput) {
+  licenseBtn.addEventListener('click', handleLicenseActivation);
+  
+  // Support Enter key to activate
+  licenseInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleLicenseActivation();
     }
   });
 }
 
-// Cancel subscription
-const cancelSubBtn = document.getElementById('btn-cancel-subscription');
-if (cancelSubBtn) {
-  cancelSubBtn.addEventListener('click', async () => {
-    if (confirm('Are you sure you want to cancel? You will keep access until the end of your billing period.')) {
-      await billingManager.cancelSubscription();
-      showToast('Subscription will be canceled at end of period', 'info');
-      updateUsageDisplay();
-    }
+// Contact Sales button handler
+const btnContactSales = document.getElementById('btn-contact-sales');
+if (btnContactSales) {
+  btnContactSales.addEventListener('click', () => {
+    // Open email to sales team
+    const subject = encodeURIComponent('Enterprise Plan Inquiry - HyperAgent');
+    const body = encodeURIComponent('Hi HyperAgent Team,\n\nI\'m interested in learning more about your Enterprise plan. Please contact me with more information.\n\nBest regards');
+    window.open(`mailto:support@jobhuntin.com?subject=${subject}&body=${body}`, '_blank');
   });
 }
+
+// Cancel subscription handler already attached via components.btnCancelSubscription above
 
 // Chat search
 const chatSearchInput = document.getElementById('chat-search-input') as HTMLInputElement | null;
@@ -1631,12 +2192,20 @@ async function updateSubscriptionBadge() {
     const badge = components.subscriptionBadge;
     if (!badge) return;
 
-    badge.textContent = status.plan.charAt(0).toUpperCase() + status.plan.slice(1);
-    badge.className = `subscription-badge ${status.plan}`;
+    // Map internal plan IDs to user-facing names
+    const planDisplayNames: Record<string, string> = {
+      community: 'Free',
+      beta: 'Premium',
+    };
+    const displayName = planDisplayNames[status.plan] || status.plan.charAt(0).toUpperCase() + status.plan.slice(1);
+    const isFree = status.plan === 'community';
 
-    if (status.plan === 'community') {
-      badge.classList.add('free');
-    }
+    badge.textContent = displayName;
+    badge.classList.remove('hidden');
+    badge.className = `px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase rounded-full ${isFree
+      ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+      : 'bg-indigo-500/10 text-indigo-500 border border-indigo-500/20'
+      }`;
   } catch (err) {
     // Removed console.warn
   }
@@ -1650,7 +2219,7 @@ function showToast(message: string, type: 'success' | 'error' | 'info' | 'warnin
   toast.className = `toast toast-${type}`;
   toast.innerHTML = `
     <span class="toast-message">${escapeHtml(message)}</span>
-    <button class="toast-close">&times;</button>
+    <button class="toast-close" aria-label="Close notification">&times;</button>
   `;
 
   components.toastContainer.appendChild(toast);
@@ -1668,49 +2237,34 @@ function showToast(message: string, type: 'success' | 'error' | 'info' | 'warnin
 
 // ─── Settings Modal ────────────────────────────────────────────────────
 const PROVIDER_URLS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  google: 'https://generativelanguage.googleapis.com/v1beta',
+  openrouter: 'https://openrouter.ai/api/v1',
 };
 
 const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
-  openai: [
-    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Fast)' },
-    { value: 'gpt-4o', label: 'GPT-4o (Vision)' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  ],
-  anthropic: [
-    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' },
-    { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (Vision)' },
-    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Best)' },
-  ],
-  google: [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (FREE)' },
-    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-  ],
+  // HyperAgent always uses OpenRouter's smart router (`openrouter/auto`) under
+  // the hood. We render a single fixed option so the UI can show a model label,
+  // but the underlying model is not user-selectable.
+  openrouter: [...AVAILABLE_MODELS],
 };
 
 const PROVIDER_KEY_HINTS: Record<string, string> = {
-  openai: 'OpenAI keys start with sk-',
-  anthropic: 'Anthropic keys start with sk-ant-',
-  google: 'Google AI Studio keys start with AIza',
+  openrouter: 'Get your key at openrouter.ai/keys',
 };
 
-function detectProviderFromKey(apiKey: string): string {
-  if (!apiKey) return 'openai';
-  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
-  if (apiKey.startsWith('AIza')) return 'google';
-  if (apiKey.startsWith('sk-or-')) return 'openrouter';
-  if (apiKey.startsWith('sk-')) return 'openai';
-  return 'openai';
+function detectProviderFromKey(_apiKey: string): string {
+  return 'openrouter';
 }
 
 function updateModelOptions(provider: string): void {
   const modelSelect = document.getElementById('settings-model') as HTMLSelectElement;
   if (!modelSelect) return;
-  
-  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.openai;
+
+  const models = PROVIDER_MODELS[provider] ?? PROVIDER_MODELS.openrouter;
   modelSelect.innerHTML = models.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+  if (models.length > 0) {
+    modelSelect.value = models[0].value;
+    modelSelect.disabled = true;
+  }
 }
 
 function updateProviderHint(provider: string): void {
@@ -1729,10 +2283,10 @@ async function loadSettingsToModal(): Promise<void> {
     'hyperagent_require_confirm',
     'hyperagent_enable_vision',
   ]);
-  
+
   const apiKey = data['hyperagent_api_key'] || '';
   const provider = detectProviderFromKey(apiKey);
-  
+
   const providerSelect = document.getElementById('settings-provider') as HTMLSelectElement;
   const apiKeyInput = document.getElementById('settings-api-key') as HTMLInputElement;
   const modelSelect = document.getElementById('settings-model') as HTMLSelectElement;
@@ -1741,13 +2295,13 @@ async function loadSettingsToModal(): Promise<void> {
   const maxStepsInput = document.getElementById('settings-max-steps') as HTMLInputElement;
   const maxStepsValue = document.getElementById('settings-max-steps-value');
   const keyStatus = document.getElementById('settings-key-status');
-  
+
   if (providerSelect) {
     providerSelect.value = provider;
     updateModelOptions(provider);
     updateProviderHint(provider);
   }
-  
+
   if (apiKeyInput) {
     apiKeyInput.value = apiKey;
     if (keyStatus) {
@@ -1755,11 +2309,13 @@ async function loadSettingsToModal(): Promise<void> {
       keyStatus.className = `text-xs mt-1.5 ${apiKey ? 'text-emerald-500' : ''}`;
     }
   }
-  
+
   if (modelSelect) {
-    modelSelect.value = data['hyperagent_model_name'] || PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
+    // Always show the single auto model option; underlying model is fixed.
+    modelSelect.value = PROVIDER_MODELS.openrouter[0].value;
+    modelSelect.disabled = true;
   }
-  
+
   if (visionCheckbox) visionCheckbox.checked = data['hyperagent_enable_vision'] !== false;
   if (confirmCheckbox) confirmCheckbox.checked = data['hyperagent_require_confirm'] === true;
   if (maxStepsInput) {
@@ -1775,12 +2331,12 @@ async function saveSettingsFromModal(): Promise<void> {
   const visionCheckbox = document.getElementById('settings-vision') as HTMLInputElement;
   const confirmCheckbox = document.getElementById('settings-confirm') as HTMLInputElement;
   const maxStepsInput = document.getElementById('settings-max-steps') as HTMLInputElement;
-  
-  const provider = providerSelect?.value || 'openai';
+
+  const provider = providerSelect?.value || 'openrouter';
   const apiKey = apiKeyInput?.value.trim() || '';
-  const model = modelSelect?.value || 'gpt-3.5-turbo';
-  const baseUrl = PROVIDER_URLS[provider] || PROVIDER_URLS.openai;
-  
+  const model = DEFAULTS.MODEL_NAME;
+  const baseUrl = PROVIDER_URLS.openrouter;
+
   await chrome.storage.local.set({
     hyperagent_api_key: apiKey,
     hyperagent_base_url: baseUrl,
@@ -1790,7 +2346,7 @@ async function saveSettingsFromModal(): Promise<void> {
     hyperagent_require_confirm: confirmCheckbox?.checked === true,
     hyperagent_max_steps: parseInt(maxStepsInput?.value || '12', 10),
   });
-  
+
   // Update status display
   const keyStatus = document.getElementById('settings-key-status');
   if (keyStatus) {
@@ -1798,10 +2354,10 @@ async function saveSettingsFromModal(): Promise<void> {
     keyStatus.className = 'text-xs mt-1.5 text-emerald-500';
     setTimeout(() => { keyStatus.textContent = ''; }, 2000);
   }
-  
+
   // Update the provider status display
   await updateProviderStatus();
-  
+
   showToast('Settings saved!', 'success');
   closeSettingsModal();
 }
@@ -1825,43 +2381,47 @@ function closeSettingsModal(): void {
 async function updateProviderStatus(): Promise<void> {
   const STORAGE_KEY_MODEL = 'hyperagent_model_name';
   const STORAGE_KEY_API = 'hyperagent_api_key';
-  
+
   const data = await chrome.storage.local.get([STORAGE_KEY_API, STORAGE_KEY_MODEL]);
   const apiKey = data[STORAGE_KEY_API] || '';
   const model = data[STORAGE_KEY_MODEL] || '';
-  
+
+  // Update footer provider display
   const providerIndicator = document.getElementById('provider-indicator');
   const providerName = document.getElementById('provider-name');
-  
+
+  // Update settings modal provider status if it exists
+  const settingsProviderStatus = document.getElementById('settings-provider-status');
+
   if (!apiKey) {
     if (providerIndicator) providerIndicator.className = 'w-1.5 h-1.5 rounded-full bg-red-500';
     if (providerName) providerName.textContent = 'No API key';
+    if (settingsProviderStatus) {
+      settingsProviderStatus.textContent = 'Not configured';
+      settingsProviderStatus.className = 'text-[10px] uppercase tracking-wider font-bold text-zinc-400';
+    }
     return;
   }
-  
+
   const provider = detectProviderFromKey(apiKey);
   const providerNames: Record<string, string> = {
-    openai: 'OpenAI',
-    anthropic: 'Claude',
-    google: 'Gemini',
     openrouter: 'OpenRouter',
   };
-  
+
   const modelNames: Record<string, string> = {
-    'gpt-3.5-turbo': 'GPT-3.5',
-    'gpt-4o': 'GPT-4o',
-    'gpt-4-turbo': 'GPT-4',
-    'claude-3-haiku-20240307': 'Claude Haiku',
-    'claude-3-sonnet-20240229': 'Claude Sonnet',
-    'claude-3-opus-20240229': 'Claude Opus',
-    'gemini-2.0-flash': 'Gemini 2.0',
-    'gemini-1.5-pro': 'Gemini 1.5',
+    [DEFAULTS.MODEL_NAME]: 'OpenRouter Auto',
   };
-  
-  const displayName = modelNames[model] || providerNames[provider] || provider;
-  
+
+  const displayName = modelNames[model] || providerNames[provider] || 'OpenRouter Auto';
+
   if (providerIndicator) providerIndicator.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
   if (providerName) providerName.textContent = displayName;
+  
+  // Update settings modal status
+  if (settingsProviderStatus) {
+    settingsProviderStatus.textContent = 'Configured';
+    settingsProviderStatus.className = 'text-[10px] uppercase tracking-wider font-bold text-emerald-500';
+  }
 }
 
 // Call updateProviderStatus on load and after settings changes
@@ -1902,7 +2462,13 @@ if (settingsMaxSteps) {
 if (btnToggleKeyVisibility && settingsApiKey) {
   btnToggleKeyVisibility.addEventListener('click', () => {
     const input = settingsApiKey as HTMLInputElement;
-    input.type = input.type === 'password' ? 'text' : 'password';
+    const isPassword = input.type === 'password';
+    input.type = isPassword ? 'text' : 'password';
+    // Toggle eye icons
+    const eyeOpen = document.getElementById('icon-eye-open');
+    const eyeClosed = document.getElementById('icon-eye-closed');
+    if (eyeOpen) eyeOpen.classList.toggle('hidden', !isPassword ? false : true);
+    if (eyeClosed) eyeClosed.classList.toggle('hidden', !isPassword ? true : false);
   });
 }
 
@@ -1917,11 +2483,31 @@ if (settingsModal) {
 
 components.btnSettings.addEventListener('click', openSettingsModal);
 
+// Open full options page from settings modal
+const btnOpenFullSettings = document.getElementById('btn-open-full-settings');
+if (btnOpenFullSettings) {
+  btnOpenFullSettings.addEventListener('click', () => {
+    closeSettingsModal();
+    chrome.runtime.openOptionsPage();
+  });
+}
+
 // ─── Dark Mode ────────────────────────────────────────────────────
 async function toggleDarkMode() {
-  const isDark = document.body.classList.toggle('dark-mode');
+  const isDark = document.documentElement.classList.toggle('dark');
+  document.body.classList.toggle('dark-mode', isDark);
   await chrome.storage.local.set({ dark_mode: isDark });
+  updateDarkModeButton(isDark);
   showToast(`${isDark ? 'Dark' : 'Light'} mode enabled`, 'info');
+}
+
+function updateDarkModeButton(isDark: boolean) {
+  const btn = document.getElementById('btn-dark-mode');
+  if (btn) {
+    btn.innerHTML = isDark
+      ? '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
+      : '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  }
 }
 
 async function initDarkMode() {
@@ -1936,10 +2522,10 @@ async function initDarkMode() {
     useDark = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
   }
   if (useDark) {
+    document.documentElement.classList.add('dark');
     document.body.classList.add('dark-mode');
-    const btn = document.getElementById('btn-dark-mode');
-    if (btn) btn.textContent = '️';
   }
+  updateDarkModeButton(useDark);
 }
 
 initDarkMode();
@@ -1980,10 +2566,16 @@ function setLoadingText(text: string) {
 
 // ─── Export/Import Settings ─────────────────────────────────────────
 async function exportSettings() {
-  const warned = confirm(
-    'Export includes chat history and preferences. Do not share this file if it contains sensitive data. Continue?'
+  const confirmed = await showConfirm(
+    'Export includes chat history and preferences. Do not share this file if it contains sensitive data.',
+    {
+      title: 'Export Settings?',
+      listItems: ['This export may include sensitive data such as chat history.'],
+    },
   );
-  if (!warned) return;
+
+  if (!confirmed) return;
+  
   try {
     const data = await chrome.storage.local.get(null) as Record<string, unknown>;
     const exportData = {
@@ -2091,63 +2683,12 @@ async function exportChatHistory() {
 async function exportAllUserData(): Promise<void> {
   try {
     const allData = await chrome.storage.local.get(null) as Record<string, unknown>;
+    const subscription = allData[STORAGE_KEYS.SUBSCRIPTION] as any | undefined;
 
-    const exportData = {
-      exportDate: new Date().toISOString(),
-      version: '3.1.0',
-      data: {
-        settings: {
-          darkMode: allData.dark_mode ?? allData[STORAGE_KEYS.DARK_MODE],
-          apiKeyConfigured: !!(allData[STORAGE_KEYS.API_KEY]),
-          baseUrl: allData[STORAGE_KEYS.BASE_URL],
-          modelName: allData[STORAGE_KEYS.MODEL_NAME],
-          maxSteps: allData[STORAGE_KEYS.MAX_STEPS],
-          requireConfirm: allData[STORAGE_KEYS.REQUIRE_CONFIRM],
-          dryRun: allData[STORAGE_KEYS.DRY_RUN],
-          enableVision: allData[STORAGE_KEYS.ENABLE_VISION],
-          enableSwarmIntelligence: allData[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE],
-          enableAutonomousMode: allData[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE],
-          learningEnabled: allData[STORAGE_KEYS.LEARNING_ENABLED],
-          siteBlacklist: allData[STORAGE_KEYS.SITE_BLACKLIST],
-        },
-        chatHistory: allData.chat_history_backup || allData[STORAGE_KEYS.CHAT_HISTORY] || '',
-        commandHistory: allData.command_history || allData[STORAGE_KEYS.COMMAND_HISTORY] || [],
-        workflows: Object.fromEntries(
-          Object.entries(allData).filter(([key]) =>
-            key.startsWith('workflow_') || key === STORAGE_KEYS.WORKFLOWS || key === STORAGE_KEYS.INSTALLED_WORKFLOWS
-          )
-        ),
-        scheduledTasks: allData[STORAGE_KEYS.SCHEDULED_TASKS] || [],
-        siteConfigs: allData[STORAGE_KEYS.SITE_CONFIGS] || [],
-        siteStrategies: allData[STORAGE_KEYS.SITE_STRATEGIES] || {},
-        memory: {
-          actionHistory: allData[STORAGE_KEYS.ACTION_HISTORY] || [],
-          sessions: allData[STORAGE_KEYS.SESSIONS] || [],
-          neuroplasticity: allData.hyperagent_neuroplasticity || {},
-        },
-        snapshots: Object.fromEntries(
-          Object.entries(allData).filter(([key]) => key.startsWith('snapshot_'))
-        ),
-        metrics: allData[STORAGE_KEYS.USAGE_METRICS] || {},
-        billing: {
-          tier: (allData[STORAGE_KEYS.SUBSCRIPTION] as any)?.tier || billingManager.getTier(),
-          status: (allData[STORAGE_KEYS.SUBSCRIPTION] as any)?.status || 'active',
-        },
-        privacy: allData[STORAGE_KEYS.PRIVACY_SETTINGS] || {},
-        security: allData[STORAGE_KEYS.SECURITY_POLICY] || {},
-      },
-      gdpr: {
-        rightToAccess: true,
-        rightToRectification: true,
-        rightToErasure: true,
-        rightToPortability: true,
-        dataController: 'HyperAgent',
-        dataLocation: 'Local browser storage only',
-        retention: 'User-controlled',
-        contact: 'privacy@hyperagent.ai',
-        note: 'API keys are NOT exported for security. Chat history may contain sensitive information - handle with care.',
-      },
-    };
+    const exportData = buildGdprExportSnapshot(allData, {
+      billingTier: subscription?.tier || billingManager.getTier(),
+      billingStatus: subscription?.status || 'active',
+    });
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2166,49 +2707,128 @@ async function exportAllUserData(): Promise<void> {
 }
 
 async function deleteAllUserData(): Promise<void> {
-  if (!confirm('This will permanently delete ALL your data. This cannot be undone. Continue?')) {
-    return;
-  }
+  // Render inline confirmation card instead of blocking confirm()/prompt() chain
+  const card = document.createElement('div');
+  card.className = 'chat-msg agent';
+  card.innerHTML = `
+    <div class="flex flex-col gap-3">
+      <div class="flex items-center gap-2 text-red-500 dark:text-red-400 font-semibold text-sm">
+        <span class="text-lg">??</span> Permanent Data Deletion
+      </div>
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">This will permanently delete <strong>all</strong> your data: API key, chat history, workflows, settings, and billing info. This cannot be undone.</p>
+      <input type="text" id="delete-confirm-input" placeholder='Type "DELETE" to confirm' class="w-full px-3 py-2 text-sm bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500" autocomplete="off" />
+      <div class="flex gap-2">
+        <button id="delete-confirm-btn" disabled class="flex-1 px-3 py-2 text-sm font-medium text-white bg-red-500 rounded-lg opacity-50 cursor-not-allowed transition-all">Delete All Data</button>
+        <button id="delete-cancel-btn" class="flex-1 px-3 py-2 text-sm font-medium text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-700 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-all cursor-pointer">Cancel</button>
+      </div>
+    </div>`;
 
-  if (!confirm('Are you REALLY sure? This includes your API key, chat history, workflows, and all settings.')) {
-    return;
-  }
+  const input = card.querySelector('#delete-confirm-input') as HTMLInputElement;
+  const confirmBtn = card.querySelector('#delete-confirm-btn') as HTMLButtonElement;
+  const cancelBtn = card.querySelector('#delete-cancel-btn') as HTMLButtonElement;
 
-  const confirmation = prompt('Type "DELETE" to confirm permanent data erasure:');
-  if (confirmation !== 'DELETE') {
+  input.addEventListener('input', () => {
+    const matches = input.value.trim() === 'DELETE';
+    confirmBtn.disabled = !matches;
+    confirmBtn.classList.toggle('opacity-50', !matches);
+    confirmBtn.classList.toggle('cursor-not-allowed', !matches);
+    confirmBtn.classList.toggle('cursor-pointer', matches);
+    confirmBtn.classList.toggle('hover:bg-red-600', matches);
+  });
+
+  confirmBtn.addEventListener('click', async () => {
+    if (input.value.trim() !== 'DELETE') return;
+    card.remove();
+    try {
+      await chrome.storage.local.clear();
+      showToast('All data deleted. The extension will reload.', 'success');
+      setTimeout(() => chrome.runtime.reload(), 1500);
+    } catch (error) {
+      showToast('Delete failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
+    }
+  });
+
+  cancelBtn.addEventListener('click', () => {
+    card.remove();
     showToast('Data deletion cancelled', 'info');
-    return;
-  }
+  });
 
-  try {
-    await chrome.storage.local.clear();
-    showToast('All data deleted. The extension will reload.', 'success');
-    setTimeout(() => chrome.runtime.reload(), 1500);
-  } catch (error) {
-    showToast('Delete failed: ' + (error instanceof Error ? error.message : 'Unknown error'), 'error');
-  }
+  components.chatHistory.appendChild(card);
+  scrollToBottom();
+  input.focus();
 }
 
 function showExportOptions(): void {
-  const choice = prompt(
-    'Export Options:\n' +
-    '1 - Settings only (preferences, no history)\n' +
-    '2 - Chat history only\n' +
-    '3 - Full GDPR export (all data)\n\n' +
-    'Enter 1, 2, or 3:'
-  );
+  // Render inline action card instead of blocking prompt()
+  const card = document.createElement('div');
+  card.className = 'chat-msg agent';
+  card.innerHTML = `
+    <div class="flex flex-col gap-2">
+      <p class="text-sm font-medium mb-1">Choose an export format:</p>
+      <button data-export="settings" class="text-left px-3 py-2 text-sm rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-50 dark:hover:bg-indigo-950 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 transition-all cursor-pointer">?? Settings only</button>
+      <button data-export="chat" class="text-left px-3 py-2 text-sm rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-50 dark:hover:bg-indigo-950 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 transition-all cursor-pointer">?? Chat history</button>
+      <button data-export="gdpr" class="text-left px-3 py-2 text-sm rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-indigo-50 dark:hover:bg-indigo-950 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 transition-all cursor-pointer">?? Full GDPR export (all data)</button>
+    </div>`;
 
-  switch (choice) {
-    case '1':
-      exportSettings();
-      break;
-    case '2':
-      exportChatHistory();
-      break;
-    case '3':
-      exportAllUserData();
-      break;
-    default:
-      showToast('Export cancelled', 'info');
+  card.addEventListener('click', (e) => {
+    const target = (e.target as HTMLElement).closest('[data-export]') as HTMLElement | null;
+    if (!target) return;
+    const exportType = target.dataset.export;
+    card.remove();
+    switch (exportType) {
+      case 'settings': exportSettings(); break;
+      case 'chat': exportChatHistory(); break;
+      case 'gdpr': exportAllUserData(); break;
+    }
+  });
+
+  components.chatHistory.appendChild(card);
+  scrollToBottom();
+}
+
+// ─── Initialization ─────────────────────────────────────────────
+async function initializeApp() {
+  try {
+    // Load history first
+    await loadHistory();
+    
+    // Setup new features
+    setupChatFilters();
+    
+    // Update connection status and page context
+    await updateConnectionStatus();
+    await updatePageContext();
+    
+    // Load persisted active tab
+    const { activeTab } = await chrome.storage.local.get('activeTab');
+    if (activeTab && ['chat', 'memory', 'subscription'].includes(activeTab)) {
+      switchTab(activeTab);
+    }
+    
+    // Set up periodic updates
+    setInterval(updateConnectionStatus, 30000); // Update connection status every 30s
+    setInterval(updatePageContext, 5000); // Update page context every 5s
+    
+    // Listen for tab changes
+    if (chrome.tabs?.onUpdated) {
+      chrome.tabs.onUpdated.addListener(updatePageContext);
+    }
+    if (chrome.tabs?.onActivated) {
+      chrome.tabs.onActivated.addListener(updatePageContext);
+    }
+    
+    console.log('[HyperAgent] App initialized successfully');
+  } catch (err) {
+    console.error('[HyperAgent] Failed to initialize app:', err);
   }
 }
+
+// Persist active tab when switching
+const originalSwitchTab = switchTab;
+switchTab = function(tabId: string) {
+  originalSwitchTab(tabId);
+  chrome.storage.local.set({ activeTab: tabId });
+};
+
+// Initialize the app
+initializeApp();

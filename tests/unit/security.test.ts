@@ -90,3 +90,64 @@ describe('Safe Regex', () => {
     expect(isSafeRegex('[invalid')).toBe(false);
   });
 });
+
+describe('Domain and action security policies', () => {
+  it('checkDomainAllowed respects allowedDomains and blockedDomains with suffix matching', async () => {
+    const { setPrivacySettings, checkDomainAllowed } = await import('../../shared/security');
+
+    // Allow only example.com and subdomains, block evil.com
+    await setPrivacySettings({
+      allowedDomains: ['example.com'],
+      blockedDomains: ['evil.com'],
+    });
+
+    expect(await checkDomainAllowed('https://example.com')).toBe(true);
+    expect(await checkDomainAllowed('https://sub.example.com')).toBe(true);
+    expect(await checkDomainAllowed('https://evil.com')).toBe(false);
+    expect(await checkDomainAllowed('https://sub.evil.com')).toBe(false);
+    // Not explicitly allowed
+    expect(await checkDomainAllowed('https://other.com')).toBe(false);
+  });
+
+  it('checkActionAllowed enforces external navigation policy', async () => {
+    const { setSecurityPolicy, checkActionAllowed } = await import('../../shared/security');
+
+    await setSecurityPolicy({
+      allowExternalUrls: false,
+      requireConfirmationFor: ['navigate'],
+    });
+
+    const sameDomain = await checkActionAllowed(
+      { type: 'navigate', url: 'https://example.com/page' } as any,
+      'https://example.com/home',
+    );
+    expect(sameDomain.allowed).toBe(true);
+    expect(sameDomain.requiresConfirmation).toBe(true);
+
+    const external = await checkActionAllowed(
+      { type: 'navigate', url: 'https://other.com' } as any,
+      'https://example.com/home',
+    );
+    expect(external.allowed).toBe(false);
+    expect(external.reason).toContain('External URLs are not allowed');
+  });
+
+  it('checkRateLimit limits actions per minute', async () => {
+    const { setSecurityPolicy, checkRateLimit } = await import('../../shared/security');
+
+    await setSecurityPolicy({
+      maxActionsPerMinute: 2,
+      requireConfirmationFor: [],
+      allowExternalUrls: true,
+    });
+
+    const first = await checkRateLimit('click');
+    const second = await checkRateLimit('click');
+    const third = await checkRateLimit('click');
+
+    expect(first.allowed).toBe(true);
+    expect(second.allowed).toBe(true);
+    expect(third.allowed).toBe(false);
+    expect(third.waitTimeMs).toBeGreaterThan(0);
+  });
+}

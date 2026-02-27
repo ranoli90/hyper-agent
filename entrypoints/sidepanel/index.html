@@ -1,418 +1,646 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>HyperAgent</title>
-    <link rel="stylesheet" href="./style.css" />
-  </head>
-  <!-- <body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans antialiased selection:bg-indigo-500/30 overflow-hidden m-0 p-0 h-screen flex flex-col"> -->
-  <body>
-    <a href="#main-content" class="skip-link visually-hidden focus-visible:not-sr-only focus-[not-sr-only]:absolute focus-[not-sr-only]:top-4 focus-[not-sr-only]:px-4 focus-[not-sr-only]:py-2 focus-[not-sr-only]:bg-white focus-[not-sr-only]:text-indigo-500 focus-[not-sr-only]:z-50 focus-[not-sr-only]:rounded-xl focus-[not-sr-only]:shadow-md font-medium">Skip to main content</a>
-    
-    <!-- Offline Banner -->
-    <div id="offline-banner" class="hidden fixed top-0 left-0 right-0 z-[200] bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium shadow-lg" role="alert" aria-live="assertive">
-      <span class="flex items-center justify-center gap-2">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="1" y1="1" x2="23" y2="23"></line>
-          <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
-          <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
-          <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
-          <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
-          <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
-          <line x1="12" y1="20" x2="12.01" y2="20"></line>
-        </svg>
-        You're offline. Some features may not work.
-      </span>
-    </div>
-    
-    <div id="app" class="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 text-sm leading-relaxed text-zinc-900 dark:text-zinc-100">
-      
-      <!-- Header Navigation -->
-      <header id="header" class="flex flex-col w-full bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 pb-2 flex-shrink-0">
-        <!-- Brand Header -->
-        <div class="flex items-center justify-between px-4 pt-3 pb-2">
-          <div>
-            <h1 class="text-xl font-bold tracking-[-0.03em] text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600 dark:from-indigo-400 dark:to-purple-500">
-              HyperAgent
-            </h1>
-            <p class="text-xs text-zinc-500 dark:text-zinc-400">
-              By <a href="https://jobhuntin.com" target="_blank" rel="noopener" class="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors font-medium">jobhuntin.com</a>
-            </p>
-          </div>
-          <div class="flex items-center gap-3">
-            <button id="btn-dark-mode" title="Toggle dark mode" aria-label="Toggle dark mode" class="text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors p-1 interaction-lift"></button>
-            <button id="btn-settings" title="Settings" aria-label="Open settings" class="text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors p-1 interaction-lift">
-              <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-            </button>
-            <span id="subscription-badge" class="px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full">Free</span>
-          </div>
-        </div>
-        <!-- Primary Tabs -->
-        <div id="tabs-nav" role="tablist" aria-label="Main navigation" class="relative flex px-4 mt-2 border-b border-zinc-200 dark:border-zinc-800 hide-scrollbar overflow-x-auto w-full">
-          <button class="tab-btn active px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-indigo-500" role="tab" data-tab="chat" aria-selected="true" aria-controls="tab-chat" id="btn-chat">CHAT</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="memory" aria-selected="false" aria-controls="tab-memory" id="btn-memory">MEMO</button>
-          <button class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100" role="tab" data-tab="subscription" aria-selected="false" aria-controls="tab-subscription" id="btn-subscription">SUBSCRIPTION</button>
-          <!-- Sliding Indicator placeholder (logic in main.ts) -->
-          <div id="tab-indicator" class="tab-indicator" style="width: 53px; left: 16px;"></div>
-        </div>
-      </header>
 
-      <main id="main-content" class="flex-1 overflow-hidden relative">
-        <!-- Scroll to Bottom Button -->
-        <button id="scroll-to-bottom-btn" class="scroll-to-bottom-btn hidden fixed bottom-24 right-4 z-40 bg-indigo-500 hover:bg-indigo-600 text-white p-3 rounded-full shadow-lg transition-all duration-200" aria-label="Scroll to bottom">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="6 9 12 15 18 9"></polyline>
-          </svg>
-        </button>
-        
-        <!-- Chat Tab -->
-        <section id="tab-chat" role="tabpanel" aria-labelledby="btn-chat" class="tab-pane active h-full flex flex-col">
-          <div id="chat-search-bar" class="flex-shrink-0 px-4 pt-2 pb-1 hidden">
-            <input type="search" id="chat-search-input" placeholder="Search messages..." aria-label="Search chat messages" class="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
-            <p id="chat-search-hint" class="text-xs text-zinc-500 mt-1 hidden"></p>
-          </div>
-          <div id="chat-history" aria-live="polite" aria-label="Chat messages" class="flex flex-col gap-4 p-4 pb-0 flex-1 overflow-y-auto"></div>
-        </section>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HyperAgent</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<!-- <body class="bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans antialiased selection:bg-indigo-500/30 overflow-hidden m-0 p-0 h-screen flex flex-col"> -->
 
-        <!-- Memory Tab -->
-        <section id="tab-memory" role="tabpanel" aria-labelledby="btn-memory" class="tab-pane">
-          <div class="flex flex-col gap-6 p-4">
-            <h3 class="text-xl font-semibold tracking-tight">Memory</h3>
-            <div id="memory-stats" class="text-xs font-medium text-zinc-500">0 sessions</div>
-            <div id="memory-list" class="flex flex-col gap-3"></div>
-          </div>
-        </section>
+<body>
+  <a href="#main-content" class="skip-link font-medium">Skip to main content</a>
 
-        <!-- Subscription Tab -->
-        <section id="tab-subscription" role="tabpanel" aria-labelledby="btn-subscription" class="tab-pane">
-          <div class="flex flex-col gap-6 p-4">
-            <h2 class="text-xl font-semibold tracking-tight">Subscription & Usage</h2>
+  <!-- Offline Banner -->
+  <div id="offline-banner"
+    class="hidden fixed top-0 left-0 right-0 z-[200] bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium shadow-lg"
+    role="alert" aria-live="assertive">
+    <span class="flex items-center justify-center gap-2">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+        stroke-linecap="round" stroke-linejoin="round">
+        <line x1="1" y1="1" x2="23" y2="23"></line>
+        <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path>
+        <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path>
+        <path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path>
+        <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path>
+        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+        <line x1="12" y1="20" x2="12.01" y2="20"></line>
+      </svg>
+      You're offline. Some features may not work.
+    </span>
+  </div>
 
-            <!-- Current Plan Banner -->
-            <div id="current-plan-banner" class="flex items-center justify-between p-4 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-xl shadow-md plan-banner free">
-              <div class="plan-banner-info flex flex-col">
-                <span class="text-base font-bold plan-banner-tier" id="banner-tier">Free</span>
-                <span class="text-xs opacity-70 plan-banner-period" id="banner-period"></span>
-              </div>
-              <span id="banner-badge" class="px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase bg-emerald-500 text-white rounded-full shadow-sm">Active</span>
-            </div>
+  <div id="app"
+    class="flex flex-col h-full bg-zinc-50 dark:bg-zinc-950 text-sm leading-relaxed text-zinc-900 dark:text-zinc-100">
 
-            <!-- Usage Meters -->
-            <div id="usage-display" class="flex flex-col p-5 card-base">
-              <h4 class="text-sm font-semibold mb-4">Today's Usage</h4>
-              <div class="flex items-center justify-between text-xs font-medium mb-2">
-                <span class="text-zinc-500">Actions</span>
-                <span id="usage-actions" class="text-zinc-900 dark:text-zinc-100">0 / 500</span>
-              </div>
-              <div class="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-3">
-                <div id="actions-progress" class="h-full bg-indigo-500 rounded-full" style="width: 0%"></div>
-              </div>
-              <div class="flex items-center justify-between text-xs">
-                <span id="usage-tier" class="text-indigo-500 font-medium">Community</span>
-                <span class="text-zinc-500 relative">Resets daily</span>
-              </div>
-            </div>
-
-            <!-- License Key Input -->
-            <div class="flex flex-col gap-2 relative">
-              <h4 class="text-sm font-medium text-zinc-500">Have a License Key?</h4>
-              <div class="flex gap-2">
-                <label for="license-key-input" class="visually-hidden">License key</label>
-                <input id="license-key-input" type="text" placeholder="HA-BETA-XXXXXXXX" class="flex-1 px-4 py-2 text-sm bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono" />
-                <button id="btn-activate-license" class="px-5 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-all shadow-sm interaction-lift">Activate</button>
-              </div>
-              <div id="license-status" class="text-xs mt-1 absolute -bottom-5 left-0"></div>
-            </div>
-
-            <!-- Plan Cards -->
-            <div class="grid grid-cols-2 gap-4">
-              <div class="flex flex-col p-5 card-base border-zinc-200 dark:border-zinc-800 plan-card" data-plan="community">
-                <h4 class="text-base font-semibold mb-1">Free</h4>
-                <div class="flex items-baseline gap-1 mb-4">
-                  <span class="text-2xl font-bold tracking-tight">$0</span>
-                  <span class="text-xs text-zinc-500">/forever</span>
-                </div>
-                <ul class="flex flex-col gap-2.5 mb-6 text-xs text-zinc-600 dark:text-zinc-400">
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-emerald-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> Full AI features</li>
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-emerald-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> 500 actions/day</li>
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-zinc-200 dark:bg-zinc-800 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-zinc-400"><polyline points="20 6 9 17 4 12"></polyline></svg></div> Watermark exports</li>
-                </ul>
-                <button id="btn-plan-free" class="mt-auto py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-500 cursor-not-allowed hidden bg-transparent" disabled>Current Plan</button>
-              </div>
-              <div class="flex flex-col p-5 card-base border-indigo-500 shadow-sm relative overflow-hidden plan-card popular" data-plan="beta">
-                <div class="absolute top-0 right-0 px-3 py-1 bg-indigo-500 text-white text-[10px] font-bold tracking-wider uppercase rounded-bl-xl popular-badge">Beta</div>
-                <h4 class="text-base font-semibold mb-1">Premium</h4>
-                <div class="flex items-baseline gap-1 mb-4">
-                  <span class="text-2xl font-bold tracking-tight text-indigo-500">$5</span>
-                  <span class="text-xs text-zinc-500">/month</span>
-                </div>
-                <ul class="flex flex-col gap-2.5 mb-6 text-xs text-zinc-600 dark:text-zinc-400">
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> Unlimited actions</li>
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> Priority AI</li>
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> No watermarks</li>
-                  <li class="flex items-center gap-2"><div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500"><polyline points="20 6 9 17 4 12"></polyline></svg></div> Advanced features</li>
-                </ul>
-                <button id="btn-upgrade-premium" class="mt-auto py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl interaction-lift shadow-sm">Upgrade</button>
-              </div>
-            </div>
-
-            <!-- Enterprise Plan -->
-            <div class="flex flex-col gap-3 p-4 card-base bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/50 dark:to-purple-900/50 border-blue-200 dark:border-blue-800">
-              <div class="flex items-start justify-between">
-                <div>
-                  <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Enterprise Plan</h3>
-                  <p class="text-xs text-zinc-500 mt-1">Custom solutions for teams and organizations</p>
-                </div>
-                <button id="btn-contact-sales" class="px-3 py-1 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors">Contact Sales</button>
-              </div>
-              <div class="flex gap-2 mt-2 text-[10px] text-zinc-500">
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Custom limits</span>
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Dedicated support</span>
-                <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">SLA guarantees</span>
-              </div>
-            </div>
-
-            <!-- Payment Methods -->
-            <div class="flex flex-col gap-3 mt-4">
-              <h4 class="text-sm font-medium text-zinc-500">Payment Method</h4>
-              <div class="grid grid-cols-2 gap-3">
-                <button id="btn-pay-card" class="flex flex-col items-center gap-2 p-4 card-base interaction-lift payment-btn">
-                  <span class="text-xl"></span>
-                  <span class="text-xs font-medium dark:text-zinc-300">Pay with Card</span>
-                </button>
-                <button id="btn-pay-crypto" class="flex flex-col items-center gap-2 p-4 card-base interaction-lift payment-btn">
-                  <span class="text-xl"></span>
-                  <span class="text-xs font-medium dark:text-zinc-300">Pay with Crypto</span>
-                </button>
-              </div>
-            </div>
-
-            <div id="crypto-payment-info" class="crypto-section hidden mt-4 p-4 bg-zinc-100 dark:bg-zinc-800 rounded-xl relative">
-              <h4 class="text-sm font-semibold mb-2">Send Crypto Payment</h4>
-              <p class="text-xs text-zinc-500 mb-2">Send $5 worth of ETH to:</p>
-              <div id="crypto-address" class="font-mono text-[10px] break-all p-2 bg-white dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700 mb-3" data-crypto-placeholder="true">Configure wallet address in Settings</div>
-              <div class="flex gap-2 flex-wrap">
-                <select id="crypto-chain-select" class="px-3 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg">
-                  <option value="1">Ethereum</option>
-                  <option value="8453">Base</option>
-                  <option value="137">Polygon</option>
-                </select>
-                <button id="btn-confirm-crypto" class="px-4 py-1.5 text-xs font-medium bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors border border-indigo-200 dark:border-indigo-500/30">I've Sent Payment</button>
-              </div>
-            </div>
-
-            <div class="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-center border-dashed">
-              <button id="btn-cancel-subscription" class="text-xs text-red-500 hover:text-red-600 font-medium px-4 py-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors relative">Cancel Subscription</button>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <!-- Bottom Bar Area -->
-      <div class="flex flex-col border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shrink-0 relative z-20">
-        <!-- Status Bar -->
-        <div id="status-bar" class="hidden mb-3 relative" role="status">
-          <div class="stepper flex items-center justify-between w-full max-w-[200px]" role="progressbar" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0" aria-label="Agent progress">
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="observe" aria-label="Observe step">Obs</div>
-            <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="plan" aria-label="Plan step">Plan</div>
-            <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="act" aria-label="Act step">Act</div>
-            <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
-            <div class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all" data-step="verify" aria-label="Verify step">Ver</div>
-          </div>
-          <span id="status-text" aria-live="polite" class="text-xs font-medium text-indigo-500 ml-2 mt-1 block h-4">Ready</span>
-        </div>
-        
-        <!-- AI Provider Status -->
-        <div id="provider-status" class="flex items-center justify-between mb-2 px-1">
-          <div class="flex items-center gap-2">
-            <label class="text-[10px] text-zinc-400 uppercase font-medium tracking-wider">AI Provider:</label>
-            <div class="flex items-center gap-1">
-              <span id="provider-indicator" class="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
-              <span id="provider-name" class="text-[10px] text-zinc-400">Not configured</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Input Area -->
-        <div id="input-area" class="relative">
-          <div id="suggestions-container" class="hidden absolute bottom-full left-0 w-full mb-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg z-50 overflow-hidden flex flex-col p-1 max-h-48 overflow-y-auto"></div>
-          
-          <div class="relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl pl-4 pr-24 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition-all flex items-end min-h-[52px]">
-            <label for="command-input" class="visually-hidden">Command input</label>
-            <textarea id="command-input" rows="1" placeholder="Type a command..." class="w-full bg-transparent border-none p-2 text-sm focus:ring-0 resize-none outline-none dark:text-zinc-100 hide-scrollbar overflow-hidden leading-snug"></textarea>
-            <div id="char-counter" aria-live="polite" class="absolute bottom-[-18px] right-2 text-[10px] font-medium text-zinc-400">0 / 2000</div>
-          </div>
-          
-          <div class="input-actions absolute right-2 bottom-2 flex items-center gap-1 z-10 w-auto">
-            <button id="btn-mic" title="Voice Input" aria-label="Voice input" class="p-2 rounded-full text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors w-9 h-9 flex items-center justify-center bg-transparent"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg></button>
-            <button id="btn-execute" aria-label="Run command" class="bg-indigo-500 hover:bg-indigo-600 text-white font-medium px-4 py-1.5 rounded-full transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 flex items-center justify-center h-9 text-sm">Run</button>
-            <button id="btn-stop" class="hidden bg-red-500 hover:bg-red-600 text-white font-medium px-4 py-1.5 rounded-full transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 flex items-center justify-center h-9 text-sm" aria-label="Stop agent">Stop</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Modals and Overlays -->
-      <div id="confirm-modal" class="modal hidden">
-        <div class="modal-content relative flex flex-col">
-          <h3 id="confirm-title" class="text-lg font-semibold tracking-tight mb-2">Confirm</h3>
-          <p id="confirm-summary" class="text-sm text-zinc-600 dark:text-zinc-400 mb-4"></p>
-          <ul id="confirm-actions-list" class="flex flex-col gap-2 mb-6 text-sm bg-zinc-50 dark:bg-zinc-900 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 hide-scrollbar overflow-y-auto max-h-48 list-inside list-disc"></ul>
-          <div class="modal-actions flex gap-3 mt-auto">
-            <button id="btn-cancel" class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
-            <button id="btn-confirm" class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Confirm</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="ask-modal" class="modal hidden">
-        <div class="modal-content relative flex flex-col">
-          <h3 id="ask-title" class="text-lg font-semibold tracking-tight mb-2">Question</h3>
-          <p id="ask-question" class="text-sm text-zinc-600 dark:text-zinc-400 mb-4 font-medium"></p>
-          <label for="ask-reply" class="visually-hidden">Your reply</label>
-          <textarea id="ask-reply" placeholder="Reply..." class="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-sans mb-6 min-h-[100px]"></textarea>
-          <div class="modal-actions flex gap-3 mt-auto">
-            <button id="btn-ask-cancel" class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
-            <button id="btn-ask-reply" class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Reply</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="loading-overlay" class="loading-overlay hidden">
-        <div class="loading-content flex flex-col items-center bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-xl w-64 border border-zinc-200 dark:border-zinc-800 relative z-[100]">
-          <div class="w-8 h-8 rounded-full border-[3px] border-zinc-200 dark:border-zinc-800 border-t-indigo-500 animate-spin mb-4"></div>
-          <div class="loading-text text-sm font-medium mb-3">Processing...</div>
-          <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-2 relative">
-            <div id="progress-fill" class="h-full bg-indigo-500 rounded-full transition-all duration-300 relative" style="width: 0%"></div>
-          </div>
-          <div id="progress-percent" class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider relative">0%</div>
-        </div>
-      </div>
-
-      <!-- Onboarding Modal -->
-      <div id="onboarding-modal" class="modal hidden">
-        <div class="modal-content relative flex flex-col" style="max-width: 420px;">
-          <h3 class="text-xl font-semibold tracking-tight mb-6 flex items-center gap-2"> Welcome to HyperAgent!</h3>
-          <div class="flex flex-col gap-5 mb-8">
-            <div class="flex items-start gap-4">
-              <div class="w-8 h-8 shrink-0 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-sm border border-indigo-100 dark:border-indigo-500/20 shadow-sm relative shrink-0">1</div>
-              <div>
-                <strong class="block text-sm font-semibold mb-1">Add your API Key</strong>
-                <p class="text-xs text-zinc-500 leading-relaxed">Open Settings and add your AI API Key. Get a FREE key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="text-indigo-500 hover:underline relative z-50">Google AI Studio</a>.</p>
-              </div>
-            </div>
-            <div class="flex items-start gap-4">
-              <div class="w-8 h-8 shrink-0 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-sm border border-indigo-100 dark:border-indigo-500/20 shadow-sm relative shrink-0">2</div>
-              <div>
-                <strong class="block text-sm font-semibold mb-1">Type a command</strong>
-                <p class="text-xs text-zinc-500 leading-relaxed">Tell HyperAgent what you want to do. Example: "Go to amazon.com and search for headphones"</p>
-              </div>
-            </div>
-            <div class="flex items-start gap-4">
-              <div class="w-8 h-8 shrink-0 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold text-sm border border-emerald-100 dark:border-emerald-500/20 shadow-sm relative shrink-0">3</div>
-              <div>
-                <strong class="block text-sm font-semibold mb-1">Watch it work</strong>
-                <p class="text-xs text-zinc-500 leading-relaxed">HyperAgent will navigate, click, fill forms, and extract data for you seamlessly.</p>
-              </div>
-            </div>
-          </div>
-          <p class="text-[11px] text-zinc-400 text-center mb-6 px-4 leading-relaxed font-medium bg-zinc-50/50 dark:bg-zinc-900/50 p-2 border border-zinc-200 dark:border-zinc-800 rounded-lg relative">
-             Your data stays local. Only commands are sent to your chosen AI provider.
+    <!-- Header Navigation -->
+    <header id="header"
+      class="flex flex-col w-full bg-zinc-50 dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 pb-2 flex-shrink-0">
+      <!-- Brand Header -->
+      <div class="flex items-center justify-between px-4 pt-3 pb-2">
+        <div>
+          <h1
+            class="text-xl font-bold tracking-[-0.03em] text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600 dark:from-indigo-400 dark:to-purple-500">
+            HyperAgent
+          </h1>
+          <p class="text-xs text-zinc-500 dark:text-zinc-400">
+            By <a href="https://jobhuntin.com" target="_blank" rel="noopener"
+              class="hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors font-medium">jobhuntin.com</a>
           </p>
-          <div class="modal-actions flex gap-3 mt-auto relative z-50">
-            <button id="btn-onboarding-settings" class="flex-1 py-2.5 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all shadow-sm">Open Settings</button>
-            <button id="btn-onboarding-close" class="flex-1 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift relative z-[99]">Get Started</button>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="btn-dark-mode" title="Toggle dark mode" aria-label="Toggle dark mode"
+            class="text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors p-1 interaction-lift">
+            <svg id="icon-theme" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"></path>
+            </svg>
+          </button>
+          <button id="btn-settings" title="Settings" aria-label="Open settings"
+            class="text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors p-1 interaction-lift">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path
+                d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z">
+              </path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+          <span id="subscription-badge"
+            class="hidden px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-full">Free</span>
+        </div>
+      </div>
+      <!-- Primary Tabs -->
+      <div id="tabs-nav" role="tablist" aria-label="Main navigation"
+        class="relative flex px-4 mt-2 border-b border-zinc-200 dark:border-zinc-800 hide-scrollbar overflow-x-auto w-full">
+        <button class="tab-btn active px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-indigo-500"
+          role="tab" data-tab="chat" aria-selected="true" aria-controls="tab-chat" id="btn-chat"
+          tabindex="0">CHAT</button>
+        <button
+          class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          role="tab" data-tab="memory" aria-selected="false" aria-controls="tab-memory" id="btn-memory"
+          tabindex="-1">MEMORY</button>
+        <button
+          class="tab-btn px-3 py-2 text-sm font-medium transition-colors whitespace-nowrap text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+          role="tab" data-tab="subscription" aria-selected="false" aria-controls="tab-subscription"
+          id="btn-subscription" tabindex="-1">SUBSCRIPTION</button>
+        <!-- Sliding Indicator placeholder (logic in main.ts) -->
+        <div id="tab-indicator" class="tab-indicator" style="width: 53px; left: 16px;"></div>
+      </div>
+    </header>
+
+    <main id="main-content" class="flex-1 overflow-hidden relative">
+      <!-- Scroll to Bottom Button -->
+      <button id="scroll-to-bottom-btn"
+        class="scroll-to-bottom-btn hidden sticky bottom-4 ml-auto mr-4 z-40 bg-indigo-500 hover:bg-indigo-600 text-white p-3 rounded-full shadow-lg transition-all duration-200"
+        aria-label="Scroll to bottom">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
+
+      <!-- Chat Tab -->
+      <section id="tab-chat" role="tabpanel" aria-labelledby="btn-chat"
+        class="tab-pane active h-full flex flex-col min-h-0">
+        <!-- Connection Status Banner -->
+        <div id="connection-banner" class="flex-shrink-0 px-4 pt-2 pb-1">
+          <div class="flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-medium"
+               id="connection-status">
+            <span class="w-2 h-2 rounded-full" id="connection-indicator"></span>
+            <span id="connection-text">Checking connection...</span>
+          </div>
+        </div>
+        
+        <!-- Current Page Context -->
+        <div id="page-context" class="flex-shrink-0 px-4 pb-2 hidden">
+          <div class="text-xs text-zinc-500 dark:text-zinc-400">
+            <div class="font-medium mb-1">Current Page:</div>
+            <div class="truncate" id="page-title" title=""></div>
+            <div class="truncate text-zinc-400 dark:text-zinc-500" id="page-url"></div>
+          </div>
+        </div>
+
+        <div id="chat-search-bar" class="flex-shrink-0 px-4 pt-2 pb-1 hidden">
+          <div class="flex gap-2 mb-2">
+            <input type="search" id="chat-search-input" placeholder="Search messages..." aria-label="Search chat messages"
+              class="flex-1 px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+            <div class="flex gap-1">
+              <button id="filter-errors" class="px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Show errors only">Errors</button>
+              <button id="filter-clarifications" class="px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Show clarifications only">Q&A</button>
+              <button id="filter-actions" class="px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800" title="Show actions only">Actions</button>
+            </div>
+          </div>
+          <p id="chat-search-hint" class="text-xs text-zinc-500 hidden"></p>
+        </div>
+        <div id="chat-history" aria-live="polite" aria-label="Chat messages"
+          class="flex flex-col gap-4 p-4 pb-4 flex-1 overflow-y-auto min-h-0"></div>
+      </section>
+
+      <!-- Memory Tab -->
+      <section id="tab-memory" role="tabpanel" aria-labelledby="btn-memory" class="tab-pane">
+        <div class="flex flex-col gap-6 p-4">
+          <h3 class="text-xl font-semibold tracking-tight">Memory</h3>
+          <div id="memory-stats" class="text-xs font-medium text-zinc-500">0 sessions</div>
+          <div id="memory-list" class="flex flex-col gap-3"></div>
+        </div>
+      </section>
+
+      <!-- Subscription Tab -->
+      <section id="tab-subscription" role="tabpanel" aria-labelledby="btn-subscription" class="tab-pane">
+        <div class="flex flex-col gap-6 p-4">
+          <h2 class="text-xl font-semibold tracking-tight">Subscription & Usage</h2>
+
+          <!-- Current Plan Banner -->
+          <div id="current-plan-banner"
+            class="flex items-center justify-between p-4 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 rounded-xl shadow-md plan-banner free">
+            <div class="plan-banner-info flex flex-col">
+              <span class="text-base font-bold plan-banner-tier" id="banner-tier">Free Plan</span>
+              <span class="text-xs opacity-70 plan-banner-period" id="banner-period"></span>
+            </div>
+            <span id="banner-badge"
+              class="px-2.5 py-1 text-[10px] font-bold tracking-wider uppercase bg-emerald-500 text-white rounded-full shadow-sm">Active</span>
+          </div>
+
+          <!-- Usage Meters -->
+          <div id="usage-display" class="flex flex-col p-5 card-base">
+            <h4 class="text-sm font-semibold mb-4">Today's Usage</h4>
+            <div class="flex items-center justify-between text-xs font-medium mb-2">
+              <span class="text-zinc-500">Actions</span>
+              <span id="usage-actions" class="text-zinc-900 dark:text-zinc-100">0 / 500</span>
+            </div>
+            <div class="h-1.5 w-full bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-3">
+              <div id="actions-progress" class="h-full bg-indigo-500 rounded-full" style="width: 0%"></div>
+            </div>
+            <div class="flex items-center justify-between text-xs">
+              <span id="usage-tier" class="text-indigo-500 font-medium">Free</span>
+              <span class="text-zinc-500 relative">Resets daily</span>
+            </div>
+          </div>
+
+          <!-- License Key Input -->
+          <div class="flex flex-col gap-2 relative">
+            <h4 class="text-sm font-medium text-zinc-500">Have a HyperAgent License Key?</h4>
+            <p class="text-xs text-zinc-500">This key unlocks HyperAgent subscription features. It is different from
+              your AI provider API key above.</p>
+            <div class="flex gap-2">
+              <label for="license-key-input" class="visually-hidden">License key</label>
+              <input id="license-key-input" type="text" placeholder="HA-BETA-XXXXXXXX"
+                class="flex-1 px-4 py-2 text-sm bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-mono"
+                aria-describedby="license-status" />
+              <button id="btn-activate-license"
+                class="px-5 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl transition-all shadow-sm interaction-lift">Activate</button>
+            </div>
+            <div id="license-status" class="text-xs mt-1 hidden"></div>
+          </div>
+
+          <!-- Plan Cards -->
+          <div class="grid grid-cols-2 gap-4">
+            <div class="flex flex-col p-5 card-base border-zinc-200 dark:border-zinc-800 plan-card"
+              data-plan="community" aria-label="Free plan details">
+              <h4 class="text-base font-semibold mb-1">Free</h4>
+              <div class="flex items-baseline gap-1 mb-4">
+                <span class="text-2xl font-bold tracking-tight">$0</span>
+                <span class="text-xs text-zinc-500">/forever</span>
+              </div>
+              <ul class="flex flex-col gap-2.5 mb-6 text-xs text-zinc-600 dark:text-zinc-400">
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-emerald-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> Full AI features
+                </li>
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-emerald-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-emerald-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> 500 actions/day
+                </li>
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-zinc-200 dark:bg-zinc-800 p-0.5"><svg xmlns="http://www.w3.org/2000/svg"
+                      width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-zinc-400">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> Watermark exports
+                </li>
+              </ul>
+              <button id="btn-plan-free"
+                class="mt-auto py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-500 cursor-not-allowed hidden bg-transparent"
+                disabled>Current Plan</button>
+            </div>
+            <div
+              class="flex flex-col p-5 card-base border-indigo-500 shadow-sm relative overflow-hidden plan-card popular"
+              data-plan="beta" aria-label="Premium plan details">
+              <div
+                class="absolute top-0 right-0 px-3 py-1 bg-indigo-500 text-white text-[10px] font-bold tracking-wider uppercase rounded-bl-xl popular-badge">
+                Beta</div>
+              <h4 class="text-base font-semibold mb-1">Premium</h4>
+              <div class="flex items-baseline gap-1 mb-4">
+                <span class="text-2xl font-bold tracking-tight text-indigo-500">$5</span>
+                <span class="text-xs text-zinc-500">/month</span>
+              </div>
+              <ul class="flex flex-col gap-2.5 mb-6 text-xs text-zinc-600 dark:text-zinc-400">
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> Unlimited actions
+                </li>
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> Priority AI
+                </li>
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> No watermarks
+                </li>
+                <li class="flex items-center gap-2">
+                  <div class="rounded-full bg-indigo-500/10 p-0.5"><svg xmlns="http://www.w3.org/2000/svg" width="10"
+                      height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round" class="text-indigo-500">
+                      <polyline points="20 6 9 17 4 12"></polyline>
+                    </svg></div> Advanced features
+                </li>
+              </ul>
+              <button id="btn-upgrade-premium"
+                class="mt-auto py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl interaction-lift shadow-sm">Upgrade</button>
+            </div>
+          </div>
+
+          <!-- Enterprise Plan -->
+          <div
+            class="flex flex-col gap-3 p-4 card-base bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/50 dark:to-purple-900/50 border-blue-200 dark:border-blue-800">
+            <div class="flex items-start justify-between">
+              <div>
+                <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Enterprise Plan</h3>
+                <p class="text-xs text-zinc-500 mt-1">Custom solutions for teams and organizations</p>
+              </div>
+              <button id="btn-contact-sales"
+                class="px-3 py-1 text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-colors">
+                Contact Sales
+              </button>
+            </div>
+            <div class="flex gap-2 mt-2 text-[10px] text-zinc-500">
+              <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Custom limits</span>
+              <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">Dedicated support</span>
+              <span class="px-2 py-0.5 bg-white dark:bg-zinc-900 rounded-full">SLA guarantees</span>
+            </div>
+          </div>
+
+          <!-- Payment Methods -->
+          <div class="flex flex-col gap-3 mt-4">
+            <h4 class="text-sm font-medium text-zinc-500">Payment Method <span class="text-[10px] text-zinc-400">(UI
+                only, actual billing logic may be implemented separately)</span></h4>
+            <div class="grid grid-cols-2 gap-3">
+              <button id="btn-pay-card"
+                class="flex flex-col items-center gap-2 p-4 card-base interaction-lift payment-btn">
+                <span class="text-xl" aria-hidden="true"></span>
+                <span class="text-xs font-medium dark:text-zinc-300">Pay with Card</span>
+              </button>
+              <button id="btn-pay-crypto"
+                class="flex flex-col items-center gap-2 p-4 card-base interaction-lift payment-btn">
+                <span class="text-xl">⛓️</span>
+                <span class="text-xs font-medium dark:text-zinc-300">Pay with Crypto</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="crypto-payment-info"
+            class="crypto-section hidden mt-4 p-4 bg-zinc-100 dark:bg-zinc-800 rounded-xl relative">
+            <h4 class="text-sm font-semibold mb-2">Send Crypto Payment</h4>
+            <p class="text-xs text-zinc-500 mb-2">Send $5 worth of ETH to the configured wallet address. If no address
+              is configured yet, this section is for preview only.</p>
+            <div id="crypto-address"
+              class="font-mono text-[10px] break-all p-2 bg-white dark:bg-zinc-900 rounded border border-zinc-200 dark:border-zinc-700 mb-3"
+              data-crypto-placeholder="true">Configure wallet address in advanced Settings to enable crypto payments.</div>
+            <div class="flex gap-2 flex-wrap">
+              <select id="crypto-chain-select"
+                class="px-3 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                <option value="1">Ethereum</option>
+                <option value="8453">Base</option>
+                <option value="137">Polygon</option>
+              </select>
+              <button id="btn-confirm-crypto"
+                class="px-4 py-1.5 text-xs font-medium bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-lg transition-colors border border-indigo-200 dark:border-indigo-500/30"
+                aria-describedby="crypto-address">I've Sent Payment</button>
+            </div>
+          </div>
+
+          <div class="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-800 flex justify-center border-dashed">
+            <button id="btn-cancel-subscription"
+            class="text-xs text-red-500 hover:text-red-600 font-medium px-4 py-2 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors relative"
+            aria-label="Cancel current subscription (if active)">Cancel Subscription</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Bar Area -->
+    <div
+      class="flex flex-col border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shrink-0 relative z-20">
+      <!-- Status Bar -->
+      <div id="status-bar" class="hidden mb-3 relative" role="status">
+        <div class="stepper flex items-center justify-between w-full max-w-[200px]" role="progressbar" aria-valuemin="0"
+          aria-valuemax="4" aria-valuenow="0" aria-label="Agent progress">
+          <div
+            class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all"
+            data-step="observe" aria-label="Observe step">Obs</div>
+          <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
+          <div
+            class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all"
+            data-step="plan" aria-label="Plan step">Plan</div>
+          <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
+          <div
+            class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all"
+            data-step="act" aria-label="Act step">Act</div>
+          <div class="step-line flex-1 h-[2px] bg-zinc-200 dark:bg-zinc-800 mx-1"></div>
+          <div
+            class="step w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold bg-zinc-200 dark:bg-zinc-800 text-zinc-500 transition-all"
+            data-step="verify" aria-label="Verify step">Ver</div>
+        </div>
+        <div class="flex items-center justify-between mt-1">
+          <span id="status-text" aria-live="polite"
+            class="text-xs font-medium text-indigo-500 ml-2 block h-4">Ready</span>
+          <span id="model-display" class="text-[10px] text-zinc-400 uppercase tracking-wider hidden">Auto</span>
+        </div>
+      </div>
+
+      <!-- AI Provider Status -->
+      <div id="provider-status" class="flex items-center justify-between mb-2 px-1">
+        <div class="flex items-center gap-2">
+          <label class="text-[10px] text-zinc-400 uppercase font-medium tracking-wider">AI Provider:</label>
+          <div class="flex items-center gap-1">
+            <span id="provider-indicator" class="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+            <span id="provider-name" class="text-[10px] text-zinc-400">Not configured</span>
           </div>
         </div>
       </div>
 
-      <!-- Settings Modal -->
-      <div id="settings-modal" class="modal hidden">
-        <div class="modal-content relative flex flex-col" style="max-width: 440px; max-height: 90vh; overflow-y: auto;">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-xl font-semibold tracking-tight">Settings</h3>
-            <button id="btn-settings-close" class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
+      <!-- Input Area -->
+      <div id="input-area" class="relative">
+        <div id="suggestions-container"
+          class="hidden absolute bottom-full left-0 w-full mb-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-lg z-50 overflow-hidden flex flex-col p-1 max-h-48 overflow-y-auto">
+        </div>
 
-          <!-- API Configuration -->
-          <div class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium mb-2">AI Provider</label>
-              <select id="settings-provider" class="w-full px-3 py-2.5 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="openai">OpenAI (GPT)</option>
-                <option value="google">Google AI Studio (FREE)</option>
-                <option value="anthropic">Anthropic (Claude)</option>
-              </select>
-              <p id="settings-provider-hint" class="text-xs text-zinc-500 mt-1.5">OpenAI keys start with sk-</p>
-            </div>
+        <div
+          class="relative bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-3xl pl-4 pr-24 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-indigo-500 focus-within:border-indigo-500 transition-all flex items-end min-h-[52px]">
+          <label for="command-input" class="visually-hidden">Command input</label>
+          <textarea id="command-input" rows="1" placeholder="Type a command..."
+            class="w-full bg-transparent border-none p-2 text-sm focus:ring-0 resize-none outline-none dark:text-zinc-100 hide-scrollbar overflow-hidden leading-snug"></textarea>
+          <div id="char-counter" aria-live="polite" class="text-[10px] font-medium text-zinc-400 text-right mt-1 mr-2">0
+            / 2000</div>
+        </div>
 
-            <div>
-              <label class="block text-sm font-medium mb-2">API Key</label>
-              <div class="relative">
-                <input type="password" id="settings-api-key" placeholder="Enter your API key..." class="w-full px-3 py-2.5 pr-10 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
-                <button id="btn-toggle-key-visibility" type="button" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                </button>
-              </div>
-              <p id="settings-key-status" class="text-xs mt-1.5"></p>
-            </div>
-
-            <div>
-              <label class="block text-sm font-medium mb-2">Model</label>
-              <select id="settings-model" class="w-full px-3 py-2.5 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Fast)</option>
-                <option value="gpt-4o">GPT-4o (Vision)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Behavior Settings -->
-          <div class="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-700">
-            <h4 class="text-sm font-medium mb-3">Behavior</h4>
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <label for="settings-vision" class="text-sm text-zinc-600 dark:text-zinc-400">Enable Vision</label>
-                <input type="checkbox" id="settings-vision" class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500" checked />
-              </div>
-              <div class="flex items-center justify-between">
-                <label for="settings-confirm" class="text-sm text-zinc-600 dark:text-zinc-400">Confirm Actions</label>
-                <input type="checkbox" id="settings-confirm" class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500" />
-              </div>
-              <div>
-                <div class="flex items-center justify-between mb-2">
-                  <label for="settings-max-steps" class="text-sm text-zinc-600 dark:text-zinc-400">Max Steps</label>
-                  <span id="settings-max-steps-value" class="text-sm font-medium">12</span>
-                </div>
-                <input type="range" id="settings-max-steps" min="3" max="20" value="12" class="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full appearance-none cursor-pointer" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Save Button -->
-          <div class="mt-6 flex gap-3">
-            <button id="btn-settings-save" class="flex-1 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Save Settings</button>
-          </div>
-
-          <!-- Quick Links -->
-          <div class="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700 text-center">
-            <p class="text-xs text-zinc-500 mb-2">Need an API key?</p>
-            <div class="flex gap-2 justify-center flex-wrap">
-              <a href="https://aistudio.google.com/apikey" target="_blank" class="text-xs text-indigo-500 hover:underline">Google AI (Free)</a>
-              <span class="text-zinc-300">•</span>
-              <a href="https://platform.openai.com/api-keys" target="_blank" class="text-xs text-indigo-500 hover:underline">OpenAI</a>
-              <span class="text-zinc-300">•</span>
-              <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-xs text-indigo-500 hover:underline">Anthropic</a>
-            </div>
-          </div>
+        <div class="input-actions absolute right-2 bottom-2 flex items-center gap-1 z-10 w-auto">
+          <button id="btn-mic" title="Voice Input" aria-label="Voice input"
+            class="p-2 rounded-full text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors w-9 h-9 flex items-center justify-center bg-transparent"><svg
+              xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" x2="12" y1="19" y2="22"></line>
+            </svg></button>
+          <button id="btn-execute" aria-label="Run command"
+            class="bg-indigo-500 hover:bg-indigo-600 text-white font-medium px-4 py-1.5 rounded-full transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 flex items-center justify-center h-9 text-sm">Run</button>
+          <button id="btn-stop"
+            class="hidden bg-red-500 hover:bg-red-600 text-white font-medium px-4 py-1.5 rounded-full transition-colors shadow-sm focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 flex items-center justify-center h-9 text-sm"
+            aria-label="Stop agent">Stop</button>
         </div>
       </div>
     </div>
-    
-    <div id="toast-container" class="toast-container" aria-live="polite"></div>
-    <script type="module" src="./main.ts"></script>
-  </body>
+
+    <!-- Modals and Overlays -->
+    <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="modal-content relative flex flex-col">
+        <h3 id="confirm-title" class="text-lg font-semibold tracking-tight mb-2">Confirm</h3>
+        <p id="confirm-summary" class="text-sm text-zinc-600 dark:text-zinc-400 mb-4"></p>
+        <ul id="confirm-actions-list"
+          class="flex flex-col gap-2 mb-6 text-sm bg-zinc-50 dark:bg-zinc-900 p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 hide-scrollbar overflow-y-auto max-h-48 list-inside list-disc">
+        </ul>
+        <div class="modal-actions flex gap-3 mt-auto">
+          <button id="btn-cancel"
+            class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
+          <button id="btn-confirm"
+            class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ask-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+      <div class="modal-content relative flex flex-col">
+        <h3 id="ask-title" class="text-lg font-semibold tracking-tight mb-2">Question</h3>
+        <p id="ask-question" class="text-sm text-zinc-600 dark:text-zinc-400 mb-4 font-medium"></p>
+        <label for="ask-reply" class="visually-hidden">Your reply</label>
+        <textarea id="ask-reply" placeholder="Reply..."
+          class="w-full bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all font-sans mb-6 min-h-[100px]"></textarea>
+        <div class="modal-actions flex gap-3 mt-auto">
+          <button id="btn-ask-cancel"
+            class="flex-1 py-2 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all">Cancel</button>
+          <button id="btn-ask-reply"
+            class="flex-1 py-2 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Reply</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="loading-overlay" class="loading-overlay hidden">
+      <div
+        class="loading-content flex flex-col items-center bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-xl w-64 border border-zinc-200 dark:border-zinc-800 relative z-[100]">
+        <div
+          class="w-8 h-8 rounded-full border-[3px] border-zinc-200 dark:border-zinc-800 border-t-indigo-500 animate-spin mb-4">
+        </div>
+        <div class="loading-text text-sm font-medium mb-3">Processing...</div>
+        <div class="w-full h-1.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-2 relative">
+          <div id="progress-fill" class="h-full bg-indigo-500 rounded-full transition-all duration-300 relative"
+            style="width: 0%"></div>
+        </div>
+        <div id="progress-percent" class="text-[10px] font-bold text-zinc-400 uppercase tracking-wider relative">0%
+        </div>
+      </div>
+    </div>
+
+    <!-- Onboarding Modal -->
+    <div id="onboarding-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-content relative flex flex-col" style="max-width: 420px;">
+        <h3 class="text-xl font-semibold tracking-tight mb-6 flex items-center gap-2"> Welcome to HyperAgent!</h3>
+        <div class="flex flex-col gap-5 mb-8">
+          <div class="flex items-start gap-4">
+            <div
+              class="w-8 h-8 shrink-0 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-sm border border-indigo-100 dark:border-indigo-500/20 shadow-sm relative shrink-0">
+              1</div>
+            <div>
+              <strong class="block text-sm font-semibold mb-1">Add your API Key</strong>
+              <p class="text-xs text-zinc-500 leading-relaxed">Open Settings and add your AI API Key. Get a FREE key
+                from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener"
+                  class="text-indigo-500 hover:underline relative z-50">OpenRouter</a>.</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <div
+              class="w-8 h-8 shrink-0 rounded-full bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center font-bold text-sm border border-indigo-100 dark:border-indigo-500/20 shadow-sm relative shrink-0">
+              2</div>
+            <div>
+              <strong class="block text-sm font-semibold mb-1">Type a command</strong>
+              <p class="text-xs text-zinc-500 leading-relaxed">Tell HyperAgent what you want to do. Example: "Go to
+                amazon.com and search for headphones"</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-4">
+            <div
+              class="w-8 h-8 shrink-0 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-500 flex items-center justify-center font-bold text-sm border border-emerald-100 dark:border-emerald-500/20 shadow-sm relative shrink-0">
+              3</div>
+            <div>
+              <strong class="block text-sm font-semibold mb-1">Watch it work</strong>
+              <p class="text-xs text-zinc-500 leading-relaxed">HyperAgent will navigate, click, fill forms, and extract
+                data for you seamlessly.</p>
+            </div>
+          </div>
+        </div>
+        <p
+          class="text-[11px] text-zinc-400 text-center mb-6 px-4 leading-relaxed font-medium bg-zinc-50/50 dark:bg-zinc-900/50 p-2 border border-zinc-200 dark:border-zinc-800 rounded-lg relative">
+          HyperAgent sends your command, recent chat history, and relevant page context (URL, title, limited text and structure, and sometimes a screenshot) to your AI provider via OpenRouter. Nothing is sent to HyperAgent servers.
+        </p>
+        <div class="modal-actions flex gap-3 mt-auto relative z-50">
+          <button id="btn-onboarding-settings"
+            class="flex-1 py-2.5 text-sm font-medium border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition-all shadow-sm">Open
+            Settings</button>
+          <button id="btn-onboarding-close"
+            class="flex-1 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift relative z-[99]">Get
+            Started</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-content relative flex flex-col" style="max-width: 440px; max-height: 90vh; overflow-y: auto;">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="settings-title" class="text-xl font-semibold tracking-tight">Settings</h3>
+          <button id="btn-settings-close"
+            class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- API Configuration -->
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-2">AI Provider</label>
+            <div
+              class="w-full px-3 py-2.5 text-sm bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+              <span id="settings-provider-label">OpenRouter</span>
+              <span id="settings-provider-status"
+                class="text-[10px] uppercase tracking-wider font-bold text-zinc-400">Not configured</span>
+            </div>
+            <input type="hidden" id="settings-provider" value="openrouter" />
+            <p id="settings-provider-hint" class="text-xs text-zinc-500 mt-1.5">Get your AI API key at <a
+                href="https://openrouter.ai/keys" target="_blank" rel="noopener"
+                class="text-indigo-500 hover:underline">openrouter.ai/keys</a>. This is separate from your HyperAgent
+              license key below.</p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-2">API Key</label>
+            <p class="text-xs text-zinc-500 mb-1">Your AI provider key (for example, an OpenRouter key).
+              This is <strong>not</strong> the same as your HyperAgent license key.</p>
+            <div class="relative">
+              <input type="password" id="settings-api-key" placeholder="Enter your AI API key..."
+                class="w-full px-3 py-2.5 pr-10 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono" />
+              <button id="btn-toggle-key-visibility" type="button"
+                class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
+                aria-label="Toggle key visibility">
+                <svg id="icon-eye-open" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                <svg id="icon-eye-closed" class="hidden" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+                  viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                  stroke-linejoin="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"></path>
+                  <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              </button>
+            </div>
+            <p id="settings-key-status" class="text-xs mt-1.5"></p>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium mb-2">Model</label>
+            <select id="settings-model"
+              class="w-full px-3 py-2.5 text-sm bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="google/gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="google/gemini-2.5-pro">Gemini 2.5 Pro</option>
+              <option value="deepseek/deepseek-chat">DeepSeek V3</option>
+              <option value="meta-llama/llama-3.2-11b-vision-instruct">Llama 3.2 Vision</option>
+            </select>
+            <p class="text-xs text-zinc-500 mt-1.5">The selected model is used by the backend when available. If the
+              backend ignores this setting, changing it here will have no effect.</p>
+          </div>
+        </div>
+
+        <!-- Behavior Settings -->
+        <div class="mt-6 pt-4 border-t border-zinc-200 dark:border-zinc-700">
+          <h4 class="text-sm font-medium mb-3">Behavior</h4>
+          <div class="space-y-3">
+            <div class="flex items-center justify-between">
+              <label for="settings-vision" class="text-sm text-zinc-600 dark:text-zinc-400">Enable Vision</label>
+              <input type="checkbox" id="settings-vision" class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500"
+                checked />
+            </div>
+            <div class="flex items-center justify-between">
+              <label for="settings-confirm" class="text-sm text-zinc-600 dark:text-zinc-400">Confirm Actions</label>
+              <input type="checkbox" id="settings-confirm"
+                class="w-4 h-4 text-indigo-500 rounded focus:ring-indigo-500" />
+            </div>
+            <div>
+              <div class="flex items-center justify-between mb-2">
+                <label for="settings-max-steps" class="text-sm text-zinc-600 dark:text-zinc-400">Max Steps</label>
+                <span id="settings-max-steps-value" class="text-sm font-medium">12</span>
+              </div>
+              <input type="range" id="settings-max-steps" min="3" max="20" value="12"
+                class="w-full h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-full appearance-none cursor-pointer" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Save Button -->
+        <div class="mt-6 flex gap-3">
+          <button id="btn-settings-save"
+            class="flex-1 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-sm interaction-lift">Save
+            Settings</button>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700 text-center">
+          <p class="text-xs text-zinc-500 mb-2">Need an API key?</p>
+          <div class="flex gap-2 justify-center flex-wrap">
+            <a href="https://openrouter.ai/keys" target="_blank"
+              class="text-xs text-indigo-500 hover:underline">OpenRouter (Recommended)</a>
+          </div>
+          <button id="btn-open-full-settings"
+            class="mt-3 text-xs text-zinc-400 hover:text-indigo-500 transition-colors underline">All Settings (Advanced)
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <script type="module" src="./main.ts"></script>
+</body>
+
 </html>

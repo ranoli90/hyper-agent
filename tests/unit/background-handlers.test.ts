@@ -1,129 +1,13 @@
 import { describe, it, expect } from 'vitest';
-
-// Extracted validation logic from background.ts for testing
-// This mirrors the validateExtensionMessage function
-
-const MAX_COMMAND_LENGTH = 10000;
-const MAX_TOOL_ID_LENGTH = 64;
-const MAX_TASK_ID_LENGTH = 256;
-const MAX_WORKFLOW_ID_LENGTH = 64;
-const MAX_REPLY_LENGTH = 10000;
-const MAX_LICENSE_KEY_LENGTH = 256;
-
-function validateExtensionMessage(message: unknown): boolean {
-  if (!message || typeof message !== 'object') return false;
-  const { type } = message as Record<string, unknown>;
-  if (typeof type !== 'string') return false;
-
-  const msg = message as Record<string, unknown>;
-
-  switch (type) {
-    case 'executeCommand': {
-      const cmd = msg.command;
-      const scheduled = msg.scheduled;
-      return (
-        typeof cmd === 'string' &&
-        (cmd as string).trim().length > 0 &&
-        (cmd as string).length <= MAX_COMMAND_LENGTH &&
-        (msg.useAutonomous === undefined || typeof msg.useAutonomous === 'boolean') &&
-        (scheduled === undefined || typeof scheduled === 'boolean')
-      );
-    }
-    case 'stopAgent':
-      return true;
-    case 'confirmResponse':
-      return typeof msg.confirmed === 'boolean';
-    case 'userReply': {
-      const reply = msg.reply;
-      return typeof reply === 'string' && reply.length <= MAX_REPLY_LENGTH;
-    }
-    case 'getAgentStatus':
-    case 'clearHistory':
-    case 'getMetrics':
-      return true;
-    case 'contextMenuCommand': {
-      const cmd = msg.command;
-      return typeof cmd === 'string' && (cmd as string).trim().length > 0 && (cmd as string).length <= MAX_COMMAND_LENGTH;
-    }
-    case 'captureScreenshot':
-    case 'getToolStats':
-    case 'getTools':
-    case 'getSwarmStatus':
-    case 'getSnapshot':
-    case 'listSnapshots':
-      return true;
-    case 'clearSnapshot': {
-      const cTaskId = msg.taskId;
-      return cTaskId === undefined || (typeof cTaskId === 'string' && (cTaskId as string).length > 0 && (cTaskId as string).length <= MAX_TASK_ID_LENGTH);
-    }
-    case 'resumeSnapshot': {
-      const taskId = msg.taskId;
-      return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= MAX_TASK_ID_LENGTH;
-    }
-    case 'getGlobalLearningStats':
-    case 'getIntentSuggestions':
-    case 'getUsage':
-    case 'getMemoryStats':
-    case 'getScheduledTasks':
-    case 'getSubscriptionState':
-    case 'verifySubscription':
-    case 'cancelSubscription':
-      return true;
-    case 'executeTool': {
-      const toolId = msg.toolId;
-      const params = msg.params;
-      return (
-        typeof toolId === 'string' &&
-        toolId.length > 0 &&
-        toolId.length <= MAX_TOOL_ID_LENGTH &&
-        (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)))
-      );
-    }
-    case 'parseIntent': {
-      const pCmd = msg.command;
-      return typeof pCmd === 'string' && pCmd.length <= MAX_COMMAND_LENGTH;
-    }
-    case 'getAPICache':
-    case 'setAPICache':
-    case 'invalidateCacheTag':
-    case 'getMemoryLeaks':
-    case 'forceMemoryCleanup':
-    case 'getAutonomousSession':
-    case 'createAutonomousSession':
-    case 'getProactiveSuggestions':
-    case 'executeSuggestion':
-    case 'getCacheStats':
-    case 'sanitizeInput':
-    case 'sanitizeUrl':
-    case 'sanitizeBatch':
-      return true;
-    case 'toggleScheduledTask': {
-      const tId = msg.taskId;
-      return (
-        typeof tId === 'string' &&
-        tId.length > 0 &&
-        tId.length <= MAX_TASK_ID_LENGTH &&
-        (msg.enabled === undefined || typeof msg.enabled === 'boolean')
-      );
-    }
-    case 'deleteScheduledTask': {
-      const dId = msg.taskId;
-      return typeof dId === 'string' && dId.length > 0 && dId.length <= MAX_TASK_ID_LENGTH;
-    }
-    case 'installWorkflow': {
-      const wfId = msg.workflowId;
-      return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= MAX_WORKFLOW_ID_LENGTH;
-    }
-    case 'activateLicenseKey': {
-      const key = msg.key;
-      return typeof key === 'string' && key.length > 0 && key.length <= MAX_LICENSE_KEY_LENGTH;
-    }
-    case 'openCheckout':
-      return true;
-    default:
-      return false;
-  }
-}
+import {
+  validateExtensionMessage,
+  MAX_COMMAND_LENGTH,
+  MAX_TOOL_ID_LENGTH,
+  MAX_TASK_ID_LENGTH,
+  MAX_WORKFLOW_ID_LENGTH,
+  MAX_REPLY_LENGTH,
+  MAX_LICENSE_KEY_LENGTH,
+} from '../../shared/messages';
 
 describe('Message Validation', () => {
   describe('validateExtensionMessage', () => {

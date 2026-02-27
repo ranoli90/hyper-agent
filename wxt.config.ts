@@ -99,7 +99,7 @@ export default defineConfig({
     author: { email: 'support@hyperagent.ai' },
     homepage_url: 'https://hyperagent.ai/privacy',
     description: 'Hyper-intelligent browser agent with deep semantic understanding, self-healing locators, vision capabilities, and adaptive automation.',
-    version: '3.1.0',
+    version: '4.0.1',
     permissions: [
       'sidePanel',
       'tabs',

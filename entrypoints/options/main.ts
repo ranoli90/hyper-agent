@@ -1,4 +1,4 @@
-import { loadSettings, saveSettings, DEFAULTS } from '../../shared/config';
+import { loadSettings, saveSettings, DEFAULTS, AVAILABLE_MODELS, STORAGE_KEYS, buildGdprExportSnapshot } from '../../shared/config';
 import type { Settings } from '../../shared/config';
 import { getAllSiteConfigs, setSiteConfig, deleteSiteConfig } from '../../shared/siteConfig';
 import type { SiteConfig } from '../../shared/types';
@@ -53,6 +53,12 @@ const resetSettings = document.getElementById('reset-settings') as HTMLButtonEle
 const clearCache = document.getElementById('clear-cache') as HTMLButtonElement;
 const toastContainer = document.getElementById('toast-container') as HTMLDivElement | null;
 
+// Confirm modal references
+const confirmModal = document.getElementById('confirm-modal') as HTMLDivElement;
+const confirmMessage = document.getElementById('confirm-message') as HTMLParagraphElement;
+const btnConfirm = document.getElementById('btn-confirm') as HTMLButtonElement;
+const btnCancel = document.getElementById('btn-cancel') as HTMLButtonElement;
+
 // Status indicators
 const apiStatusDot = document.getElementById('api-status')!;
 const apiStatusText = document.getElementById('api-status-text')!;
@@ -89,6 +95,57 @@ function showNotification(message: string, variant: 'info' | 'success' | 'error'
   toast.addEventListener('click', removeToast, { once: true });
 }
 
+// Helper function to show confirm modal
+function showConfirmModal(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (!confirmModal || !confirmMessage || !btnConfirm || !btnCancel) {
+      resolve(confirm(message));
+      return;
+    }
+    
+    confirmMessage.textContent = message;
+    confirmModal.classList.remove('hidden');
+    btnConfirm.focus();
+    
+    const cleanup = () => {
+      confirmModal.classList.add('hidden');
+      btnConfirm.removeEventListener('click', onConfirm);
+      btnCancel.removeEventListener('click', onCancel);
+    };
+    
+    const onConfirm = () => {
+      cleanup();
+      resolve(true);
+    };
+    
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+    
+    btnConfirm.addEventListener('click', onConfirm);
+    btnCancel.addEventListener('click', onCancel);
+    
+    // Close on Escape
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cleanup();
+        resolve(false);
+      }
+    };
+    document.addEventListener('keydown', onKeydown);
+    
+    // Clean up keydown listener after modal closes
+    const observer = new MutationObserver(() => {
+      if (confirmModal.classList.contains('hidden')) {
+        document.removeEventListener('keydown', onKeydown);
+        observer.disconnect();
+      }
+    });
+    observer.observe(confirmModal, { attributes: true, attributeFilter: ['class'] });
+  });
+}
+
 const DEFAULT_SITE_MAX_RETRIES = 2;
 const DEFAULT_SITE_WAIT_MS = 400;
 let dangerZoneHandlersAttached = false;
@@ -113,46 +170,21 @@ function storageClear(): Promise<void> {
   });
 }
 
-// ─── API Provider URLs ───────────────────────────────────────────
+// ─── API Provider URL (OpenRouter only) ────────────────────────────
 const PROVIDER_URLS = {
-  openai: 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  google: 'https://generativelanguage.googleapis.com/v1beta',
   openrouter: 'https://openrouter.ai/api/v1',
-  custom: ''
 } as const;
 
-// Provider model options
+// Model options available via OpenRouter (from centralized list). HyperAgent
+// always uses OpenRouter's smart router (`openrouter/auto`); the UI exposes a
+// single fixed option rather than a user-selectable list.
 const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
-  openai: [
-    { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (Fast)' },
-    { value: 'gpt-4o', label: 'GPT-4o (Vision)' },
-    { value: 'gpt-4-turbo', label: 'GPT-4 Turbo' },
-  ],
-  anthropic: [
-    { value: 'claude-3-haiku-20240307', label: 'Claude 3 Haiku (Fast)' },
-    { value: 'claude-3-sonnet-20240229', label: 'Claude 3 Sonnet (Vision)' },
-    { value: 'claude-3-opus-20240229', label: 'Claude 3 Opus (Best)' },
-  ],
-  google: [
-    { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (FREE)' },
-    { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-  ],
-  openrouter: [
-    { value: 'openai/gpt-3.5-turbo', label: 'GPT-3.5 Turbo' },
-  ],
-  custom: [
-    { value: 'gpt-3.5-turbo', label: 'Default' },
-  ],
+  openrouter: [...AVAILABLE_MODELS],
 };
 
-// Key hints for each provider
+// Key hint for OpenRouter
 const PROVIDER_KEY_HINTS: Record<string, string> = {
-  openai: 'OpenAI keys start with sk-',
-  anthropic: 'Anthropic keys start with sk-ant-',
-  google: 'Google AI Studio keys start with AIza',
-  openrouter: 'OpenRouter keys start with sk-or-',
-  custom: 'Enter your API key',
+  openrouter: 'Get your key at openrouter.ai/keys',
 };
 
 // ─── Site Config DOM references ──────────────────────────────────
@@ -173,8 +205,8 @@ async function loadCurrentSettings() {
   const settings = await loadSettings();
   _cachedSettings = settings;
 
-  // Detect API provider from key or base URL
-  let provider = detectProviderFromKey(settings.apiKey) || detectProviderFromUrl(settings.baseUrl);
+  // Always use OpenRouter
+  const provider = 'openrouter';
   apiProviderInput.value = provider;
   updateModelOptions(provider);
   updateKeyHint(provider);
@@ -183,14 +215,15 @@ async function loadCurrentSettings() {
   const usingDefaultKey = settings.apiKey === DEFAULTS.DEFAULT_API_KEY;
   const hasCustomKey = Boolean(settings.apiKey && !usingDefaultKey);
   apiKeyInput.value = hasCustomKey ? settings.apiKey : '';
-  apiKeyInput.placeholder = hasCustomKey ? 'Enter your API key...' : 'Enter your API key...';
+  apiKeyInput.placeholder = 'Enter your OpenRouter API key...';
 
   updateApiUiState({
     status: hasCustomKey ? 'custom' : 'missing',
   });
 
-  modelSelectInput.value = settings.modelName || PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
-  modelStatusText.textContent = `Model: ${modelSelectInput.options[modelSelectInput.selectedIndex]?.text || 'Default'}`;
+  modelSelectInput.value = PROVIDER_MODELS.openrouter[0].value;
+  modelSelectInput.disabled = true;
+  modelStatusText.textContent = `Model: ${PROVIDER_MODELS.openrouter[0].label}`;
   updateTipsBanner(modelSelectInput.value);
   maxStepsInput.value = String(settings.maxSteps);
   maxStepsValue.textContent = String(settings.maxSteps);
@@ -204,26 +237,23 @@ async function loadCurrentSettings() {
   enableLearningInput.checked = settings.learningEnabled;
 }
 
-function detectProviderFromKey(apiKey: string): string {
-  if (!apiKey) return '';
-  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
-  if (apiKey.startsWith('AIza')) return 'google';
-  if (apiKey.startsWith('sk-or-')) return 'openrouter';
-  if (apiKey.startsWith('sk-')) return 'openai';
-  return '';
+// All calls route through OpenRouter
+function detectProviderFromKey(_apiKey: string): string {
+  return 'openrouter';
 }
 
-function detectProviderFromUrl(url: string): string {
-  if (url.includes('openrouter.ai')) return 'openrouter';
-  if (url.includes('openai.com')) return 'openai';
-  if (url.includes('anthropic.com')) return 'anthropic';
-  if (url.includes('googleapis.com')) return 'google';
-  return 'openai';
+// All calls route through OpenRouter
+function detectProviderFromUrl(_url: string): string {
+  return 'openrouter';
 }
 
-function updateModelOptions(provider: string) {
-  const models = PROVIDER_MODELS[provider] || PROVIDER_MODELS.openai;
+function updateModelOptions(_provider: string) {
+  const models = PROVIDER_MODELS.openrouter;
   modelSelectInput.innerHTML = models.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+  if (models.length > 0) {
+    modelSelectInput.value = models[0].value;
+    modelSelectInput.disabled = true;
+  }
 }
 
 function updateKeyHint(provider: string) {
@@ -238,8 +268,9 @@ apiProviderInput.addEventListener('change', () => {
   const provider = apiProviderInput.value;
   updateModelOptions(provider);
   updateKeyHint(provider);
-  modelSelectInput.value = PROVIDER_MODELS[provider]?.[0]?.value || 'gpt-3.5-turbo';
-  modelStatusText.textContent = `Model: ${PROVIDER_MODELS[provider]?.[0]?.label || 'Default'}`;
+  modelSelectInput.value = PROVIDER_MODELS.openrouter[0].value;
+  modelSelectInput.disabled = true;
+  modelStatusText.textContent = `Model: ${PROVIDER_MODELS.openrouter[0].label}`;
 });
 
 maxStepsInput.addEventListener('input', () => {
@@ -251,17 +282,10 @@ function updateTipsBanner(modelName: string) {
   if (!tipsInfo) return;
 
   const modelDescriptions: Record<string, string> = {
-    'gpt-3.5-turbo': 'GPT-3.5 Turbo - Fast and affordable for most tasks.',
-    'gpt-4o': 'GPT-4o - Advanced model with vision support.',
-    'gpt-4-turbo': 'GPT-4 Turbo - Powerful reasoning capabilities.',
-    'claude-3-haiku-20240307': 'Claude 3 Haiku - Fast and efficient.',
-    'claude-3-sonnet-20240229': 'Claude 3 Sonnet - Balanced performance with vision.',
-    'claude-3-opus-20240229': 'Claude 3 Opus - Most capable Claude model.',
-    'gemini-2.0-flash': 'Gemini 2.0 Flash - FREE via Google AI Studio!',
-    'gemini-1.5-pro': 'Gemini 1.5 Pro - Advanced Google model.',
+    [DEFAULTS.MODEL_NAME]: 'OpenRouter Auto — Smart router that automatically selects the best model for each task.',
   };
 
-  tipsInfo.textContent = modelDescriptions[modelName] || `Using ${modelName}.`;
+  tipsInfo.textContent = modelDescriptions[modelName] || 'OpenRouter Auto — Smart router selects models automatically.';
 }
 
 let _saveInProgress = false;
@@ -270,7 +294,7 @@ btnSave.addEventListener('click', async () => {
   _saveInProgress = true;
   try {
     const apiKeyValue = apiKeyInput.value.trim() || DEFAULTS.DEFAULT_API_KEY;
-    const modelNameValue = modelSelectInput.value;
+    const modelNameValue = DEFAULTS.MODEL_NAME;
     const provider = apiProviderInput.value;
 
     await saveSettings({
@@ -310,63 +334,15 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
     return { valid: false, error: 'No API key provided' };
   }
 
-  // Detect provider from key
-  const provider = detectProviderFromKey(key);
-  
   try {
-    // Google uses different validation
-    if (provider === 'google' || key.startsWith('AIza')) {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(10000),
-      });
-      
-      if (response.ok) {
-        return { valid: true };
-      }
-      
-      const errorText = await response.text();
-      console.error('[API Validation Error]', errorText);
-      return { valid: false, error: 'Invalid Google API key' };
-    }
-    
-    // Anthropic uses different validation
-    if (provider === 'anthropic' || key.startsWith('sk-ant-')) {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-haiku-20240307',
-          max_tokens: 1,
-          messages: [{ role: 'user', content: 'Hi' }],
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-      
-      if (response.ok || response.status === 400) {
-        // 400 might mean the request was processed but input was invalid
-        return { valid: true };
-      }
-      
-      const errorText = await response.text();
-      console.error('[API Validation Error]', errorText);
-      try {
-        const errorJson = JSON.parse(errorText);
-        return { valid: false, error: errorJson.error?.message || 'Invalid Anthropic API key' };
-      } catch {
-        return { valid: false, error: 'Invalid Anthropic API key' };
-      }
-    }
-    
-    // OpenAI and OpenRouter use similar API
-    const response = await fetch(`${baseUrl}/models`, {
+    // All validation goes through OpenRouter's models endpoint
+    const validationUrl = baseUrl || PROVIDER_URLS.openrouter;
+    const response = await fetch(`${validationUrl}/models`, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${key}`,
+        'HTTP-Referer': 'https://hyperagent.ai',
+        'X-Title': 'HyperAgent',
       },
       signal: AbortSignal.timeout(10000),
     });
@@ -377,15 +353,16 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
 
     // If models endpoint fails, try a minimal chat completion
     if (response.status === 404) {
-      const model = provider === 'openrouter' ? 'openai/gpt-3.5-turbo' : 'gpt-3.5-turbo';
-      const chatResponse = await fetch(`${baseUrl}/chat/completions`, {
+      const chatResponse = await fetch(`${validationUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${key}`,
+          'HTTP-Referer': 'https://hyperagent.ai',
+          'X-Title': 'HyperAgent',
         },
         body: JSON.stringify({
-          model,
+          model: 'google/gemini-2.5-flash',
           messages: [{ role: 'user', content: 'Hi' }],
           max_tokens: 1,
         }),
@@ -399,37 +376,77 @@ async function validateApiKey(key: string, baseUrl: string): Promise<{ valid: bo
       const errorText = await chatResponse.text();
       console.error('[API Validation Error]', errorText);
 
-      try {
-        const errorJson = JSON.parse(errorText);
-        if (errorJson.error?.message) {
-          return { valid: false, error: errorJson.error.message };
-        }
-      } catch { }
-
-      return { valid: false, error: `API Error: ${chatResponse.status}` };
+      // Improved error parsing - try JSON first, then provide friendly fallback
+      const friendlyError = parseApiError(chatResponse.status, errorText);
+      return { valid: false, error: friendlyError };
     }
 
     const errorText = await response.text();
     console.error('[API Validation Error]', errorText);
 
-    // Parse error message
-    try {
-      const errorJson = JSON.parse(errorText);
-      if (errorJson.error?.message) {
-        if (errorJson.error.message.includes('Authentication')) {
-          return { valid: false, error: 'Invalid API key' };
-        }
-        return { valid: false, error: errorJson.error.message };
-      }
-    } catch { }
-
-    return { valid: false, error: `API Error: ${response.status}` };
+    // Improved error parsing - try JSON first, then provide friendly fallback
+    const friendlyError = parseApiError(response.status, errorText);
+    return { valid: false, error: friendlyError };
   } catch (error) {
     console.error('[API Validation Error]', error);
     if ((error as Error).name === 'TimeoutError' || (error as Error).message?.includes('abort')) {
-      return { valid: false, error: 'Connection timeout' };
+      return { valid: false, error: 'Connection timeout - check your internet' };
     }
-    return { valid: false, error: `Connection error: ${(error as Error).message}` };
+    return { valid: false, error: `Connection failed: ${(error as Error).message}` };
+  }
+}
+
+// Helper to parse API errors into user-friendly messages
+function parseApiError(status: number, errorText: string): string {
+  // Try to parse JSON response first
+  let errorJson: Record<string, unknown> | null = null;
+  
+  try {
+    errorJson = JSON.parse(errorText);
+  } catch {
+    // Not JSON - will use fallback below
+  }
+
+  if (errorJson && typeof errorJson === 'object') {
+    const errorObj = errorJson as Record<string, unknown>;
+    const errorMsg = (errorObj.error as Record<string, unknown>)?.message as string | undefined;
+    
+    if (errorMsg && typeof errorMsg === 'string') {
+      const msg = errorMsg.toLowerCase();
+      // Map specific error messages to friendly ones
+      if (msg.includes('authentication') || msg.includes('invalid') || msg.includes('unauthorized')) {
+        return 'Invalid API key - please check your key in Settings';
+      }
+      if (msg.includes('insufficient') || msg.includes('quota') || msg.includes('credit')) {
+        return 'Insufficient credits - please add funds to your OpenRouter account';
+      }
+      if (msg.includes('rate limit')) {
+        return 'Rate limit exceeded - please try again later';
+      }
+      // Return original message if no specific mapping
+      return errorMsg;
+    }
+  }
+
+  // Provide user-friendly messages for common status codes
+  switch (status) {
+    case 400:
+      return 'Invalid request - please check your API key format';
+    case 401:
+    case 403:
+      return 'Invalid API key - please check your key in Settings';
+    case 404:
+      return 'API endpoint not found - please check your settings';
+    case 429:
+      return 'Rate limit exceeded - please try again later';
+    case 500:
+    case 502:
+    case 503:
+      return 'Service temporarily unavailable - please try again';
+    default:
+      // Log raw error for debugging
+      console.warn('[API Error] Status:', status, 'Raw:', errorText.substring(0, 200));
+      return `API Error (${status}) - please check your settings`;
   }
 }
 
@@ -525,11 +542,47 @@ apiProviderInput.addEventListener('change', async () => {
 });
 
 // ─── Initialize ─────────────────────────────────────────────────
-loadCurrentSettings();
-validateCurrentSettings();
-loadSiteConfigs();
+// Wrap setting loaders in try-catch so danger zone / export buttons
+// remain functional even if storage is corrupted.
+try {
+  loadCurrentSettings();
+  validateCurrentSettings();
+  loadSiteConfigs();
+} catch (err) {
+  showNotification('Failed to load some settings — you can still reset or export data below.', 'error');
+}
 attachDangerZoneHandlers();
 handleStripePaymentReturn();
+
+// ─── Dark Mode Sync ─────────────────────────────────────────────
+async function initOptionsDarkMode() {
+  const data = await chrome.storage.local.get('dark_mode');
+  let useDark: boolean;
+  if (data.dark_mode === true) {
+    useDark = true;
+  } else if (data.dark_mode === false) {
+    useDark = false;
+  } else {
+    useDark = typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  if (useDark) {
+    document.documentElement.classList.add('dark');
+    document.body.classList.add('dark-mode');
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.body.classList.remove('dark-mode');
+  }
+}
+initOptionsDarkMode();
+
+// Listen for dark mode changes from sidepanel
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.dark_mode) {
+    const isDark = changes.dark_mode.newValue === true;
+    document.documentElement.classList.toggle('dark', isDark);
+    document.body.classList.toggle('dark-mode', isDark);
+  }
+});
 
 // ─── Site Config Functions ────────────────────────────────────────
 
@@ -624,7 +677,7 @@ async function loadConfigToForm(domain: string, configs: SiteConfig[]) {
 btnAddSiteConfig.addEventListener('click', async () => {
   const domain = siteConfigDomainInput.value.trim();
   if (!domain) {
-    alert('Please enter a domain');
+    showNotification('Please enter a domain', 'error');
     return;
   }
 
@@ -648,13 +701,12 @@ btnAddSiteConfig.addEventListener('click', async () => {
 btnDeleteSiteConfig.addEventListener('click', async () => {
   const domain = siteConfigDomainInput.value.trim();
   if (!domain) {
-    alert('Please enter a domain to delete');
+    showNotification('Please enter a domain to delete', 'error');
     return;
   }
 
-  if (!confirm(`Delete custom config for "${domain}"?`)) {
-    return;
-  }
+  const confirmed = await showConfirmModal(`Delete custom config for "${domain}"?`);
+  if (!confirmed) return;
 
   await deleteSiteConfig(domain);
   await loadSiteConfigs();
@@ -677,7 +729,23 @@ function attachDangerZoneHandlers() {
   dangerZoneHandlersAttached = true;
 
   resetSettings?.addEventListener('click', async () => {
-    if (!confirm('Reset all settings to defaults? This will permanently clear your API key, chat history, sessions, snapshots, and all preferences. This cannot be undone.')) return;
+    // First prompt to export data before resetting
+    const exportFirst = await showConfirmModal('Would you like to export your data before resetting? Click OK to export, or Cancel to reset without exporting.');
+    
+    if (exportFirst) {
+      // Trigger export before reset
+      const btnExportAll = document.getElementById('btn-export-all');
+      if (btnExportAll) {
+        btnExportAll.click();
+        // Wait for export to complete, then confirm reset
+        const proceedWithReset = await showConfirmModal('Data exported. Click OK to now reset all settings, or Cancel to keep your data.');
+        if (!proceedWithReset) return;
+      }
+    }
+    
+    const confirmed = await showConfirmModal('Reset all settings to defaults? This will permanently clear your API key, chat history, sessions, snapshots, and all preferences. This cannot be undone.');
+    if (!confirmed) return;
+    
     await storageClear();
     _cachedSettings = null;
     await loadCurrentSettings();
@@ -698,7 +766,7 @@ function attachDangerZoneHandlers() {
     await storageRemove(keysToRemove);
     const allItems = await storageGet(null);
     const keysToDelete = Object.entries(allItems)
-      .filter(([, value]) => typeof value === 'string' && /anthropic|claude/i.test(value))
+      .filter(([, value]) => typeof value === 'string' && /generativelanguage|anthropic|claude/i.test(value))
       .map(([key]) => key);
 
     if (keysToDelete.length) {
@@ -713,12 +781,11 @@ function attachDangerZoneHandlers() {
   btnExportAll?.addEventListener('click', async () => {
     try {
       const allData = await storageGet(null);
-      const exportData = {
-        version: '1.0',
-        exportedAt: new Date().toISOString(),
-        source: 'HyperAgent GDPR Export',
-        data: allData,
-      };
+      const subscription = allData[STORAGE_KEYS.SUBSCRIPTION] as any | undefined;
+      const exportData = buildGdprExportSnapshot(allData, {
+        billingTier: subscription?.tier,
+        billingStatus: subscription?.status,
+      });
 
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -728,7 +795,7 @@ function attachDangerZoneHandlers() {
       a.click();
       URL.revokeObjectURL(url);
 
-      showNotification('All data exported successfully', 'success');
+      showNotification('All data exported successfully (API keys are not included).', 'success');
     } catch (err) {
       showNotification('Failed to export data', 'error');
       console.error('[HyperAgent] Export error:', err);
@@ -737,39 +804,71 @@ function attachDangerZoneHandlers() {
 
   const btnDeleteAllData = document.getElementById('btn-delete-all-data') as HTMLButtonElement;
   btnDeleteAllData?.addEventListener('click', async () => {
-    const confirmed = confirm(
-      'This will permanently delete ALL your data including:\n\n' +
-      '• API key and settings\n' +
-      '• Chat history\n' +
-      '• Scheduled tasks\n' +
-      '• Snapshots and sessions\n' +
-      '• Learning data\n\n' +
-      'This action cannot be undone. Continue?'
-    );
+    const deleteModal = document.getElementById('delete-modal');
+    const deleteInput = document.getElementById('delete-confirm-input') as HTMLInputElement;
+    const deleteConfirmBtn = document.getElementById('btn-delete-confirm') as HTMLButtonElement;
+    const deleteCancelBtn = document.getElementById('btn-delete-cancel') as HTMLButtonElement;
 
-    if (!confirmed) return;
-
-    const doubleConfirm = confirm(
-      'Are you absolutely sure? Type "DELETE" in the next prompt to confirm.'
-    );
-
-    if (!doubleConfirm) return;
-
-    const confirmation = prompt('Type DELETE to confirm permanent data deletion:');
-    if (confirmation !== 'DELETE') {
-      showNotification('Deletion cancelled', 'info');
+    if (!deleteModal || !deleteInput || !deleteConfirmBtn || !deleteCancelBtn) {
+      showNotification('Modal not found', 'error');
       return;
     }
 
-    try {
-      await storageClear();
-      _cachedSettings = null;
-      await loadCurrentSettings();
-      showNotification('All data has been permanently deleted', 'success');
-    } catch (err) {
-      showNotification('Failed to delete data', 'error');
-      console.error('[HyperAgent] Deletion error:', err);
-    }
+    deleteModal.classList.remove('hidden');
+    deleteInput.value = '';
+    deleteConfirmBtn.disabled = true;
+    deleteInput.focus();
+
+    const cleanup = () => {
+      deleteModal.classList.add('hidden');
+      deleteInput.value = '';
+    };
+
+    const inputHandler = () => {
+      deleteConfirmBtn.disabled = deleteInput.value.trim() !== 'DELETE';
+    };
+
+    const confirmHandler = async () => {
+      if (deleteInput.value.trim() !== 'DELETE') {
+        showNotification('Deletion cancelled', 'info');
+        cleanup();
+        return;
+      }
+
+      cleanup();
+      deleteInput.removeEventListener('input', inputHandler);
+      deleteConfirmBtn.removeEventListener('click', confirmHandler);
+      deleteCancelBtn.removeEventListener('click', cancelHandler);
+
+      try {
+        await storageClear();
+        _cachedSettings = null;
+        await loadCurrentSettings();
+        showNotification('All data has been permanently deleted', 'success');
+      } catch (err) {
+        showNotification('Failed to delete data', 'error');
+        console.error('[HyperAgent] Deletion error:', err);
+      }
+    };
+
+    const cancelHandler = () => {
+      cleanup();
+      deleteInput.removeEventListener('input', inputHandler);
+      deleteConfirmBtn.removeEventListener('click', confirmHandler);
+      deleteCancelBtn.removeEventListener('click', cancelHandler);
+    };
+
+    deleteInput.addEventListener('input', inputHandler);
+    deleteConfirmBtn.addEventListener('click', confirmHandler);
+    deleteCancelBtn.addEventListener('click', cancelHandler);
+
+    deleteInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        cancelHandler();
+      } else if (e.key === 'Enter' && deleteInput.value.trim() === 'DELETE') {
+        confirmHandler();
+      }
+    });
   });
 }
 
@@ -783,6 +882,23 @@ if (toggleAdvancedBtn) {
     if (panel) {
       panel.classList.toggle('hidden');
       toggleAdvancedBtn.textContent = panel.classList.contains('hidden') ? '️ Site Overrides' : ' Hide Overrides';
+    }
+  });
+}
+
+// ─── Back to Side Panel ──────────────────────────────────────────
+const btnBackToPanel = document.getElementById('btn-back-to-panel');
+if (btnBackToPanel) {
+  btnBackToPanel.addEventListener('click', async () => {
+    try {
+      // Open the side panel on the current window
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) {
+        await (chrome.sidePanel as any).open({ tabId: tab.id });
+      }
+    } catch {
+      // Fallback: just show a helpful message
+      showNotification('Open the side panel by clicking the HyperAgent icon in your toolbar.', 'info');
     }
   });
 }

@@ -77,12 +77,12 @@ export const VALIDATION = {
 
 // ─── Defaults ───────────────────────────────────────────────────────
 export const DEFAULTS = {
-  BASE_URL: 'https://api.openai.com/v1',
+  BASE_URL: 'https://openrouter.ai/api/v1',
   DEFAULT_API_KEY: '',
-  MODEL_NAME: 'gpt-3.5-turbo',
-  BACKUP_MODEL: 'gpt-3.5-turbo',
-  VISION_MODEL: 'gpt-4o',
-  PROVIDER: 'openai', // 'openai', 'anthropic', 'google'
+  MODEL_NAME: 'openrouter/auto',
+  BACKUP_MODEL: 'openrouter/auto',
+  VISION_MODEL: 'openrouter/auto',
+  PROVIDER: 'openrouter', // All API calls go through OpenRouter
   MAX_STEPS: 12,
   REQUIRE_CONFIRM: false,
   DRY_RUN: false,
@@ -118,6 +118,16 @@ export const DEFAULTS = {
   OLLAMA_MODEL: 'llama3.2:3b',
   USE_LOCAL_AI: false,  // Default to cloud AI unless Ollama is available
 } as const;
+
+// ─── Centralized Model List ──────────────────────────────────────────
+// Single source of truth for all available models.
+// NOTE: HyperAgent uses OpenRouter's smart router exclusively. The user does
+// not choose individual underlying models – OpenRouter dynamically selects
+// them. We still expose a single entry here so existing UI can render a
+// label, but all requests use `openrouter/auto` under the hood.
+export const AVAILABLE_MODELS = [
+  { value: DEFAULTS.MODEL_NAME, label: 'Auto (OpenRouter smart router)' },
+] as const;
 
 // ─── Payment Configuration ───────────────────────────────────────────
 export const PAYMENT_CONFIG = {
@@ -249,11 +259,19 @@ export async function loadSettings(): Promise<Settings> {
       STORAGE_KEYS.LEARNING_ENABLED,
     ]);
 
+    const rawBaseUrl = data[STORAGE_KEYS.BASE_URL];
+    const normalizedBaseUrl =
+      typeof rawBaseUrl === 'string' && rawBaseUrl.trim().length > 0
+        ? DEFAULTS.BASE_URL
+        : DEFAULTS.BASE_URL;
+
     const settings: Settings = {
       apiKey: data[STORAGE_KEYS.API_KEY] || '',
-      baseUrl: data[STORAGE_KEYS.BASE_URL] ?? DEFAULTS.BASE_URL,
-      modelName: data[STORAGE_KEYS.MODEL_NAME] ?? DEFAULTS.MODEL_NAME,
-      backupModel: data[STORAGE_KEYS.BACKUP_MODEL] ?? DEFAULTS.BACKUP_MODEL,
+      baseUrl: normalizedBaseUrl,
+      // Enforce OpenRouter smart router for all calls – ignore any stale custom
+      // model names that may be present from previous versions.
+      modelName: DEFAULTS.MODEL_NAME,
+      backupModel: DEFAULTS.BACKUP_MODEL,
       maxSteps: data[STORAGE_KEYS.MAX_STEPS] ?? DEFAULTS.MAX_STEPS,
       requireConfirm: data[STORAGE_KEYS.REQUIRE_CONFIRM] ?? DEFAULTS.REQUIRE_CONFIRM,
       dryRun: data[STORAGE_KEYS.DRY_RUN] ?? DEFAULTS.DRY_RUN,
@@ -459,12 +477,101 @@ export function validateAndFilterImportData(settings: unknown): {
   };
 }
 
+// ─── GDPR / Data Export Helpers ────────────────────────────────────────────
+
+export interface GdprExportOptions {
+  billingTier?: string;
+  billingStatus?: string;
+}
+
+/**
+ * Build a structured snapshot of user data for GDPR-style export.
+ * IMPORTANT: This helper never includes raw API keys or secrets.
+ */
+export function buildGdprExportSnapshot(
+  allData: Record<string, unknown>,
+  options: GdprExportOptions = {},
+) {
+  const subscription = allData[STORAGE_KEYS.SUBSCRIPTION] as any | undefined;
+  const billingTier = options.billingTier ?? subscription?.tier ?? 'unknown';
+  const billingStatus = options.billingStatus ?? subscription?.status ?? 'unknown';
+
+  return {
+    exportDate: new Date().toISOString(),
+    version: '4.0.1',
+    data: {
+      settings: {
+        darkMode: allData.dark_mode ?? allData[STORAGE_KEYS.DARK_MODE],
+        apiKeyConfigured: Boolean(allData[STORAGE_KEYS.API_KEY]),
+        baseUrl: allData[STORAGE_KEYS.BASE_URL],
+        modelName: allData[STORAGE_KEYS.MODEL_NAME],
+        maxSteps: allData[STORAGE_KEYS.MAX_STEPS],
+        requireConfirm: allData[STORAGE_KEYS.REQUIRE_CONFIRM],
+        dryRun: allData[STORAGE_KEYS.DRY_RUN],
+        enableVision: allData[STORAGE_KEYS.ENABLE_VISION],
+        enableSwarmIntelligence: allData[STORAGE_KEYS.ENABLE_SWARM_INTELLIGENCE],
+        enableAutonomousMode: allData[STORAGE_KEYS.ENABLE_AUTONOMOUS_MODE],
+        learningEnabled: allData[STORAGE_KEYS.LEARNING_ENABLED],
+        siteBlacklist: allData[STORAGE_KEYS.SITE_BLACKLIST],
+      },
+      chatHistory: allData.chat_history_backup || allData[STORAGE_KEYS.CHAT_HISTORY] || '',
+      commandHistory: allData.command_history || allData[STORAGE_KEYS.COMMAND_HISTORY] || [],
+      workflows: Object.fromEntries(
+        Object.entries(allData).filter(([key]) =>
+          key.startsWith('workflow_') ||
+          key === STORAGE_KEYS.WORKFLOWS ||
+          key === STORAGE_KEYS.INSTALLED_WORKFLOWS,
+        ),
+      ),
+      scheduledTasks: allData[STORAGE_KEYS.SCHEDULED_TASKS] || [],
+      siteConfigs: allData[STORAGE_KEYS.SITE_CONFIGS] || [],
+      siteStrategies: allData[STORAGE_KEYS.SITE_STRATEGIES] || {},
+      memory: {
+        actionHistory: allData[STORAGE_KEYS.ACTION_HISTORY] || [],
+        sessions: allData[STORAGE_KEYS.SESSIONS] || [],
+        neuroplasticity: (allData as any).hyperagent_neuroplasticity || {},
+      },
+      snapshots: Object.fromEntries(
+        Object.entries(allData).filter(([key]) => key.startsWith('snapshot_')),
+      ),
+      metrics: allData[STORAGE_KEYS.USAGE_METRICS] || {},
+      billing: {
+        tier: billingTier,
+        status: billingStatus,
+      },
+      privacy: allData[STORAGE_KEYS.PRIVACY_SETTINGS] || {},
+      security: allData[STORAGE_KEYS.SECURITY_POLICY] || {},
+    },
+    gdpr: {
+      rightToAccess: true,
+      rightToRectification: true,
+      rightToErasure: true,
+      rightToPortability: true,
+      dataController: 'HyperAgent',
+      dataLocation: 'Local browser storage only',
+      retention: 'User-controlled',
+      contact: 'privacy@hyperagent.ai',
+      note:
+        'API keys are NOT exported for security. Chat history and settings may contain sensitive information - handle exports with care.',
+    },
+  };
+}
+
 export function isSiteBlacklisted(url: string, blacklist: string): boolean {
   if (!blacklist.trim()) return false;
   const patterns = blacklist.split('\n').map((s) => s.trim()).filter(Boolean);
   try {
-    const hostname = new URL(url).hostname;
-    return patterns.some((p) => hostname.includes(p));
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (!hostname) return false;
+
+    const normalizePattern = (pattern: string): string =>
+      pattern.replace(/^\*\./, '').toLowerCase();
+
+    return patterns.some((raw) => {
+      const pattern = normalizePattern(raw);
+      if (!pattern) return false;
+      return hostname === pattern || hostname.endsWith(`.${pattern}`);
+    });
   } catch {
     return false;
   }
@@ -496,7 +603,7 @@ async function setStoredVersion(version: number): Promise<void> {
 
 export async function runMigrations(): Promise<void> {
   const currentVersion = await getStoredVersion();
-  
+
   if (currentVersion >= STORAGE_VERSION) {
     return;
   }
@@ -507,7 +614,7 @@ export async function runMigrations(): Promise<void> {
     if (currentVersion < 1) {
       await migrateToV1();
     }
-    
+
     await setStoredVersion(STORAGE_VERSION);
     console.log('[Config] Migrations complete');
   } catch (err) {
@@ -524,11 +631,11 @@ export async function safeStorageGet<T>(key: string, defaultValue: T): Promise<T
   try {
     const data = await chrome.storage.local.get(key);
     const value = data[key];
-    
+
     if (value === undefined || value === null) {
       return defaultValue;
     }
-    
+
     if (typeof value === 'string') {
       try {
         if (value.startsWith('{') || value.startsWith('[')) {
@@ -539,7 +646,7 @@ export async function safeStorageGet<T>(key: string, defaultValue: T): Promise<T
         return defaultValue;
       }
     }
-    
+
     return value as T;
   } catch (err) {
     console.warn(`[Config] Failed to get ${key}, using default:`, err);
@@ -557,8 +664,8 @@ export async function safeStorageSet(key: string, value: unknown): Promise<boole
   }
 }
 
-export async function validateStorageIntegrity(): Promise<{ 
-  healthy: boolean; 
+export async function validateStorageIntegrity(): Promise<{
+  healthy: boolean;
   issues: string[];
   repaired: boolean;
 }> {
@@ -567,14 +674,14 @@ export async function validateStorageIntegrity(): Promise<{
 
   try {
     const allData = await chrome.storage.local.get(null);
-    
+
     for (const [key, value] of Object.entries(allData)) {
       if (value === 'undefined' || value === 'null') {
         issues.push(`Key ${key} contains string 'undefined' or 'null'`);
         await chrome.storage.local.remove(key);
         repaired = true;
       }
-      
+
       if (typeof value === 'string' && key.endsWith('_json')) {
         try {
           JSON.parse(value);
@@ -585,7 +692,7 @@ export async function validateStorageIntegrity(): Promise<{
         }
       }
     }
-    
+
     const version = await getStoredVersion();
     if (version < STORAGE_VERSION) {
       issues.push(`Schema version ${version} is outdated`);

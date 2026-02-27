@@ -53,33 +53,16 @@ function sanitizeForPrompt(text: string): string {
 import { retryManager, networkRetryPolicy } from './retry-circuit-breaker';
 import { ollamaClient, checkOllamaStatus } from './ollamaClient';
 
-const DEFAULT_MODEL = 'gpt-3.5-turbo';
+const DEFAULT_MODEL = DEFAULTS.MODEL_NAME || 'openrouter/auto';
 
-// Provider configurations
-const PROVIDERS = {
-  openai: {
-    baseUrl: 'https://api.openai.com/v1',
-    models: {
-      chat: 'gpt-3.5-turbo',
-      vision: 'gpt-4o',
-    },
-  },
-  anthropic: {
-    baseUrl: 'https://api.anthropic.com/v1',
-    models: {
-      chat: 'claude-3-haiku-20240307',
-      vision: 'claude-3-sonnet-20240229',
-    },
-  },
-  google: {
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    models: {
-      chat: 'gemini-2.0-flash',
-      vision: 'gemini-2.0-flash',
-    },
-  },
+// ─── OpenRouter Configuration ─────────────────────────────────────────────
+// All API calls go through OpenRouter (OpenAI-compatible API).
+const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+
+const OPENROUTER_MODELS = {
+  chat: DEFAULTS.MODEL_NAME,
+  vision: DEFAULTS.VISION_MODEL,
 } as const;
-// This lets OpenRouter's smart routing handle model and provider selection
 
 type TaskComplexity = 'simple' | 'standard' | 'complex';
 
@@ -472,65 +455,43 @@ function selectModelForTask(_task: AgentTask): string {
   return DEFAULT_MODEL;
 }
 
-// Detect provider from API key
-function detectProviderFromKey(apiKey: string): 'openai' | 'anthropic' | 'google' {
-  if (apiKey.startsWith('sk-ant-')) return 'anthropic';
-  if (apiKey.startsWith('AIza')) return 'google';
-  return 'openai';
+// All calls go through OpenRouter — this is kept for backward compat but always returns 'openrouter'
+function detectProviderFromKey(_apiKey: string): string {
+  return 'openrouter';
 }
 
-// Get API headers for each provider
-function getProviderHeaders(provider: string, apiKey: string): Record<string, string> {
-  const baseHeaders: Record<string, string> = {
+// Get API headers for OpenRouter (OpenAI-compatible + required OpenRouter headers)
+function getOpenRouterHeaders(apiKey: string): Record<string, string> {
+  return {
     'Content-Type': 'application/json',
+    'Authorization': `Bearer ${apiKey}`,
+    'HTTP-Referer': 'https://hyperagent.ai',
+    'X-Title': 'HyperAgent',
   };
-  
-  switch (provider) {
-    case 'anthropic':
-      return {
-        ...baseHeaders,
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      };
-    case 'google':
-      return baseHeaders; // Google uses key in URL
-    default: // openai
-      return {
-        ...baseHeaders,
-        'Authorization': `Bearer ${apiKey}`,
-      };
-  }
 }
 
-// Build request body for each provider
-function buildProviderRequest(provider: string, model: string, messages: any[], maxTokens: number, temperature: number): Record<string, unknown> {
-  switch (provider) {
-    case 'anthropic':
-      return {
-        model,
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-        max_tokens: maxTokens,
-        temperature,
-      };
-    case 'google':
-      return {
-        contents: messages.filter(m => m.role !== 'system').map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }],
-        })),
-        generationConfig: {
-          maxOutputTokens: maxTokens,
-          temperature,
-        },
-      };
-    default: // openai
-      return {
-        model,
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-      };
+// Build request body (OpenAI-compatible format, used by OpenRouter)
+function buildOpenRouterRequest(model: string, messages: any[], maxTokens: number, temperature: number): Record<string, unknown> {
+  const baseRequest: Record<string, unknown> = {
+    model,
+    messages,
+    max_tokens: maxTokens,
+    temperature,
+  };
+
+  // OpenRouter occasionally auto-routes Google models to Anthropic endpoints if user preferences are cached.
+  // We explicitly override the downstream provider depending on the selected model to prevent 404.
+  if (model.includes('gemini') || model.includes('gemma')) {
+    baseRequest.provider = { order: ["Google"] };
+  } else if (model.includes('claude') || model.includes('anthropic')) {
+    baseRequest.provider = { order: ["Anthropic"] };
+  } else if (model.includes('llama')) {
+    baseRequest.provider = { order: ["Meta", "Together", "Fireworks"] };
+  } else if (model.includes('deepseek')) {
+    baseRequest.provider = { order: ["DeepSeek"] };
   }
+
+  return baseRequest;
 }
 
 function analyzeTaskComplexity(command: string, history: HistoryEntry[]): AgentTask {
@@ -1056,20 +1017,14 @@ Respond with valid JSON:
   "done": false
 }`;
 
-    // Detect provider from API key
-    const provider = detectProviderFromKey(settings.apiKey);
-    const providerConfig = PROVIDERS[provider];
-    const model = providerConfig.models.chat;
-
-    const baseUrl = provider === 'google' 
-      ? `${providerConfig.baseUrl}/models/${model}:generateContent?key=${settings.apiKey}`
-      : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
-    
-    const headers = getProviderHeaders(provider, settings.apiKey);
+    // All calls go through OpenRouter
+    const model = OPENROUTER_MODELS.chat;
+    const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
+    const headers = getOpenRouterHeaders(settings.apiKey);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const requestBody = buildProviderRequest(provider, model, [{ role: 'user', content: reasoningPrompt }], 1000, 0.1);
+        const requestBody = buildOpenRouterRequest(model, [{ role: 'user', content: reasoningPrompt }], 1000, 0.1);
 
         const resp = await fetch(baseUrl, {
           method: 'POST',
@@ -1081,15 +1036,7 @@ Respond with valid JSON:
         if (!resp?.ok) continue;
 
         const data = await resp.json();
-        
-        let content: string;
-        if (provider === 'google') {
-          content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        } else if (provider === 'anthropic') {
-          content = data?.content?.[0]?.text || data?.completion || '';
-        } else {
-          content = data?.choices?.[0]?.message?.content || '';
-        }
+        const content = data?.choices?.[0]?.message?.content || '';
 
         if (!content) continue;
 
@@ -1305,18 +1252,13 @@ export class EnhancedLLMClient implements LLMClientInterface {
 
     try {
       const safeMessages = sanitizeMessages(request.messages || []);
-      const provider = detectProviderFromKey(settings.apiKey);
-      const providerConfig = PROVIDERS[provider];
-      const model = providerConfig.models.chat;
-      
-      console.log(`[HyperAgent] Using completion model: ${model} (provider: ${provider})`);
+      const model = settings.modelName || OPENROUTER_MODELS.chat;
 
-      const baseUrl = provider === 'google' 
-        ? `${providerConfig.baseUrl}/models/${model}:generateContent?key=${settings.apiKey}`
-        : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
-      
-      const headers = getProviderHeaders(provider, settings.apiKey);
-      const requestBody = buildProviderRequest(provider, model, safeMessages, request.maxTokens ?? 1000, request.temperature ?? 0.7);
+      console.log(`[HyperAgent] Using completion model: ${model} (via OpenRouter)`);
+
+      const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
+      const headers = getOpenRouterHeaders(settings.apiKey);
+      const requestBody = buildOpenRouterRequest(model, safeMessages, request.maxTokens ?? 1000, request.temperature ?? 0.7);
 
       const response = await fetch(baseUrl, {
         method: 'POST',
@@ -1338,12 +1280,6 @@ export class EnhancedLLMClient implements LLMClientInterface {
       }
 
       const data = await response.json();
-      
-      if (provider === 'google') {
-        return data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      } else if (provider === 'anthropic') {
-        return data?.content?.[0]?.text || data?.completion || '';
-      }
       return data?.choices?.[0]?.message?.content || '';
     } catch (error) {
       console.error('[HyperAgent] Completion failed:', error);
@@ -1423,20 +1359,14 @@ export class EnhancedLLMClient implements LLMClientInterface {
       return cachedResponse;
     }
 
-    // Detect provider from API key
-    const provider = detectProviderFromKey(settings.apiKey);
-    console.log(`[HyperAgent] Using provider: ${provider}, model: ${selectedModel}`);
+    // All calls go through OpenRouter
+    console.log(`[HyperAgent] Using model: ${selectedModel} (via OpenRouter)`);
 
-    // Get provider-specific configuration
-    const providerConfig = PROVIDERS[provider];
-    const baseUrl = provider === 'google' 
-      ? `${providerConfig.baseUrl}/models/${providerConfig.models.chat}:generateContent?key=${settings.apiKey}`
-      : `${settings.baseUrl || providerConfig.baseUrl}/chat/completions`;
-    
-    const headers = getProviderHeaders(provider, settings.apiKey);
+    const baseUrl = `${settings.baseUrl || OPENROUTER_BASE_URL}/chat/completions`;
+    const headers = getOpenRouterHeaders(settings.apiKey);
     const maxTokens = task.complexity === 'complex' ? 4096 : 2048;
     const temperature = task.complexity === 'complex' ? 0.5 : 0.7;
-    const requestBody = buildProviderRequest(provider, selectedModel, messages, maxTokens, temperature);
+    const requestBody = buildOpenRouterRequest(selectedModel, messages, maxTokens, temperature);
 
     // Make API call
     const retryResult = await retryManager.retry(
@@ -1451,28 +1381,20 @@ export class EnhancedLLMClient implements LLMClientInterface {
         if (!response?.ok) {
           const errorText = response ? await response.text() : '';
           console.error(`[HyperAgent] API error ${response?.status ?? 'unknown'}:`, errorText);
-          
+
           if (response?.status === 429) {
             const retryAfter = response?.headers?.get('Retry-After');
             const waitSec = retryAfter ? Number.parseInt(retryAfter, 10) : 60;
             throw new Error(`Rate limit exceeded. Please try again in ${waitSec} seconds.`);
           }
-          
+
           const friendly = response ? userFriendlyApiError(response.status) : 'Request failed';
           throw new Error(friendly || `API request failed: ${response?.status ?? 'unknown'}`);
         }
 
-        // Parse response based on provider
-        let content: string;
+        // Parse response (OpenRouter uses OpenAI-compatible format)
         const data = await response.json();
-        
-        if (provider === 'google') {
-          content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        } else if (provider === 'anthropic') {
-          content = data?.content?.[0]?.text || data?.completion || '';
-        } else {
-          content = data?.choices?.[0]?.message?.content || '';
-        }
+        const content = data?.choices?.[0]?.message?.content || '';
 
         if (!content) {
           throw new Error('No content in response');

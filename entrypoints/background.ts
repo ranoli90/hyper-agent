@@ -60,6 +60,7 @@ import { failureRecovery } from '../shared/failure-recovery';
 import { apiCache, generalCache } from '../shared/advanced-caching';
 import { memoryManager } from '../shared/memory-management';
 import { inputSanitizer } from '../shared/input-sanitization';
+import { validateExtensionMessage } from '../shared/messages';
 
 // ─── Usage Tracking for Monetization ──────────────────────────────────
 interface UsageMetrics {
@@ -102,7 +103,7 @@ class UsageTracker {
         const data = await chrome.storage.local.get('usage_metrics');
         if (data.usage_metrics) {
           this.metrics = { ...this.metrics, ...data.usage_metrics };
-          this.checkMonthlyReset();
+          this.checkDailyReset();
         }
         this.initialized = true;
       } catch (err) {
@@ -130,20 +131,20 @@ class UsageTracker {
     }, SAVE_DEBOUNCE_MS);
   }
 
-  private checkMonthlyReset(): void {
+  private checkDailyReset(): void {
     if (Date.now() > this.metrics.monthlyUsage.resetDate) {
-      // Reset monthly counters - save immediately for critical state
+      // Reset daily counters to match UI's "Resets daily" label
       this.metrics.monthlyUsage = {
         actions: 0,
         sessions: 0,
-        resetDate: Date.now() + 30 * 24 * 60 * 60 * 1000,
+        resetDate: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
       };
       this.saveMetrics();
     }
   }
 
   trackAction(_actionType: string): void {
-    this.checkMonthlyReset();
+    this.checkDailyReset();
     this.metrics.actionsExecuted++;
     this.metrics.monthlyUsage.actions++;
     this.metrics.lastActivity = Date.now();
@@ -151,7 +152,7 @@ class UsageTracker {
   }
 
   trackAutonomousSession(duration: number): void {
-    this.checkMonthlyReset();
+    this.checkDailyReset();
     this.metrics.autonomousSessions++;
     this.metrics.totalSessionTime += duration;
     this.metrics.monthlyUsage.sessions++;
@@ -178,16 +179,23 @@ class UsageTracker {
   }
 
   getUsageLimits(): { actions: number; sessions: number; tier: string } {
-    const limits = {
-      free: { actions: 100, sessions: 3 },
-      premium: { actions: 1000, sessions: 50 },
+    // Aligned with billing manager: community/free = 500 actions + 10 sessions/day
+    // beta/premium/unlimited = unlimited
+    const limits: Record<string, { actions: number; sessions: number }> = {
+      free: { actions: 500, sessions: 10 },
+      community: { actions: 500, sessions: 10 },
+      premium: { actions: -1, sessions: -1 },
+      beta: { actions: -1, sessions: -1 },
       unlimited: { actions: -1, sessions: -1 },
     };
 
+    const tier = this.metrics.subscriptionTier;
+    const tierLimits = limits[tier] || limits.free;
+
     return {
-      actions: limits[this.metrics.subscriptionTier].actions,
-      sessions: limits[this.metrics.subscriptionTier].sessions,
-      tier: this.metrics.subscriptionTier,
+      actions: tierLimits.actions,
+      sessions: tierLimits.sessions,
+      tier,
     };
   }
 
@@ -201,9 +209,6 @@ class UsageTracker {
 }
 
 const usageTracker = new UsageTracker();
-
-// ─── Agent Loop Lock (Issue #14) ─────────────────────────────────────
-let agentLoopRunning = false;
 
 // ─── Original Tab Titles (Issue #12, #18) ────────────────────────────
 const originalTabTitles = new Map<number, string>();
@@ -737,143 +742,6 @@ usageTracker.loadMetrics();
   }
 })();
 
-// ─── Input validation ───────────────────────────────────────────────────
-
-// Helper functions to reduce cognitive complexity of validateExtensionMessage
-function validateExecuteCommand(message: any): boolean {
-  const cmd = message.command;
-  const scheduled = message.scheduled;
-  return (
-    typeof cmd === 'string' &&
-    cmd.trim().length > 0 &&
-    cmd.length <= 10000 &&
-    (message.useAutonomous === undefined ||
-      typeof message.useAutonomous === 'boolean') &&
-    (scheduled === undefined || typeof scheduled === 'boolean')
-  );
-}
-
-function validateUserReply(message: any): boolean {
-  const reply = message.reply;
-  return typeof reply === 'string' && reply.length <= 10000;
-}
-
-function validateContextMenuCommand(message: any): boolean {
-  const cmd = message.command;
-  return typeof cmd === 'string' && cmd.trim().length > 0 && cmd.length <= 10000;
-}
-
-function validateClearSnapshot(message: any): boolean {
-  const cTaskId = message.taskId;
-  return cTaskId === undefined || (typeof cTaskId === 'string' && cTaskId.length > 0 && cTaskId.length <= 256);
-}
-
-function validateResumeSnapshot(message: any): boolean {
-  const taskId = message.taskId;
-  return typeof taskId === 'string' && taskId.length > 0 && taskId.length <= 256;
-}
-
-function validateExecuteTool(message: any): boolean {
-  const toolId = message.toolId;
-  const params = message.params;
-  return typeof toolId === 'string' && toolId.length > 0 && toolId.length <= 64 &&
-    (params === undefined || (typeof params === 'object' && params !== null && !Array.isArray(params)));
-}
-
-function validateParseIntent(message: any): boolean {
-  const pCmd = message.command;
-  return typeof pCmd === 'string' && pCmd.length <= 10000;
-}
-
-function validateToggleScheduledTask(message: any): boolean {
-  const tId = message.taskId;
-  return typeof tId === 'string' && tId.length > 0 && tId.length <= 256 &&
-    (message.enabled === undefined || typeof message.enabled === 'boolean');
-}
-
-function validateDeleteScheduledTask(message: any): boolean {
-  const dId = message.taskId;
-  return typeof dId === 'string' && dId.length > 0 && dId.length <= 256;
-}
-
-function validateInstallWorkflow(message: any): boolean {
-  const wfId = message.workflowId;
-  return typeof wfId === 'string' && /^[a-zA-Z0-9_-]+$/.test(wfId) && wfId.length <= 64;
-}
-
-function validateActivateLicenseKey(message: any): boolean {
-  const key = message.key;
-  return typeof key === 'string' && key.length > 0 && key.length <= 256;
-}
-
-function validateExtensionMessage(message: any): message is ExtensionMessage {
-  if (!message || typeof message !== 'object') return false;
-  const { type } = message;
-  if (typeof type !== 'string') return false;
-
-  switch (type) {
-    case 'executeCommand':
-      return validateExecuteCommand(message);
-    case 'stopAgent':
-    case 'getAgentStatus':
-    case 'clearHistory':
-    case 'getMetrics':
-    case 'captureScreenshot':
-    case 'getToolStats':
-    case 'getTools':
-    case 'getSwarmStatus':
-    case 'getSnapshot':
-    case 'listSnapshots':
-    case 'getGlobalLearningStats':
-    case 'getIntentSuggestions':
-    case 'getUsage':
-    case 'getMemoryStats':
-    case 'getScheduledTasks':
-    case 'getSubscriptionState':
-    case 'verifySubscription':
-    case 'cancelSubscription':
-    case 'getAPICache':
-    case 'setAPICache':
-    case 'invalidateCacheTag':
-    case 'getMemoryLeaks':
-    case 'forceMemoryCleanup':
-    case 'getAutonomousSession':
-    case 'createAutonomousSession':
-    case 'getProactiveSuggestions':
-    case 'executeSuggestion':
-    case 'getCacheStats':
-    case 'sanitizeInput':
-    case 'sanitizeUrl':
-    case 'sanitizeBatch':
-    case 'openCheckout':
-      return true;
-    case 'confirmResponse':
-      return typeof message.confirmed === 'boolean';
-    case 'userReply':
-      return validateUserReply(message);
-    case 'contextMenuCommand':
-      return validateContextMenuCommand(message);
-    case 'clearSnapshot':
-      return validateClearSnapshot(message);
-    case 'resumeSnapshot':
-      return validateResumeSnapshot(message);
-    case 'executeTool':
-      return validateExecuteTool(message);
-    case 'parseIntent':
-      return validateParseIntent(message);
-    case 'toggleScheduledTask':
-      return validateToggleScheduledTask(message);
-    case 'deleteScheduledTask':
-      return validateDeleteScheduledTask(message);
-    case 'installWorkflow':
-      return validateInstallWorkflow(message);
-    case 'activateLicenseKey':
-      return validateActivateLicenseKey(message);
-    default:
-      return false;
-  }
-}
-
 // ─── Main script ────────────────────────────────────────────────────────
 
 /**
@@ -936,26 +804,23 @@ export default defineBackground(() => {
     });
   }
 
-  // Clear old settings on startup to fix migration issues
+  // Clear stale caches on startup (do NOT remove user preferences like model_name)
   async function clearOldSettings(): Promise<void> {
     try {
-      // Always clear model settings and caches to force using the correct model
-      const keysToRemove: string[] = [
-        'hyperagent_model_name',
-        'hyperagent_backup_model',
-        'hyperagent_chat_history_backup'
-      ];
-      
-      // Get all storage keys to find and clear cache entries
+      const keysToRemove: string[] = [];
+
+      // Only clear cache entries, not user preferences
       const allKeys = await chrome.storage.local.get(null);
       for (const key of Object.keys(allKeys)) {
         if (key.startsWith('hyperagent_cache_') || key.startsWith('llm_')) {
           keysToRemove.push(key);
         }
       }
-      
-      await chrome.storage.local.remove(keysToRemove);
-      console.log('[HyperAgent] Cleared old model settings and caches:', keysToRemove.length, 'items');
+
+      if (keysToRemove.length > 0) {
+        await chrome.storage.local.remove(keysToRemove);
+        console.log('[HyperAgent] Cleared stale caches:', keysToRemove.length, 'items');
+      }
     } catch (err) {
       console.warn('[HyperAgent] Failed to clear old settings:', err);
     }
@@ -1014,7 +879,8 @@ export default defineBackground(() => {
       }
 
       const settings = await loadSettings();
-      if (!settings.apiKey) {
+
+    if (!settings.apiKey) {
         try {
           await chrome.runtime.openOptionsPage();
         } catch (e) {
@@ -1086,7 +952,7 @@ export default defineBackground(() => {
    */
   async function runAutonomousLoop(command: string, modelOverride?: string) {
     // Prevent concurrent execution (Issue #14)
-    if (agentLoopRunning) {
+    if (agentState.isRunning) {
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Agent is already running. Please wait for the current task to complete.',
@@ -1095,7 +961,6 @@ export default defineBackground(() => {
       });
       return;
     }
-    agentLoopRunning = true;
     // modelOverride is forwarded to LLM calls if provided
     void modelOverride; // used in callLLMAutonomous below if we wire it
 
@@ -1250,7 +1115,6 @@ export default defineBackground(() => {
       clearOriginalTabTitle(tabId);
 
       agentState.setRunning(false);
-      agentLoopRunning = false; // Release the loop lock (Issue #14)
       // Track session usage even on failure (Issue #17)
       const sessionDuration = Date.now() - sessionStart;
       usageTracker.trackAutonomousSession(sessionDuration);
@@ -1272,8 +1136,19 @@ export default defineBackground(() => {
     (async () => {
       try {
         await withErrorBoundary('message_processing', async () => {
-          // Rate limiting
-          const senderId = sender.tab?.id ? `tab_${sender.tab.id}` : 'unknown';
+          // Rate limiting - use better fallback key to reduce collisions
+          let senderId: string;
+          if (sender.tab?.id) {
+            senderId = `tab_${sender.tab.id}`;
+          } else if (sender.id) {
+            // Use extension sender ID if available
+            senderId = `ext_${sender.id}`;
+          } else {
+            // Fallback: use message type + timestamp to reduce collision
+            const msgType = (message as unknown as { type?: string }).type || 'msg';
+            senderId = `${msgType}_${Date.now() >> 12}`;
+          }
+          
           if (!rateLimiter.canAcceptMessage(senderId)) {
             logger.log('warn', 'Message rate limited', { senderId });
             const waitSec = Math.ceil(rateLimiter.getTimeUntilReset(senderId) / 1000);
@@ -1454,9 +1329,36 @@ export default defineBackground(() => {
         const strategiesData = await chrome.storage.local.get('hyperagent_site_strategies');
         return {
           ok: true,
-          ...stats,
           strategies: strategiesData.hyperagent_site_strategies || {},
+          totalActions: stats.totalActions || 0,
+          totalSessions: stats.totalSessions || 0,
         };
+      }
+
+      case 'testConnection': {
+        try {
+          const settings = await loadSettings();
+          if (!settings.apiKey || !settings.apiKey.trim()) {
+            return { ok: false, error: 'No API key configured' };
+          }
+
+          // Test with a simple API call to OpenRouter
+          const response = await fetch('https://openrouter.ai/api/v1/models', {
+            headers: {
+              'Authorization': `Bearer ${settings.apiKey}`,
+              'HTTP-Referer': 'https://hyperagent.ai',
+              'X-Title': 'HyperAgent',
+            },
+          });
+
+          if (response.ok) {
+            return { ok: true };
+          } else {
+            return { ok: false, error: `HTTP ${response.status}` };
+          }
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : 'Connection failed' };
+        }
       }
 
       case 'getScheduledTasks': {
@@ -1781,11 +1683,11 @@ export default defineBackground(() => {
     // Inject content script (skip for chrome:// URLs)
     try {
       const tab = await chrome.tabs.get(tabId);
-      if (tab.url?.startsWith('chrome://')) {
-        // Return minimal context for chrome:// pages
+      if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('edge://') || tab.url?.startsWith('about:')) {
+        // Return minimal context for restricted pages - use actual tab title
         return {
           url: tab.url || '',
-          title: tab.title || 'Chrome Settings',
+          title: tab.title || 'Browser Page',
           bodyText: '',
           metaDescription: '',
           formCount: 0,
@@ -1826,38 +1728,77 @@ export default defineBackground(() => {
 
   /** Returns full data URL for display, or raw base64 for LLM/context (legacy). Use format: 'dataUrl' for img.src, 'base64' for context. */
   async function captureScreenshot(outputFormat: 'dataUrl' | 'base64' = 'base64', tabId?: number): Promise<string> {
+    let previousActiveId: number | undefined;
+    let targetTabId: number | undefined;
+    let windowId: number | undefined;
+    let needsFocus = false;
+    
     try {
-      const targetTabId = tabId ?? agentState.currentAgentTabId ?? await getActiveTabId();
-      const targetTab = await chrome.tabs.get(targetTabId);
+      targetTabId = tabId ?? agentState.currentAgentTabId ?? await getActiveTabId();
+      const targetTab = await chrome.tabs.get(targetTabId).catch((err) => {
+        console.error('[Screenshot] Failed to get target tab:', err);
+        throw new Error(`Tab not found: ${targetTabId}`);
+      });
+      
       if (!targetTab.windowId) {
         throw new Error('Target tab has no windowId');
       }
+      windowId = targetTab.windowId;
 
-      const [previousActive] = await chrome.tabs.query({ active: true, windowId: targetTab.windowId });
-      const previousActiveId = previousActive?.id;
-      const needsFocus = previousActiveId !== targetTabId;
+      const [previousActive] = await chrome.tabs.query({ active: true, windowId: targetTab.windowId }).catch(() => []);
+      previousActiveId = previousActive?.id;
+      needsFocus = previousActiveId !== targetTabId;
 
       if (needsFocus) {
-        await chrome.tabs.update(targetTabId, { active: true });
-        await chrome.windows.update(targetTab.windowId, { focused: true }).catch(() => { });
-        await waitForTabLoad(targetTabId);
+        // Try to focus the tab
+        try {
+          await chrome.tabs.update(targetTabId, { active: true });
+        } catch (err) {
+          console.warn('[Screenshot] Failed to activate tab:', err);
+        }
+        
+        try {
+          await chrome.windows.update(windowId, { focused: true });
+        } catch (err) {
+          console.warn('[Screenshot] Failed to focus window:', err);
+        }
+        
+        await waitForTabLoad(targetTabId).catch((err) => {
+          console.warn('[Screenshot] Tab load wait failed:', err);
+        });
+        
         // Give Chrome a moment to paint the activated tab
         await delay(200);
       }
 
-      const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId, {
+      const dataUrl = await chrome.tabs.captureVisibleTab(windowId, {
         format: 'jpeg',
         quality: 60,
       });
 
+      // Restore previous tab if needed
       if (needsFocus && previousActiveId && previousActiveId !== targetTabId) {
-        await chrome.tabs.update(previousActiveId, { active: true }).catch(() => { });
+        try {
+          await chrome.tabs.update(previousActiveId, { active: true });
+        } catch (err) {
+          console.warn('[Screenshot] Failed to restore previous tab:', err);
+        }
       }
 
       if (outputFormat === 'dataUrl') return dataUrl;
       return dataUrl.replace(/^data:image\/\w+;base64,/, '');
     } catch (err) {
-      console.warn('[HyperAgent] Screenshot capture failed:', err);
+      console.error('[HyperAgent] Screenshot capture failed:', err);
+      
+      // Attempt to restore previous tab state on error
+      if (needsFocus && previousActiveId && windowId) {
+        try {
+          await chrome.tabs.update(previousActiveId, { active: true });
+        } catch {
+          // Best effort restore
+        }
+      }
+      
       return '';
     }
   }
@@ -2000,19 +1941,39 @@ export default defineBackground(() => {
       return { valid: false, error: 'URL is required' };
     }
 
-    // Allow relative URLs and common protocols
-    const allowedProtocols = ['http:', 'https:', 'chrome:', 'chrome-extension:', 'about:'];
+    // Block dangerous protocols
+    const blockedProtocols = ['file:', 'data:', 'javascript:', 'vbscript:', 'mailto:', 'tel:', 'sms:'];
+    const allowedProtocols = ['http:', 'https:', 'chrome:', 'chrome-extension:', 'about:', 'edge:'];
 
     try {
       // Try to parse as absolute URL
       const parsed = new URL(url);
+      
+      // Check for blocked protocols
+      if (blockedProtocols.some(p => parsed.protocol === p)) {
+        return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed for security reasons` };
+      }
+      
       if (!allowedProtocols.includes(parsed.protocol)) {
         return { valid: false, error: `Protocol "${parsed.protocol}" is not allowed for navigation` };
       }
+      
+      // Additional validation for about: URLs
+      if (parsed.protocol === 'about:') {
+        const allowedAbout = ['about:blank', 'about:newtab', 'about:settings', 'about:downloads'];
+        if (!allowedAbout.includes(parsed.href)) {
+          return { valid: false, error: 'This about: page is not allowed' };
+        }
+      }
+      
       return { valid: true };
     } catch {
       // If it fails to parse, check if it's a relative URL or looks like a domain
       if (url.startsWith('/') || url.startsWith('./') || url.startsWith('../')) {
+        // parent Block directory traversal
+        if (url.includes('..')) {
+          return { valid: false, error: 'Directory traversal is not allowed' };
+        }
         return { valid: true }; // Relative URLs are OK
       }
       // Check if it looks like a domain (no protocol, has dots or is localhost)
@@ -2409,7 +2370,7 @@ export default defineBackground(() => {
   // ─── Main agent loop ──────────────────────────────────────────
   async function runAgentLoop(command: string, modelOverride?: string) {
     // Prevent concurrent execution (Issue #14)
-    if (agentLoopRunning) {
+    if (agentState.isRunning) {
       sendToSidePanel({
         type: 'agentDone',
         finalSummary: 'Agent is already running. Please wait for the current task to complete.',
@@ -2418,7 +2379,6 @@ export default defineBackground(() => {
       });
       return;
     }
-    agentLoopRunning = true;
 
     // Initialize agent state
     agentState.setRunning(true);
@@ -2606,7 +2566,6 @@ export default defineBackground(() => {
             stepsUsed: 0,
           });
           agentState.setRunning(false);
-          agentLoopRunning = false;
           return;
         }
 
@@ -2688,6 +2647,7 @@ export default defineBackground(() => {
           step: 'observe',
         });
         context = await getPageContext(currentTabId);
+        chrome.tabs.sendMessage(currentTabId, { type: 'showGlowingFrame' }).catch(() => { });
 
         if (requestScreenshot || (step === 1 && settings.enableVision)) {
           const screenshotDataUrl = await captureScreenshot('dataUrl');
@@ -3008,8 +2968,9 @@ export default defineBackground(() => {
       });
     } finally {
       await restoreTabTitle();
+      chrome.tabs.sendMessage(currentTabId, { type: 'hideGlowingFrame' }).catch(() => { });
+      chrome.tabs.sendMessage(currentTabId, { type: 'hideVisualCursor' }).catch(() => { });
       agentState.setRunning(false);
-      agentLoopRunning = false; // Release the loop lock (Issue #14)
     }
   }
 

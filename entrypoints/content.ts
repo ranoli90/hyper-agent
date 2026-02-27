@@ -23,6 +23,10 @@ import { StealthEngine } from '../shared/stealth-engine';
 
 // ─── Visual Mouse Cursor ───────────────────────────────────────────────
 function createVisualCursor() {
+  // Check for existing cursor to prevent duplicates (SPA navigation)
+  const existing = document.getElementById('hyperagent-visual-cursor');
+  if (existing) return existing;
+
   const cursor = document.createElement('div');
   cursor.id = 'hyperagent-visual-cursor';
   cursor.style.cssText = `
@@ -39,7 +43,7 @@ function createVisualCursor() {
     transition: all 0.2s ease-out;
     opacity: 0;
   `;
-  
+
   const dot = document.createElement('div');
   dot.style.cssText = `
     position: absolute;
@@ -51,16 +55,16 @@ function createVisualCursor() {
     left: 50%;
     transform: translate(-50%, -50%);
   `;
-  
+
   cursor.appendChild(dot);
   document.body.appendChild(cursor);
-  
+
   return cursor;
 }
 
 function moveVisualCursor(x: number, y: number) {
   let cursor = document.getElementById('hyperagent-visual-cursor') ?? createVisualCursor();
-  
+
   cursor.style.left = `${x - 10}px`;
   cursor.style.top = `${y - 10}px`;
   cursor.style.opacity = '1';
@@ -72,6 +76,12 @@ function hideVisualCursor() {
     cursor.style.opacity = '0';
   }
 }
+
+function pointCursorAt(el: Element) {
+  const rect = el.getBoundingClientRect();
+  moveVisualCursor(rect.left + rect.width / 2, rect.top + rect.height / 2);
+}
+
 function safeKey(key: string, max = 32): string {
   const s = (key ?? '').slice(0, max);
   return /^[\w\-\s]+$/.test(s) ? s : 'Unidentified';
@@ -81,7 +91,7 @@ function safeKey(key: string, max = 32): string {
 function showGlowingFrame() {
   // Remove any existing glowing frame
   hideGlowingFrame();
-  
+
   // Create glowing frame element
   const glowingFrame = document.createElement('div');
   glowingFrame.id = 'hyperagent-glowing-frame';
@@ -98,7 +108,7 @@ function showGlowingFrame() {
     box-shadow: 0 0 20px rgba(0, 212, 255, 0.6), 0 0 40px rgba(0, 212, 255, 0.4);
     animation: hyperagent-glow-pulse 2s ease-in-out infinite;
   `;
-  
+
   // Add animation
   const style = document.createElement('style');
   style.textContent = `
@@ -113,7 +123,7 @@ function showGlowingFrame() {
       }
     }
   `;
-  
+
   document.head.appendChild(style);
   document.body.appendChild(glowingFrame);
 }
@@ -123,7 +133,7 @@ function hideGlowingFrame() {
   if (existingFrame) {
     existingFrame.remove();
   }
-  
+
   const styleElements = document.head.querySelectorAll('style');
   styleElements.forEach(style => {
     if (style.textContent.includes('hyperagent-glow-pulse')) {
@@ -192,10 +202,10 @@ export default defineContentScript({
       // Remove visual cursor
       const cursor = document.getElementById('hyperagent-visual-cursor');
       if (cursor) cursor.remove();
-      
+
       // Remove glowing frame
       hideGlowingFrame();
-      
+
       // Clear indexed elements
       indexedElements.clear();
     });
@@ -248,6 +258,7 @@ export default defineContentScript({
 
     // ─── Page context collection ──────────────────────────────────
     function getPageContext(): PageContext {
+      const startTime = performance.now?.() ?? Date.now();
       const bodyText = (document.body?.innerText ?? '').slice(0, DEFAULTS.BODY_TEXT_LIMIT);
 
       // Meta description
@@ -283,20 +294,20 @@ export default defineContentScript({
         // Query with Shadow DOM traversal (21.1)
         function queryWithShadowDOM(selector: string, root: Document | ShadowRoot = document): HTMLElement[] {
           const elements: HTMLElement[] = [];
-          
+
           try {
             root.querySelectorAll(selector).forEach((el) => {
               elements.push(el as HTMLElement);
             });
           } catch { /* ignore selector errors */ }
-          
+
           // Traverse shadow roots
           root.querySelectorAll('*').forEach((el) => {
             if (el.shadowRoot) {
               elements.push(...queryWithShadowDOM(selector, el.shadowRoot));
             }
           });
-          
+
           return elements;
         }
 
@@ -335,7 +346,7 @@ export default defineContentScript({
           // Check if element already indexed
           const existingIndex = htmlEl.getAttribute('data-ha-index');
           let idx: number;
-          
+
           if (existingIndex !== null) {
             idx = parseInt(existingIndex, 10);
             // Update WeakRef
@@ -386,6 +397,14 @@ export default defineContentScript({
         console.warn('[HyperAgent] Error extracting semantic elements:', err);
         // Return empty semantic elements on error, will trigger vision fallback
         semanticElements = [];
+      }
+
+      const duration = (performance.now?.() ?? Date.now()) - startTime;
+      if (duration > 200) {
+        console.debug('[HyperAgent] getPageContext slow path', {
+          ms: Math.round(duration),
+          elements: semanticElements.length,
+        });
       }
 
       return {
@@ -911,7 +930,7 @@ export default defineContentScript({
     /**
      * Apply recovery strategies - called to initialize/reset recovery tracking
      */
-     
+
     function _applyRecoveryStrategies(): void {
       // Clear old recovery attempts
       activeRecoveryAttempts.clear();
@@ -983,6 +1002,7 @@ export default defineContentScript({
             }
 
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            pointCursorAt(el);
             await delay(300 + Math.random() * 300);
             await simulateClick(el, action.doubleClick);
 
@@ -1012,6 +1032,7 @@ export default defineContentScript({
             }
 
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            pointCursorAt(el);
 
             // Handle contenteditable elements
             if (el.isContentEditable) {
@@ -1041,6 +1062,7 @@ export default defineContentScript({
 
             if (!el) return { success: false, error: `Select element not found`, errorType: 'ELEMENT_NOT_FOUND' };
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            pointCursorAt(el);
 
             // Try by value first, then by text
             let found = false;
@@ -1073,6 +1095,7 @@ export default defineContentScript({
               const el = resolveLocator(action.locator);
               if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                pointCursorAt(el);
                 return { success: true };
               }
             }
@@ -1137,6 +1160,7 @@ export default defineContentScript({
             if (!el) return { success: false, error: `Element not found for hover`, errorType: 'ELEMENT_NOT_FOUND' };
             if (!isVisible(el)) return { success: false, error: 'Element not visible', errorType: 'ELEMENT_NOT_VISIBLE' };
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            pointCursorAt(el);
             const rect = el.getBoundingClientRect();
             const eventInit: MouseEventInit = {
               bubbles: true, cancelable: true, view: window,
@@ -1178,7 +1202,7 @@ export default defineContentScript({
             const applyFilter = (data: string): string => {
               if (!filter) return data;
               if (!isSafeRegex(filter)) return data; // Unsafe/invalid pattern ignored
-            try {
+              try {
                 const regex = new RegExp(filter, 'gi');
                 const matches = regex.exec(data);
                 return matches ? matches.join('\n') : '';

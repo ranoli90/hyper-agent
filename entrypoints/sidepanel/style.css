@@ -60,9 +60,18 @@
 @layer components {
 
   /* Dynamic interaction classes */
-  .interaction-lift {
-    @apply transition-all duration-200 ease-out hover:-translate-y-[2px] hover:scale-[1.01] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-zinc-950;
-  }
+  /* Progress bar states */
+.progress-bar-fill {
+  @apply h-full bg-indigo-500 transition-all duration-300;
+}
+
+.progress-bar-fill.warning {
+  @apply bg-amber-500;
+}
+
+.progress-bar-fill.danger {
+  @apply bg-red-500;
+}
 
   .card-base {
     @apply bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-sm;
@@ -95,7 +104,238 @@
     margin: -1px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
     border: 0;
+  }
+
+  /* Enhanced Chat Message Styles */
+  .chat-msg {
+    @apply relative group;
+  }
+
+  .message-content {
+    @apply text-sm leading-relaxed;
+  }
+
+  .message-timestamp {
+    @apply text-[10px] text-zinc-400 dark:text-zinc-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity;
+  }
+
+  .message-actions {
+    @apply absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1;
+  }
+
+  .action-btn {
+    @apply w-6 h-6 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-500 dark:text-zinc-400 flex items-center justify-center text-xs transition-colors;
+  }
+
+  .action-btn:hover {
+    @apply text-zinc-700 dark:text-zinc-300;
+  }
+
+  .error-content {
+    @apply text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-500/10 p-3 rounded-lg border border-red-200 dark:border-red-500/30;
+  }
+
+  .retry-btn {
+    @apply mt-2;
+  }
+
+  .edit-btn {
+    @apply mt-2;
+  }
+
+  /* Enhanced thinking message styles */
+  .thinking-msg {
+    @apply border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden;
+  }
+
+  .thinking-header {
+    @apply flex items-center gap-2 px-3 py-2 bg-zinc-50 dark:bg-zinc-800 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors;
+  }
+
+  .thinking-icon {
+    @apply text-zinc-400;
+  }
+
+  .thinking-label {
+    @apply text-sm font-medium text-zinc-600 dark:text-zinc-300;
+  }
+
+  .thinking-dots {
+    @apply text-zinc-400;
+  }
+
+  .thinking-dots span {
+    @apply inline-block animate-pulse;
+  }
+
+  .thinking-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+
+  .thinking-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  .thinking-chevron {
+    @apply ml-auto text-zinc-400 transition-transform;
+  }
+
+  .thinking-msg.expanded .thinking-chevron {
+    @apply rotate-180;
+  }
+
+  .thinking-content {
+    @apply px-3 py-2 text-sm text-zinc-600 dark:text-zinc-300 border-t border-zinc-200 dark:border-zinc-700;
+  }
+
+  /* Search and filter styles */
+  .search-highlight {
+    @apply bg-yellow-100 dark:bg-yellow-500/20;
+  }
+
+  /* Connection status styles */
+  #connection-status {
+    @apply transition-all duration-300;
+  }
+
+  /* Page context styles */
+  #page-context {
+    @apply transition-all duration-300;
+  }
+
+  /* Enhanced stepper animations */
+  .step.active {
+    @apply bg-indigo-500 text-white scale-110;
+  }
+
+  .step-line.active {
+    @apply bg-indigo-500;
+  }
+
+  /* Character counter warning */
+  .char-counter.warn {
+    @apply text-amber-500 dark:text-amber-400;
+  }
+
+  .char-counter.danger {
+    @apply text-red-500 dark:text-red-400 font-bold;
+  }
+
+  /* Toast notification styles */
+  .toast {
+    @apply fixed bottom-4 right-4 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 rounded-lg shadow-lg z-[9999] transition-all duration-300;
+  }
+
+  .toast.success {
+    @apply bg-emerald-500 text-white;
+  }
+
+  .toast.error {
+    @apply bg-red-500 text-white;
+  }
+
+  .toast.warning {
+    @apply bg-amber-500 text-white;
+  }
+
+  .toast.info {
+    @apply bg-blue-500 text-white;
+  }
+
+  /* Loading overlay enhancements */
+  .loading-overlay {
+    @apply backdrop-blur-sm;
+  }
+
+  /* Modal enhancements */
+  .modal {
+    @apply backdrop-blur-sm;
+  }
+
+  .modal-content {
+    @apply animate-fade-in;
+  }
+
+  /* Button interaction enhancements */
+  .interaction-lift {
+    @apply transform transition-transform duration-200 hover:scale-105 active:scale-95;
+  }
+
+  /* Focus styles for accessibility */
+  *:focus-visible {
+    @apply outline-2 outline-indigo-500 outline-offset-2;
+  }
+
+  /* Skip link styles */
+  .skip-link {
+    @apply absolute top-0 left-0 p-2 bg-indigo-500 text-white rounded-br-lg z-[9999] transform -translate-y-full focus:translate-y-0 transition-transform;
+  }
+
+  /* Onboarding card styles */
+  .onboarding-card {
+    @apply bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-500/10 dark:to-purple-500/10 border border-indigo-200 dark:border-indigo-500/30;
+  }
+
+  .onboarding-content {
+    @apply p-4;
+  }
+
+  .onboarding-header h3 {
+    @apply text-lg font-bold text-indigo-600 dark:text-indigo-400 mb-2;
+  }
+
+  .onboarding-header p {
+    @apply text-sm text-zinc-600 dark:text-zinc-300;
+  }
+
+  .onboarding-steps {
+    @apply flex flex-col gap-3 my-4;
+  }
+
+  .step-item {
+    @apply flex gap-3 items-start;
+  }
+
+  .step-number {
+    @apply w-6 h-6 rounded-full bg-indigo-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0;
+  }
+
+  .step-content strong {
+    @apply block text-sm font-medium text-zinc-800 dark:text-zinc-200 mb-1;
+  }
+
+  .step-content p {
+    @apply text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed;
+  }
+
+  .onboarding-examples {
+    @apply mt-4;
+  }
+
+  .examples-title {
+    @apply text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2;
+  }
+
+  .example-buttons {
+    @apply grid grid-cols-1 gap-2;
+  }
+
+  .example-btn {
+    @apply px-3 py-2 text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950 hover:border-indigo-300 dark:hover:border-indigo-600 transition-all text-left;
+  }
+
+  .onboarding-actions {
+    @apply flex gap-2 mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-700;
+  }
+
+  .dismiss-btn {
+    @apply px-3 py-2 text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all;
+  }
+
+  .primary-btn {
+    @apply px-3 py-2 text-xs bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg transition-all;
   }
 }
 
@@ -212,34 +452,47 @@ textarea {
 
 /* Message bubble */
 .chat-msg {
-  @apply px-4 py-2.5 rounded-2xl text-sm leading-relaxed;
+  @apply px-4 py-3 text-[13px] leading-relaxed relative flex-shrink-0 min-w-0;
+  width: fit-content;
+  max-width: 88%;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+  transition: all 0.2s ease-in-out;
 }
 
 .chat-msg.user {
-  @apply bg-indigo-500 text-white rounded-br-md;
+  @apply bg-gradient-to-br from-indigo-500 to-indigo-600 text-white shadow-sm;
+  align-self: flex-end;
+  border-radius: 18px 18px 4px 18px;
 }
 
 .chat-msg.agent {
-  @apply bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 rounded-bl-md;
+  @apply bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 shadow-sm leading-relaxed;
+  align-self: flex-start;
+  border-radius: 18px 18px 18px 4px;
 }
 
 .chat-msg.status {
-  @apply self-center text-xs text-zinc-500 bg-transparent py-1 px-3;
+  @apply self-center text-[10px] text-zinc-400 bg-transparent py-1 px-3 uppercase tracking-wider font-semibold;
+  box-shadow: none;
 }
 
 .chat-msg.search-highlight {
   background: rgba(99, 102, 241, 0.08);
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 .chat-msg.error {
-  @apply bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 rounded-bl-md;
+  @apply bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 shadow-sm;
+  align-self: flex-start;
+  border-radius: 18px 18px 18px 4px;
 }
 
 .chat-msg.thinking {
-  @apply bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 rounded-bl-md;
+  @apply bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400;
+  align-self: flex-start;
+  border-radius: 18px 18px 18px 4px;
   padding: 0;
   overflow: hidden;
 }
@@ -648,8 +901,9 @@ html {
   }
 }
 
-/* Screen reader only utility */
-.sr-only {
+/* Screen reader only utility (unified) */
+.sr-only,
+.visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -662,7 +916,9 @@ html {
 }
 
 .sr-only:focus,
-.sr-only:active {
+.sr-only:active,
+.visually-hidden:focus,
+.visually-hidden:active {
   position: static;
   width: auto;
   height: auto;
@@ -683,19 +939,23 @@ html {
   position: absolute;
   left: -9999px;
   top: auto;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
+  padding: 0.5rem 1rem;
+  background: white;
+  color: #6366f1;
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-md);
+  z-index: 50;
 }
 
-.skip-link:focus {
-  position: static;
+.skip-link:focus-visible {
+  left: 1rem;
+  top: 1rem;
   width: auto;
   height: auto;
   overflow: visible;
 }
 
-/* Model selector focus */
+/* Model selector focus (kept for compatibility if element is added later) */
 #model-selector:focus {
   @apply ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-zinc-900;
 }

@@ -3,7 +3,7 @@
  * Persists successful/failed locators per domain for adaptive element resolution.
  */
 
-import { STORAGE_KEYS } from './config';
+import { STORAGE_KEYS, loadSettings } from './config';
 import type { SiteStrategy, ActionLogEntry, Locator, Action } from './types';
 import { extractDomain } from './url-utils';
 
@@ -57,6 +57,18 @@ export async function saveActionOutcome(
   success: boolean,
   errorType?: string
 ): Promise<void> {
+  // Respect global learning toggle: when disabled, do not persist any
+  // site-strategy memory or action history.
+  try {
+    const settings = await loadSettings();
+    if (!settings.learningEnabled) {
+      return;
+    }
+  } catch {
+    // If settings cannot be loaded, fail closed (no learning writes).
+    return;
+  }
+
   const domain = extractDomain(url);
   if (!domain) return;
 

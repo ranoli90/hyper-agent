@@ -100,6 +100,132 @@ export async function loadSession(id: string): Promise<Session | null> {
   return sessions[id] || null;
 }
 
+// ─── Get active session ────────────────────────────────────────────
+export async function getActiveSession(): Promise<Session | null> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_SESSION);
+  if (!data[STORAGE_KEYS.ACTIVE_SESSION]) return null;
+  
+  const sessions = await loadSessions();
+  return sessions[data[STORAGE_KEYS.ACTIVE_SESSION]] || null;
+}
+
+// ─── Set active session ────────────────────────────────────────────
+export async function setActiveSession(sessionId: string): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.ACTIVE_SESSION]: sessionId,
+  });
+}
+
+// ─── Update session context ─────────────────────────────────────────
+export async function updateSessionContext(
+  sessionId: string,
+  updates: Partial<Session['context']>
+): Promise<void> {
+  const sessions = await loadSessions();
+  const session = sessions[sessionId];
+  if (!session) return;
+  
+  Object.assign(session.context, updates);
+  session.lastActive = Date.now();
+  await saveSessions(sessions);
+}
+
+// ─── Add action to session ───────────────────────────────────────────
+export async function addSessionAction(
+  sessionId: string,
+  action: Action,
+  result?: ActionResult
+): Promise<void> {
+  const sessions = await loadSessions();
+  const session = sessions[sessionId];
+  if (!session) return;
+  
+  session.actionHistory.push({
+    action,
+    result,
+    timestamp: Date.now(),
+  });
+  
+  session.context.lastAction = action;
+  session.lastActive = Date.now();
+  await saveSessions(sessions);
+}
+
+// ─── Add result to session ───────────────────────────────────────────
+export async function addSessionResult(
+  sessionId: string,
+  result: ActionResult
+): Promise<void> {
+  const sessions = await loadSessions();
+  const session = sessions[sessionId];
+  if (!session) return;
+  
+  session.results.push(result);
+  session.lastActive = Date.now();
+  await saveSessions(sessions);
+}
+
+// ─── Get session goal ───────────────────────────────────────────────
+export async function getSessionGoal(sessionId: string): Promise<string | null> {
+  const session = await loadSession(sessionId);
+  return session?.context.goal || null;
+}
+
+// ─── Set session goal ───────────────────────────────────────────────
+export async function setSessionGoal(
+  sessionId: string,
+  goal: string
+): Promise<void> {
+  await updateSessionContext(sessionId, { goal });
+}
+
+// ─── Add user reply to session ───────────────────────────────────────
+export async function addUserReply(
+  sessionId: string,
+  reply: string
+): Promise<void> {
+  const sessions = await loadSessions();
+  const session = sessions[sessionId];
+  if (!session) return;
+  
+  if (!session.context.userReplies) {
+    session.context.userReplies = [];
+  }
+  
+  session.context.userReplies.push({
+    reply,
+    timestamp: Date.now(),
+  });
+  
+  session.lastActive = Date.now();
+  await saveSessions(sessions);
+}
+
+// ─── Get session stats ───────────────────────────────────────────────
+export async function getSessionStats(): Promise<{
+  totalSessions: number;
+  activeSessions: number;
+  averageActionsPerSession: number;
+}> {
+  const sessions = await loadSessions();
+  const sessionValues = Object.values(sessions);
+  
+  const totalSessions = sessionValues.length;
+  const activeSessions = sessionValues.filter(s => 
+    Date.now() - s.lastActive < SESSION_TIMEOUT_MS
+  ).length;
+  
+  const averageActionsPerSession = totalSessions > 0 
+    ? sessionValues.reduce((sum, s) => sum + s.actionHistory.length, 0) / totalSessions
+    : 0;
+  
+  return {
+    totalSessions,
+    activeSessions,
+    averageActionsPerSession,
+  };
+}
+
 // ─── Get active session ────────────────────────────────────────────────
 export async function getActiveSession(): Promise<Session | null> {
   const data = await chrome.storage.local.get(STORAGE_KEYS.ACTIVE_SESSION);
